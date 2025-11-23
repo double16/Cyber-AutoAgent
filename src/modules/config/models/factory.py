@@ -13,13 +13,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from strands.models import BedrockModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.ollama import OllamaModel
+from strands.models.gemini import GeminiModel
 
 from modules.config.system.logger import get_logger
 from modules.config.models.capabilities import (
     get_model_input_limit,
     get_provider_default_limit,
 )
-from modules.handlers.conversation_budget import PROMPT_TOKEN_FALLBACK_LIMIT
+PROMPT_TOKEN_FALLBACK_LIMIT = 200000
 from modules.handlers.utils import print_status
 
 logger = get_logger("Config.ModelFactory")
@@ -697,5 +698,76 @@ def create_litellm_model(
     return LiteLLMModel(
         client_args=client_args,
         model_id=config["model_id"],
+        params=params,
+    )
+
+
+def create_gemini_model(
+    model_id: str,
+    region_name: str,
+    provider: str = "gemini",
+) -> GeminiModel:
+    """Create native Gemini model instance using Google's genai SDK.
+
+    This avoids LiteLLM's transformation layer and uses Google's native SDK directly,
+    which better handles tool calling and turn ordering for agentic workflows.
+
+    Args:
+        model_id: Gemini model identifier (e.g., "gemini/gemini-3-pro-preview")
+        region_name: Unused for Gemini (kept for interface compatibility)
+        provider: Provider name (should be "gemini")
+
+    Returns:
+        Configured GeminiModel instance
+
+    Raises:
+        Exception: If model creation fails or GEMINI_API_KEY not set
+    """
+    config_manager = _get_config_manager()
+
+    # Get standard configuration
+    config = config_manager.get_standard_model_config(model_id, region_name, provider)
+
+    # Strip gemini/ prefix if present
+    clean_model_id = model_id.replace("gemini/", "")
+
+    # Get API key from environment
+    api_key = config_manager.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "GEMINI_API_KEY environment variable must be set for native Gemini provider. "
+            "Get your API key from https://ai.google.dev/"
+        )
+
+    # Prepare client args
+    client_args = {
+        "api_key": api_key,
+    }
+
+    # Build params dict
+    params: Dict[str, Any] = {}
+
+    # Temperature from config
+    try:
+        server_config = config_manager.get_server_config(provider)
+        llm_temp = server_config.llm.temperature
+        llm_max = server_config.llm.max_tokens
+    except Exception:
+        llm_temp = config.get("temperature", 0.95)
+        llm_max = config.get("max_tokens", 4096)
+
+    params["temperature"] = llm_temp
+    params["max_output_tokens"] = llm_max
+
+    logger.info(
+        "Creating native GeminiModel: model=%s, temperature=%s, max_tokens=%s",
+        clean_model_id,
+        llm_temp,
+        llm_max,
+    )
+
+    return GeminiModel(
+        client_args=client_args,
+        model_id=clean_model_id,
         params=params,
     )

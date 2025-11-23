@@ -34,6 +34,7 @@ def build_default_configs() -> Dict[str, Dict[str, Any]]:
         "ollama": build_ollama_defaults(),
         "bedrock": build_bedrock_defaults(),
         "litellm": build_litellm_defaults(),
+        "gemini": build_gemini_defaults(),
     }
 
 
@@ -165,4 +166,49 @@ def build_litellm_defaults() -> Dict[str, Any]:
         ),
         "host": None,
         "region": "us-east-1",  # Will be overridden by environment
+    }
+
+
+def build_gemini_defaults() -> Dict[str, Any]:
+    """Build default configuration for Google Gemini provider.
+
+    Uses native Gemini SDK (google.genai) to avoid LiteLLM turn ordering issues.
+    Uses native Gemini models for all components (LLM, embeddings, memory).
+
+    Returns:
+        Gemini default configuration
+    """
+    return {
+        "llm": LLMConfig(
+            provider=ModelProvider.GEMINI,
+            model_id="gemini-3-pro-preview",
+            temperature=0.95,
+            max_tokens=65536,
+        ),
+        "embedding": EmbeddingConfig(
+            provider=ModelProvider.GEMINI,
+            model_id="text-embedding-004",
+            dimensions=768,
+        ),
+        "memory_llm": MemoryLLMConfig(
+            provider=ModelProvider.GEMINI,
+            model_id="gemini-2.0-flash-001", 
+            temperature=0.1,
+            max_tokens=2000,
+            aws_region="gemini",
+        ),
+        "evaluation_llm": LLMConfig(
+            provider=ModelProvider.GEMINI,
+            model_id="gemini-2.0-flash-001",
+            temperature=0.1,
+            max_tokens=2000,
+        ),
+        "swarm_llm": LLMConfig(
+            provider=ModelProvider.GEMINI,
+            model_id="gemini-2.0-flash-001",
+            temperature=0.7,
+            max_tokens=4096,
+        ),
+        "host": None,
+        "region": "gemini",
     }

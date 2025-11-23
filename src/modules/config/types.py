@@ -46,7 +46,7 @@ MEM0_PROVIDER_MAP: Dict[str, str] = {
     "openai": "openai",
     "azure": "azure_openai",
     "anthropic": "anthropic",
-    "gemini": "gemini",
+    "gemini": "gemini",  
     "google": "gemini",
     "deepseek": "deepseek",
     "together": "together",
@@ -56,6 +56,8 @@ MEM0_PROVIDER_MAP: Dict[str, str] = {
     "vllm": "vllm",
     "mistral": "huggingface",
     "sagemaker": "huggingface",
+    "openrouter": "openai",
+    "moonshot": "openai",
 }
 
 
@@ -65,6 +67,7 @@ class ModelProvider(Enum):
     AWS_BEDROCK = "aws_bedrock"
     OLLAMA = "ollama"
     LITELLM = "litellm"  # Universal provider gateway supporting 100+ model providers
+    GEMINI = "gemini"  # Native Google Gemini SDK
 
 
 @dataclass

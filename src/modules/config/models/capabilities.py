@@ -69,8 +69,6 @@ def supports_reasoning_model(model_id: Optional[str]) -> bool:
     - OpenAI/Azure: GPT-5 family and O-series (o3/o4 and mini variants)
     - Anthropic/Bedrock: Claude Sonnet 4 / 4.5 and Opus
     - Moonshot (LiteLLM): Kimi 'thinking' preview variants only
-
-    NOTE: Do not include older Claude 3.7 and below.
     """
     mid = (model_id or "").lower()
 
@@ -93,6 +91,9 @@ def supports_reasoning_model(model_id: Optional[str]) -> bool:
         "k2-thinking",
     )
     if any(marker in mid for marker in moonshot_thinking_markers):
+        return True
+
+    if "gemini-3-pro-preview" in mid or "gemini-3-pro" in mid:
         return True
 
     # Anthropic/Bedrock explicit allow-list (Sonnet 4/4.5 and Opus only)
@@ -303,10 +304,12 @@ MODEL_INPUT_LIMITS = {
     "us.anthropic.claude-sonnet-4-5-20250929-v1:0": 1000000,
     # OpenRouter - Various providers
     "openrouter/openrouter/polaris-alpha": 256000,
+    "openrouter/openrouter/sherlock-think-alpha": 1840000,  # 1.84M context, 64K output, reasoning model
     "openrouter/anthropic/claude-3.5-sonnet": 200000,
     "openrouter/anthropic/claude-3.5-haiku": 200000,
     "openrouter/google/gemini-2.5-flash": 1000000,
     "openrouter/google/gemini-2.0-flash-exp": 1000000,
+    "openrouter/google/gemini-3-pro-preview": 1048576,  # 1M input, 65.5K output, reasoning model
     # Moonshot Kimi
     "moonshot/kimi-k2-thinking": 256000,
     # Google Gemini (1M input for flash models)

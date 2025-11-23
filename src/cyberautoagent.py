@@ -329,7 +329,7 @@ def main():
     parser.add_argument(
         "--provider",
         type=str,
-        choices=["bedrock", "ollama", "litellm"],
+        choices=["bedrock", "ollama", "litellm", "gemini"],
         default=os.getenv("CYBER_AGENT_PROVIDER", "bedrock"),
         help="Model provider: 'bedrock' for AWS Bedrock, 'ollama' for local models, 'litellm' for universal access (default: from CYBER_AGENT_PROVIDER or bedrock)",
     )
@@ -495,11 +495,19 @@ def main():
 
     # Enable verbose logging in React mode to capture debug information
     ui_mode = os.environ.get("CYBER_UI_MODE", "cli").lower()
-    verbose_mode = bool(args.verbose or ui_mode == "react")
+    verbose_mode = bool(
+        args.verbose
+        or ui_mode == "react"
+        or os.environ.get("CYBER_DEBUG", "").lower() == "true"
+    )
     logger = setup_logging(log_file=log_file, verbose=verbose_mode)
 
     # Setup telemetry (always enabled for token counting) and observability (deployment-aware)
     telemetry = setup_telemetry(logger)
+
+    # Configure SDK logging based on verbose mode
+    from modules.config.system.logger import configure_sdk_logging
+    configure_sdk_logging(enable_debug=verbose_mode)
 
     # Suppress benign OpenTelemetry context cleanup errors that occur during normal operation
     # These happen when async generators are terminated and don't affect functionality
