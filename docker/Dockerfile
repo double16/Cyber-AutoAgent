@@ -28,6 +28,8 @@ RUN set -eux; \
     python-is-python3 \
     # Java runtime for ZAP/Burp
     openjdk-21-jre-headless \
+    # Binary analysis tools
+    binutils \
     # Security tools
     nmap \
     sqlmap \
