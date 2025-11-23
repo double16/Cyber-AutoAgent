@@ -379,7 +379,7 @@ def setup_logging(log_file: str = "cyber_operations.log", verbose: bool = False)
 
     # File handler - log INFO and above to file
     file_handler = logging.FileHandler(log_file, mode="a")
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     file_handler.setFormatter(formatter)
 
     # Console handler - only show warnings and above unless verbose
@@ -389,7 +389,7 @@ def setup_logging(log_file: str = "cyber_operations.log", verbose: bool = False)
 
     # Configure the logger specifically
     cyber_logger = logging.getLogger("CyberAutoAgent")
-    cyber_logger.setLevel(logging.INFO)
+    cyber_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     cyber_logger.addHandler(file_handler)
     if verbose:
         cyber_logger.addHandler(console_handler)
@@ -403,9 +403,9 @@ def setup_logging(log_file: str = "cyber_operations.log", verbose: bool = False)
 
     # Capture all other loggers at INFO level to file
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     root_file_handler = logging.FileHandler(log_file, mode="a")
-    root_file_handler.setLevel(logging.INFO)
+    root_file_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     root_file_handler.setFormatter(formatter)
     root_logger.addHandler(root_file_handler)
 

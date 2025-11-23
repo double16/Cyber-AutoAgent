@@ -73,7 +73,7 @@ def configure_sdk_logging(enable_debug: bool = False) -> None:
             return True
 
     # Only enable verbose logging when explicitly requested
-    log_level = logging.INFO
+    log_level = logging.DEBUG if enable_debug else logging.INFO
     logging.getLogger("strands").setLevel(log_level)
     logging.getLogger("strands.multiagent").setLevel(log_level)
     logging.getLogger("strands.multiagent.swarm").setLevel(log_level)
