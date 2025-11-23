@@ -350,7 +350,10 @@ class ConfigManager:
         sdk_config = SDKConfig(
             enable_hooks=overrides.get("enable_hooks", True),
             enable_streaming=overrides.get("enable_streaming", True),
-            conversation_window_size=overrides.get("conversation_window_size", 100),
+            conversation_window_size=overrides.get(
+                "conversation_window_size",
+                self.getenv_int("CYBER_CONVERSATION_WINDOW", 100)
+            ),
             enable_telemetry=self.getenv_bool("ENABLE_SDK_TELEMETRY", True),
         )
 
@@ -1022,9 +1025,9 @@ class ConfigManager:
                     if mcp_timeout is not None and mcp_timeout < 0:
                         raise ValueError("CYBER_MCP_CONNECTIONS timeoutSeconds is expected to be a positive integer")
 
-                    mcp_allowed_tools = conn.get("allowedTools")
+                    mcp_allowed_tools = conn.get("allowed_tools")  
                     if mcp_allowed_tools is not None and not isinstance(mcp_allowed_tools, list):
-                        raise ValueError("CYBER_MCP_CONNECTIONS allowedTools property is expected to be a list")
+                        raise ValueError("CYBER_MCP_CONNECTIONS allowed_tools property is expected to be a list")
                     if not mcp_allowed_tools or "*" in mcp_allowed_tools:
                         mcp_allowed_tools = ["*"]
 
