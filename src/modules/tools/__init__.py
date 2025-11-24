@@ -11,10 +11,10 @@ from modules.tools.browser import (
     browser_goto_url,
     browser_observe_page,
     browser_get_page_html,
-    browser_perform_action,
     browser_set_headers,
-    browser_get_cookies,
+    browser_perform_action,
     browser_evaluate_js,
+    browser_get_cookies,
 )
 from modules.tools.prompt_optimizer import prompt_optimizer
 
@@ -23,7 +23,6 @@ __all__ = [
     "initialize_memory_system",
     "get_memory_client",
     "Mem0ServiceClient",
-    "prompt_optimizer",
     "initialize_browser",
     "browser_set_headers",
     "browser_goto_url",
@@ -32,4 +31,5 @@ __all__ = [
     "browser_perform_action",
     "browser_get_cookies",
     "browser_evaluate_js",
+    "prompt_optimizer",
 ]
