@@ -86,6 +86,9 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
   const MAX_EVENTS = Number(process.env.CYBER_MAX_EVENTS || (isDockerStack ? 2000 : 3000)); // Keep last N events
   const [completedEvents, setCompletedEvents] = useState<DisplayStreamEvent[]>([]);
   const [activeEvents, setActiveEvents] = useState<DisplayStreamEvent[]>([]);
+  // Dedicated buffer for FINAL REPORT and its inline preview, rendered via a
+  // dynamic StreamDisplay so it can react to late-arriving report events.
+  const [finalReportEvents, setFinalReportEvents] = useState<DisplayStreamEvent[] | null>(null);
   const [staticSessionKey, setStaticSessionKey] = useState(0);
 
   // Ring buffers to bound memory regardless of session length
@@ -222,6 +225,9 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
   const [currentSwarmAgent, setCurrentSwarmAgent] = useState<string | null>(null);
   const swarmHandoffSequenceRef = useRef(0);
   const delayedThinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Track whether we're currently within the FINAL REPORT phase so we can
+  // accumulate a dynamic event cluster for inline preview rendering.
+  const finalReportActiveRef = useRef<boolean>(false);
   // Timer to detect idle gaps after tool-buffer output when no explicit tool_end is emitted
   const postToolIdleTimerRef = useRef<NodeJS.Timeout | null>(null);
   // Timer to bridge the gap AFTER reasoning completes and BEFORE next step/tool begins
@@ -367,10 +373,12 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
     stepAggRef.current = { step: null, head: '', tail: '', omitted: 0 };
     pendingReasoningsRef.current = [];
     opSummaryBufferRef.current = [];
-    swarmAgentStepsRef.current = new Map();
+    swarmHandoffSequenceRef.current = 0;
     seenThinkingThisPhaseRef.current = false;
     suppressTerminationBannerRef.current = false;
     lastReasoningTextRef.current = null;
+    finalReportActiveRef.current = false;
+    setFinalReportEvents(null);
     perToolOutputSeenRef.current.clear();
     globalOutputSeenRef.current.clear();
     setCurrentToolId(undefined);
@@ -639,7 +647,7 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
         // so it appears at the end of the previous step (below its outputs)
         flushPendingReasoning(results);
 
-        results.push({
+        const headerEvent: DisplayStreamEvent = {
           type: 'step_header',
           step: event.step,
           maxSteps: event.maxSteps,
@@ -654,7 +662,19 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
           swarm_max_iterations: event.swarm_max_iterations,
           agent_count: event.agent_count,
           swarm_context: event.swarm_context || (swarmActive ? 'Multi-Agent Operation' : undefined)
-        } as DisplayStreamEvent);
+        } as DisplayStreamEvent;
+
+        results.push(headerEvent);
+
+        // Mark entry into FINAL REPORT phase and start a dynamic cluster that
+        // will be rendered via StreamDisplay with an InlineReportViewer.
+        if (event.step === 'FINAL REPORT') {
+          finalReportActiveRef.current = true;
+          setFinalReportEvents(prev => {
+            const base = prev && prev.length > 0 ? prev.filter(e => e.type !== 'step_header' || (e as any).step !== 'FINAL REPORT') : [];
+            return [...base, headerEvent];
+          });
+        }
 
         // Mark that we've seen the first header
         firstHeaderSeenRef.current = true;
@@ -1171,6 +1191,16 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
           } as DisplayStreamEvent;
           results.push(outEvt);
 
+          // If we're in the FINAL REPORT phase, include this output (typically the
+          // ASCII summary banner) in the dynamic final report cluster so it
+          // appears directly beneath the inline preview.
+          if (finalReportActiveRef.current) {
+            setFinalReportEvents(prev => {
+              const base = prev ?? [];
+              return [...base, outEvt];
+            });
+          }
+
           // If this is a report preview block, immediately flush any buffered operation summary below it
           if (isReportPreview && opSummaryBufferRef.current.length > 0) {
             results.push(...opSummaryBufferRef.current);
@@ -1342,7 +1372,17 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
         }
         if (operationIdRef.current) rcEvent.operation_id = operationIdRef.current;
         if (targetRef.current) rcEvent.target = targetRef.current;
-        results.push(rcEvent as DisplayStreamEvent);
+        const displayRcEvent = rcEvent as DisplayStreamEvent;
+        results.push(displayRcEvent);
+        // If we're inside the FINAL REPORT phase, add this to the dynamic
+        // finalReportEvents cluster so StreamDisplay can compute reportDetails
+        // (path + inline content) for InlineReportViewer.
+        if (finalReportActiveRef.current) {
+          setFinalReportEvents(prev => {
+            const base = prev ?? [];
+            return [...base, displayRcEvent];
+          });
+        }
         // Synthesize a paths section immediately below the report
         try {
           const opId = operationIdRef.current || '';
@@ -1352,7 +1392,7 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
           const memory = safeTarget ? `./outputs/${safeTarget}/memory` : '';
           const reportPath = base ? `${base}/security_assessment_report.md` : '';
           const logPath = base ? `${base}/cyber_operations.log` : '';
-          results.push({
+          const pathsEvent: DisplayStreamEvent = {
             type: 'report_paths',
             operation_id: opId,
             target,
@@ -1360,7 +1400,16 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
             reportPath,
             logPath,
             memoryPath: memory
-          } as unknown as DisplayStreamEvent);
+          } as unknown as DisplayStreamEvent;
+
+          results.push(pathsEvent);
+
+          if (finalReportActiveRef.current) {
+            setFinalReportEvents(prev => {
+              const baseEvents = prev ?? [];
+              return [...baseEvents, pathsEvent];
+            });
+          }
         } catch {}
         // Then flush any buffered operation summary (paths) so they appear beneath the report as well
         if (opSummaryBufferRef.current.length > 0) {
@@ -1368,6 +1417,20 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
           opSummaryBufferRef.current = [];
         }
         break;
+
+      case 'assessment_complete': {
+        const acEvent = event as DisplayStreamEvent;
+        results.push(acEvent);
+        if (finalReportActiveRef.current) {
+          setFinalReportEvents(prev => {
+            const base = prev ?? [];
+            return [...base, acEvent];
+          });
+          // FINAL REPORT phase is complete once assessment_complete arrives
+          finalReportActiveRef.current = false;
+        }
+        break;
+      }
 
       default:
         // Pass through other events as-is (no synthetic headers)
@@ -1660,6 +1723,8 @@ completedBufRef.current.pushMany(newCompletedEvents);
   const hasOnlyThinkingInActive = activeEvents.length > 0 &&
     activeEvents.every(e => e.type === 'thinking' || e.type === 'thinking_end');
 
+  const hasFinalReportCluster = finalReportEvents != null && finalReportEvents.length > 0;
+
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Completed events - rendered normally (Static component broke rendering) */}
@@ -1672,8 +1737,20 @@ completedBufRef.current.pushMany(newCompletedEvents);
         />
       )}
 
-      {/* Thinking-only spinner rendered IMMEDIATELY after completed content for visibility */}
-      {hasOnlyThinkingInActive && (
+      {/* FINAL REPORT cluster: rendered via dynamic StreamDisplay so InlineReportViewer
+          can react to late-arriving report_content / assessment_complete events. */}
+      {hasFinalReportCluster && finalReportEvents && (
+        <StreamDisplay
+          events={finalReportEvents}
+          animationsEnabled={animationsEnabled}
+          terminalWidth={terminalWidth}
+          availableHeight={availableHeight}
+        />
+      )}
+
+      {/* Thinking-only spinner rendered IMMEDIATELY after completed content for visibility
+          (suppressed once FINAL REPORT cluster is active). */}
+      {!hasFinalReportCluster && hasOnlyThinkingInActive && (
         <StreamDisplay
           events={activeEvents}
           animationsEnabled={animationsEnabled}
@@ -1682,8 +1759,9 @@ completedBufRef.current.pushMany(newCompletedEvents);
         />
       )}
 
-      {/* Active events with content (reasoning, output, etc) */}
-      {activeEvents.length > 0 && !hasOnlyThinkingInActive && (
+      {/* Active events with content (reasoning, output, etc) - suppressed once FINAL
+          REPORT cluster takes over the dynamic tail. */}
+      {!hasFinalReportCluster && activeEvents.length > 0 && !hasOnlyThinkingInActive && (
         <StreamDisplay
           events={activeEvents}
           animationsEnabled={animationsEnabled}

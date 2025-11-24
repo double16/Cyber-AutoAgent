@@ -232,7 +232,10 @@ const InlineReportViewer: React.FC<{
   fallbackContent?: string | null;
   projectRoot?: string | null;
 }>= ({ ctx, reportPath, fallbackContent, projectRoot }) => {
-  const [content, setContent] = React.useState<string | null>(null);
+  // Seed content directly from fallbackContent so initial render can show a
+  // preview even before any file I/O or effects run. The effect below will
+  // later upgrade this to the full file contents when available.
+  const [content, setContent] = React.useState<string | null>(() => fallbackContent ?? null);
   const [error, setError] = React.useState<string | null>(null);
   const [resolvedPath, setResolvedPath] = React.useState<string | null>(null);
 
@@ -261,14 +264,13 @@ const InlineReportViewer: React.FC<{
       try {
         setError(null);
         setResolvedPath(null);
+
         const candidates = candidatePaths;
 
         if (candidates.length === 0) {
-          if (fallbackContent) {
-            setContent(fallbackContent);
-            return;
+          if (!fallbackContent) {
+            setError('Report context unavailable');
           }
-          setError('Report context unavailable');
           return;
         }
 
@@ -285,21 +287,30 @@ const InlineReportViewer: React.FC<{
             break;
           } catch {}
         }
+
         if (!loaded) {
-          if (fallbackContent) {
-            setContent(fallbackContent);
-            // Fall back to configured reportPath if present
+          // We already populated content from fallbackContent above (if present).
+          // If there is no fallbackContent, surface a clear error.
+          if (!fallbackContent) {
+            setError('Report file not found');
+          }
+          // Prefer the first existing candidate for the "Report saved to" hint.
+          try {
+            const firstExisting = candidates.find(p => fsSync.existsSync(p));
+            if (firstExisting) {
+              setResolvedPath(firstExisting);
+            } else if (reportPath && path.isAbsolute(reportPath)) {
+              setResolvedPath(reportPath);
+            }
+          } catch {
             if (reportPath && path.isAbsolute(reportPath)) {
               setResolvedPath(reportPath);
             }
-            return;
-          }
-          setError('Report file not found');
-          if (reportPath && path.isAbsolute(reportPath)) {
-            setResolvedPath(reportPath);
           }
           return;
         }
+
+        // File read succeeded; prefer full file content over inline fallback.
         setContent(loaded);
         if (usedPath) {
           setResolvedPath(usedPath);
@@ -307,9 +318,22 @@ const InlineReportViewer: React.FC<{
           setResolvedPath(reportPath);
         }
       } catch (e: any) {
-        setError('Failed to load report');
-        if (reportPath && path.isAbsolute(reportPath)) {
-          setResolvedPath(reportPath);
+        // On unexpected errors, keep any existing content (seeded above) and
+        // only surface an error if we had nothing to show.
+        if (!fallbackContent) {
+          setError('Failed to load report');
+        }
+        try {
+          const firstExisting = candidatePaths.find(p => fsSync.existsSync(p));
+          if (firstExisting) {
+            setResolvedPath(firstExisting);
+          } else if (reportPath && path.isAbsolute(reportPath)) {
+            setResolvedPath(reportPath);
+          }
+        } catch {
+          if (reportPath && path.isAbsolute(reportPath)) {
+            setResolvedPath(reportPath);
+          }
         }
       }
     };
@@ -401,9 +425,7 @@ const InlineReportViewer: React.FC<{
 
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Box borderStyle="double" borderColor="cyan" paddingX={1}>
-        <Text color="cyan" bold>SECURITY ASSESSMENT REPORT</Text>
-      </Box>
+      <Text color="cyan" bold>SECURITY ASSESSMENT REPORT</Text>
       <Box flexDirection="column" marginTop={1} paddingX={1}>
         {previewLines.map((line, i) => (
           <Text key={i}>{line}</Text>
@@ -437,6 +459,11 @@ interface EventLineProps {
   reportFallbackContent?: string | null;
   projectRoot?: string | null;
   configOverride?: Config;
+  // When false, suppresses the InlineReportViewer even if this is the FINAL REPORT
+  // header. This is used by StaticStreamDisplay so that the inline preview is
+  // rendered only in the dynamic StreamDisplay (which can react to late-arriving
+  // report_content and assessment_complete events).
+  enableInlineReportView?: boolean;
 }
 
 export const EventLine: React.FC<EventLineProps> = React.memo(({
@@ -448,6 +475,7 @@ export const EventLine: React.FC<EventLineProps> = React.memo(({
   reportFallbackContent,
   projectRoot,
   configOverride,
+  enableInlineReportView = true,
 }) => {
   const { config } = useConfig();
   const effectiveConfig = configOverride ?? config;
@@ -562,17 +590,24 @@ export const EventLine: React.FC<EventLineProps> = React.memo(({
             </Text>
           </Box>
           <Text color="#45475A">{getDivider()}</Text>
-          {/* If this is the FINAL REPORT and we have operation context, render the report inline */}
-          {event.step === 'FINAL REPORT' && operationContext && (
-            <InlineReportViewer
-              ctx={{
-                ...operationContext,
-                reportPath: reportPath ?? operationContext.reportPath ?? null,
-              }}
-              reportPath={reportPath ?? operationContext.reportPath ?? null}
-              fallbackContent={reportFallbackContent ?? null}
-              projectRoot={projectRoot ?? null}
-            />
+          {/* If this is the FINAL REPORT and we have operation context, render the report inline.
+              We only do this when enableInlineReportView is true and we already have either a
+              resolved reportPath or fallbackContent. This avoids mounting the viewer too early
+              (before report_content / assessment_complete arrive), which previously led to
+              stale "Loading final report…" states. */}
+          {enableInlineReportView &&
+            event.step === 'FINAL REPORT' &&
+            operationContext &&
+            (reportPath || reportFallbackContent) && (
+              <InlineReportViewer
+                ctx={{
+                  ...operationContext,
+                  reportPath: reportPath ?? operationContext.reportPath ?? null,
+                }}
+                reportPath={reportPath ?? operationContext.reportPath ?? null}
+                fallbackContent={reportFallbackContent ?? null}
+                projectRoot={projectRoot ?? null}
+              />
           )}
         </Box>
       );
@@ -2534,6 +2569,7 @@ export const StreamDisplay: React.FC<StreamDisplayProps> = React.memo(({ events,
                 reportPath={reportDetails.path}
                 reportFallbackContent={reportDetails.content}
                 projectRoot={projectRoot}
+                enableInlineReportView={true}
               />
           ));
         }
@@ -2553,6 +2589,22 @@ export const StaticStreamDisplay: React.FC<{
 }> = React.memo(({ events, terminalWidth, availableHeight }) => {
   const groups = React.useMemo(() => computeDisplayGroups(events), [events]);
   const projectRoot = React.useMemo(() => resolveProjectRoot(), []);
+
+  // Resolve output base directory from config for consistent path mapping
+  const { config } = useConfig();
+  const outputBaseDir = React.useMemo(() => {
+    try {
+      const raw = config.outputDir || './outputs';
+      if (path.isAbsolute(raw)) {
+        return raw;
+      }
+      const base = projectRoot ?? process.cwd();
+      return path.resolve(base, raw);
+    } catch {
+      return path.resolve(process.cwd(), 'outputs');
+    }
+  }, [config.outputDir, projectRoot]);
+
   const reportDetails = React.useMemo(() => {
     let latestPath: string | null = null;
     let fallback: string | null = null;
@@ -2564,7 +2616,12 @@ export const StaticStreamDisplay: React.FC<{
           (event as any).report ??
           null;
         if (candidate) {
-          latestPath = String(candidate);
+          latestPath = mapContainerReportPath(String(candidate), outputBaseDir);
+        }
+      } else if ((event as any).type === 'assessment_complete') {
+        const raw = (event as any).report_path;
+        if (typeof raw === 'string' && raw) {
+          latestPath = mapContainerReportPath(raw, outputBaseDir);
         }
       } else if (event.type === 'report_content') {
         if ('content' in event && typeof (event as any).content === 'string') {
@@ -2579,7 +2636,20 @@ export const StaticStreamDisplay: React.FC<{
       }
     });
     return { path: latestPath, content: fallback };
-  }, [events]);
+  }, [events, outputBaseDir]);
+
+  // Capture operation context (operation_id and target) for artifact resolution
+  const operationContext = React.useMemo<OperationContext>(() => {
+    let opId: string | null = null;
+    let target: string | null = null;
+    for (const e of events) {
+      if (e.type === 'operation_init') {
+        if ('operation_id' in e && (e as any).operation_id) opId = String((e as any).operation_id);
+        if ('target' in e && (e as any).target) target = String((e as any).target);
+      }
+    }
+    return { operationId: opId, target, reportPath: reportDetails.path };
+  }, [events, reportDetails.path]);
 
   // Flatten groups into discrete render items with stable keys
   type Item = { key: string; render: () => React.ReactNode };
@@ -2642,10 +2712,13 @@ export const StaticStreamDisplay: React.FC<{
                 key={key}
                 event={event}
                 animationsEnabled={false}
-                operationContext={undefined}
+                operationContext={operationContext}
                 reportPath={reportDetails.path}
                 reportFallbackContent={reportDetails.content}
                 projectRoot={projectRoot}
+                // Disable InlineReportViewer here; the dynamic StreamDisplay path will
+                // render the inline preview once the report is fully available.
+                enableInlineReportView={false}
               />
             )
           });
@@ -2653,7 +2726,7 @@ export const StaticStreamDisplay: React.FC<{
       }
     });
     return out;
-  }, [groups]);
+  }, [groups, operationContext, reportDetails.path, reportDetails.content, projectRoot]);
 
   return (
     <Static items={items}>
