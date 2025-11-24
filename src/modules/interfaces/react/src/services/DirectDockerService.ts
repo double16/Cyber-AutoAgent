@@ -386,6 +386,17 @@ export class DirectDockerService extends EventEmitter {
         env.push(`CYBER_MCP_CONNECTIONS=${JSON.stringify(config.mcp.connections)}`)
       }
 
+      // Context Management
+      if (config.conversationWindow !== undefined) {
+        env.push(`CYBER_CONVERSATION_WINDOW=${config.conversationWindow}`);
+      }
+      if (config.conversationPreserveFirst !== undefined) {
+        env.push(`CYBER_CONVERSATION_PRESERVE_FIRST=${config.conversationPreserveFirst}`);
+      }
+      if (config.conversationPreserveLast !== undefined) {
+        env.push(`CYBER_CONVERSATION_PRESERVE_LAST=${config.conversationPreserveLast}`);
+      }
+
       // Debug logging: what we're about to send to Docker
       const maskEnv = (vars: string[]) => {
         const SENSITIVE = new Set([

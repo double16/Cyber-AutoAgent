@@ -719,6 +719,10 @@ export class PythonExecutionService extends EventEmitter {
         // Model Configuration - pass separate models from config
         ...(config.swarmModel ? { CYBER_AGENT_SWARM_MODEL: config.swarmModel } : {}),
         ...(config.evaluationModel ? { CYBER_AGENT_EVALUATION_MODEL: config.evaluationModel } : {}),
+        // Context Management - conversation budget settings
+        ...(config.conversationWindow !== undefined ? { CYBER_CONVERSATION_WINDOW: String(config.conversationWindow) } : {}),
+        ...(config.conversationPreserveFirst !== undefined ? { CYBER_CONVERSATION_PRESERVE_FIRST: String(config.conversationPreserveFirst) } : {}),
+        ...(config.conversationPreserveLast !== undefined ? { CYBER_CONVERSATION_PRESERVE_LAST: String(config.conversationPreserveLast) } : {}),
         // Observability settings from config (matching Docker service behavior)
         ENABLE_OBSERVABILITY: config.observability ? 'true' : 'false',
         ENABLE_AUTO_EVALUATION: config.autoEvaluation ? 'true' : 'false',

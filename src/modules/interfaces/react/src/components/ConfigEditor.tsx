@@ -125,6 +125,14 @@ const CONFIG_FIELDS: ConfigField[] = [
   { key: 'dockerTimeout', label: 'Docker Timeout (s)', type: 'number', section: 'Operations' },
   { key: 'verbose', label: 'Verbose Output', type: 'boolean', section: 'Operations' },
 
+  // Context Management
+  { key: 'conversationWindow', label: 'Conversation Window Size', type: 'number', section: 'Operations',
+    description: 'Max messages in history (default: 40, capped at 40 in agent). Maps to CYBER_CONVERSATION_WINDOW.' },
+  { key: 'conversationPreserveFirst', label: 'Preserve First Messages', type: 'number', section: 'Operations',
+    description: 'System messages to always keep (default: 1). Maps to CYBER_CONVERSATION_PRESERVE_FIRST.' },
+  { key: 'conversationPreserveLast', label: 'Preserve Last Messages', type: 'number', section: 'Operations',
+    description: 'Recent messages to always keep (default: 12). Maps to CYBER_CONVERSATION_PRESERVE_LAST.' },
+
   // Memory
   { key: 'memoryBackend', label: 'Memory Backend', type: 'select', section: 'Memory',
     options: [

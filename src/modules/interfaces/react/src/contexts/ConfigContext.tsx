@@ -145,7 +145,15 @@ export interface Config {
   outputFormat: 'markdown' | 'json' | 'html';
   /** Enable detailed debug logging and verbose output */
   verbose: boolean;
-  
+
+  // Context Management
+  /** Conversation window size - max messages in history */
+  conversationWindow?: number;
+  /** Preserve first N messages (system prompts) */
+  conversationPreserveFirst?: number;
+  /** Preserve last N messages (recent context) */
+  conversationPreserveLast?: number;
+
   // Execution Configuration  
   /** Preferred execution mode for assessments */
   executionMode?: 'python-cli' | 'docker-single' | 'docker-stack';
@@ -469,7 +477,12 @@ export const defaultConfig: Config = {
   maxThreads: 10,
   outputFormat: 'markdown',
   verbose: false, // Default to non-verbose mode
-  
+
+  // Context Management
+  conversationWindow: 40, // Default conversation window size (capped for efficiency)
+  conversationPreserveFirst: 1, // Preserve system messages
+  conversationPreserveLast: 12, // Preserve recent context
+
   // Execution Configuration
   executionMode: undefined, // Auto-select based on availability
   allowExecutionFallback: true, // Allow fallback modes by default
