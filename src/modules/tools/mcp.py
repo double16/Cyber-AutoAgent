@@ -1,21 +1,182 @@
 """
 Lists the full catalog of MCP tools.
 """
+import asyncio
 import json
 import os
 import re
+import threading
 import time
-import asyncio
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, AsyncIterator, TypedDict, Tuple
-from strands.types.tools import AgentTool, ToolSpec, ToolUse, ToolGenerator, ToolResult
-from modules.config.system.logger import get_logger
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple, TypedDict, cast
 
+from mcp.client.session import ClientSession
 from strands import tool
+from strands.types.exceptions import MCPClientInitializationError
+from strands.types.tools import AgentTool, ToolGenerator, ToolResult, ToolSpec, ToolUse
+from strands.tools.mcp.mcp_client import MCPClient
 
+from modules.config.system.logger import get_logger
 from modules.handlers.core import sanitize_target_name
 
 logger = get_logger("Agents.CyberAutoAgent")
+
+MCP_HEARTBEAT_INTERVAL = max(0, int(os.getenv("CYBER_MCP_HEARTBEAT_INTERVAL", "45")))
+MCP_HEARTBEAT_TIMEOUT = max(1, int(os.getenv("CYBER_MCP_HEARTBEAT_TIMEOUT", "10")))
+MCP_MAX_RETRIES = max(1, int(os.getenv("CYBER_MCP_MAX_SESSION_RETRIES", "2")))
+MCP_RESTART_BACKOFF = max(0.1, float(os.getenv("CYBER_MCP_RESTART_BACKOFF", "2.0")))
+
+
+def _start_keepalive(client: MCPClient) -> Optional[tuple[threading.Event, threading.Thread]]:
+    if MCP_HEARTBEAT_INTERVAL <= 0:
+        return None
+
+    handle = getattr(client, "_cyber_keepalive_handle", None)
+    if handle:
+        return handle
+
+    stop_event = threading.Event()
+
+    def _loop() -> None:
+        while not stop_event.wait(MCP_HEARTBEAT_INTERVAL):
+            try:
+                _send_ping(client)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("MCP keepalive ping failed: %s", exc)
+                _restart_client(client)
+
+    thread = threading.Thread(target=_loop, name="mcp-heartbeat", daemon=True)
+    thread.start()
+    handle = (stop_event, thread)
+    setattr(client, "_cyber_keepalive_handle", handle)
+    return handle
+
+
+def _stop_keepalive(client: MCPClient) -> None:
+    handle = getattr(client, "_cyber_keepalive_handle", None)
+    if not handle:
+        return
+    stop_event, thread = handle
+    stop_event.set()
+    if thread.is_alive() and threading.current_thread() != thread:
+        thread.join(timeout=5)
+    setattr(client, "_cyber_keepalive_handle", None)
+
+
+def _send_ping(client: MCPClient) -> None:
+    if not client._is_session_active():  # noqa: SLF001 - best-effort keepalive
+        raise MCPClientInitializationError("MCP session inactive during keepalive")
+
+    async def _ping() -> None:
+        if client._background_thread_session is None:  # noqa: SLF001
+            raise MCPClientInitializationError("No MCP session available")
+        await cast(ClientSession, client._background_thread_session).send_ping()  # noqa: SLF001
+
+    future = client._invoke_on_background_thread(_ping())  # noqa: SLF001
+    future.result(timeout=MCP_HEARTBEAT_TIMEOUT)
+
+
+_RESTART_LOCK = threading.Lock()
+
+
+def _restart_client(client: MCPClient) -> None:
+    with _RESTART_LOCK:
+        try:
+            _stop_keepalive(client)
+            client.stop(None, None, None)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("MCP stop during restart raised: %s", exc)
+        client.start()
+        _start_keepalive(client)
+        logger.info("MCP session restarted")
+
+
+def start_managed_mcp_client(client: MCPClient) -> Callable[[], None]:
+    """
+    Start an MCP client and enable heartbeat keepalive. Returns a cleanup hook.
+    """
+    client.start()
+    _start_keepalive(client)
+
+    def _cleanup() -> None:
+        _stop_keepalive(client)
+        client.stop(None, None, None)
+
+    return _cleanup
+
+
+class ResilientMCPToolAdapter(AgentTool):
+    """Wraps an MCP tool with retry/restart behavior and heartbeat keepalive.
+
+    Note: Timeout is handled by SDK's MCPAgentTool (via read_timeout_seconds).
+    This wrapper adds retry logic, session restart, and heartbeat keepalive.
+    """
+
+    def __init__(self, inner: AgentTool, client: MCPClient) -> None:
+        super().__init__()
+        self._inner = inner
+        self._client = client
+        self._max_retries = MCP_MAX_RETRIES
+        self._backoff = MCP_RESTART_BACKOFF
+
+    @property
+    def tool_name(self) -> str:
+        return self._inner.tool_name
+
+    @property
+    def tool_spec(self) -> ToolSpec:
+        return self._inner.tool_spec
+
+    @property
+    def tool_type(self) -> str:
+        return getattr(self._inner, "tool_type", "python")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    async def stream(
+        self,
+        tool_use: ToolUse,
+        invocation_state: dict[str, Any],
+        **kwargs: Any,
+    ) -> ToolGenerator:
+        """Stream with retry/restart on recoverable errors.
+
+        Note: Timeout is handled by inner SDK tool (MCPAgentTool.timeout).
+        This method adds retry logic and session restart capability.
+        """
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                # SDK's MCPAgentTool handles timeout via read_timeout_seconds
+                async for event in self._inner.stream(tool_use, invocation_state, **kwargs):
+                    yield event
+                return
+            except Exception as exc:
+                if not self._is_recoverable(exc):
+                    raise
+                last_error = exc
+                logger.warning(
+                    "MCP tool '%s' failed (attempt %s/%s): %s",
+                    self.tool_name,
+                    attempt,
+                    self._max_retries,
+                    exc,
+                )
+                _restart_client(self._client)
+                if attempt < self._max_retries and self._backoff > 0:
+                    await asyncio.sleep(self._backoff)
+        if last_error:
+            raise last_error
+
+    @staticmethod
+    def _is_recoverable(exc: Exception) -> bool:
+        if isinstance(exc, MCPClientInitializationError):
+            return True
+        if isinstance(exc, RuntimeError) and "MCP server was closed" in str(exc):
+            return True
+        return False
 
 def list_mcp_tools_wrapper(mcp_tools: List[AgentTool]):
     mcp_full_catalog = f"""
@@ -246,11 +407,30 @@ class FileWritingAgentToolAdapter(AgentTool):
                     try:
                         tool_result = getattr(event, "tool_result", None)
                         output_paths, output_size = await asyncio.to_thread(self._write_result, tool_result)
-                        if output_size > 4096:
+
+                        # Use same threshold as ToolRouter (50KB) for consistency
+                        # Only replace content for very large outputs (>50KB)
+                        ARTIFACT_THRESHOLD = int(os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", "50000"))
+
+                        if output_size > ARTIFACT_THRESHOLD:
+                            # Large output: externalize and provide preview + path
                             summary = {"artifact_paths": output_paths, "has_more": True}
-                            tool_result["content"] = [{"text": json.dumps(summary), "json": summary}]
+                            preview_text = ""
+                            # Extract preview from original content
+                            if "content" in tool_result and isinstance(tool_result["content"], list):
+                                for block in tool_result["content"]:
+                                    if isinstance(block, dict) and "text" in block:
+                                        preview_text = str(block["text"])[:4000]  # 4KB preview
+                                        break
+
+                            preview_msg = f"[Tool output: {output_size:,} chars | Full output saved to artifact]\n\n{preview_text}\n\n... [truncated, full output in artifact]"
+                            tool_result["content"] = [
+                                {"text": preview_msg},
+                                {"text": json.dumps(summary), "json": summary}
+                            ]
                             tool_result["structuredContent"] = summary
                         else:
+                            # Small output: keep in conversation, just add artifact reference
                             tool_result["structuredContent"]["artifact_paths"] = output_paths
                             if "content" in tool_result and isinstance(tool_result["content"], list):
                                 summary = {"artifact_paths": output_paths}
