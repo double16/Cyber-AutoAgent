@@ -262,8 +262,8 @@ Artifacts are organized by operation for isolation and evidence collection.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `CYBER_TOOL_MAX_RESULT_CHARS` | 10,000 | Conversation truncation limit |
-| `CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD` | 10,000 | Artifact externalization threshold |
+| `CYBER_TOOL_MAX_RESULT_CHARS` | 30,000 | Conversation truncation limit |
+| `CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD` | 50,000 | Artifact externalization threshold |
 
 ## Execution Flow
 
@@ -292,8 +292,8 @@ CYBER_AGENT_SWARM_MAX_TOKENS=8192
 Tool result handling:
 ```bash
 CYBER_TOOL_COMPRESS_THRESHOLD=185000
-CYBER_TOOL_MAX_RESULT_CHARS=10000
-CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD=10000
+CYBER_TOOL_MAX_RESULT_CHARS=30000
+CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD=50000
 ```
 
 Conversation preservation:

@@ -6,9 +6,10 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Optional, Callable, Sequence, TypedDict
+from typing import Any, Dict, Optional, Callable, Sequence, TypedDict
 
 from strands import Agent
 from strands.agent.conversation_manager import (
@@ -23,10 +24,12 @@ from modules.config.models.dev_client import get_models_client
 
 logger = logging.getLogger(__name__)
 
-# Module-level shared conversation manager for swarm agents
+# Thread-safe shared conversation manager for swarm agents
 # This is necessary because swarm agents (created by strands_tools/swarm.py library)
 # don't inherit conversation_manager from parent agent
 _SHARED_CONVERSATION_MANAGER: Optional[Any] = None
+# Lock to protect concurrent access to shared conversation manager
+_MANAGER_LOCK = threading.RLock()
 
 
 def register_conversation_manager(manager: Any) -> None:
@@ -38,11 +41,14 @@ def register_conversation_manager(manager: Any) -> None:
     By storing a module-level reference, we can provide the same manager to all
     agents (main and swarm children) for consistent context management.
 
+    Thread-safe implementation using RLock for concurrent access.
+
     Args:
         manager: The MappingConversationManager instance to share
     """
     global _SHARED_CONVERSATION_MANAGER
-    _SHARED_CONVERSATION_MANAGER = manager
+    with _MANAGER_LOCK:
+        _SHARED_CONVERSATION_MANAGER = manager
     try:
         name = type(manager).__name__ if manager is not None else "None"
     except Exception:
@@ -51,15 +57,23 @@ def register_conversation_manager(manager: Any) -> None:
 
 
 def clear_shared_conversation_manager() -> None:
-    """Clear the shared conversation manager (test cleanup helper)."""
+    """Clear the shared conversation manager (test cleanup helper).
+
+    Thread-safe implementation.
+    """
     global _SHARED_CONVERSATION_MANAGER
-    _SHARED_CONVERSATION_MANAGER = None
+    with _MANAGER_LOCK:
+        _SHARED_CONVERSATION_MANAGER = None
     logger.debug("Cleared shared conversation manager")
 
 
 def get_shared_conversation_manager() -> Optional[Any]:
-    """Return the shared conversation manager if one was registered."""
-    return _SHARED_CONVERSATION_MANAGER
+    """Return the shared conversation manager if one was registered.
+
+    Thread-safe implementation.
+    """
+    with _MANAGER_LOCK:
+        return _SHARED_CONVERSATION_MANAGER
 
 
 class MessageContext(TypedDict, total=False):
@@ -137,19 +151,31 @@ def _get_env_float(name: str, default: float) -> float:
         return default
 
 
+# Named constants for prompt budget configuration
 PROMPT_TOKEN_FALLBACK_LIMIT = _get_env_int("CYBER_PROMPT_FALLBACK_TOKENS", 200000)
 PROMPT_TELEMETRY_THRESHOLD = max(
-    0.1, min(_get_env_float("CYBER_PROMPT_TELEMETRY_THRESHOLD", 0.8), 0.95)
+    0.1, min(_get_env_float("CYBER_PROMPT_TELEMETRY_THRESHOLD", 0.65), 0.95)
 )
 PROMPT_CACHE_RELAX = max(0.0, min(_get_env_float("CYBER_PROMPT_CACHE_RELAX", 0.1), 0.3))
-NO_REDUCTION_WARNING_RATIO = 0.8
+NO_REDUCTION_WARNING_RATIO = 0.8  # Warn when at 80% of limit with no reductions
 # Compression threshold aligned with Strands SDK (185K chars ≈ 50K tokens)
 TOOL_COMPRESS_THRESHOLD = _get_env_int("CYBER_TOOL_COMPRESS_THRESHOLD", 185000)
 TOOL_COMPRESS_TRUNCATE = _get_env_int("CYBER_TOOL_COMPRESS_TRUNCATE", 18500)
 PRESERVE_FIRST_DEFAULT = _get_env_int("CYBER_CONVERSATION_PRESERVE_FIRST", 1)
 PRESERVE_LAST_DEFAULT = _get_env_int("CYBER_CONVERSATION_PRESERVE_LAST", 12)
-_MAX_REDUCTION_HISTORY = 5
+_MAX_REDUCTION_HISTORY = 5  # Keep last 5 reduction events for diagnostics
 _NO_REDUCTION_ATTR = "_prompt_budget_warned_no_reduction"
+
+# Additional named constants for token estimation and cache management
+DEFAULT_CHAR_TO_TOKEN_RATIO = 3.7  # Conservative default for token estimation
+JSON_CACHE_MAX_SIZE = 100  # Maximum JSON cache entries before cleanup
+JSON_CACHE_KEEP_SIZE = 50  # Entries to keep after cache cleanup
+ESCALATION_MAX_PASSES = 2  # Maximum additional reduction passes when escalating
+ESCALATION_MAX_TIME_SECONDS = 30.0  # Maximum time for all escalation passes
+ESCALATION_THRESHOLD_RATIO = 0.9  # Escalate if still at 90% of limit
+MAX_THRESHOLD_RATIO = 0.98  # Maximum threshold ratio (never exceed 98% of limit)
+SMALL_CONVERSATION_THRESHOLD = 3  # Skip pruning for conversations with fewer messages
+PRESERVATION_OVERLAP_THRESHOLD = 13  # Expected overlap for early operations (first+last)
 
 
 def _record_context_reduction_event(
@@ -172,17 +198,35 @@ def _record_context_reduction_event(
         "after_tokens": after_tokens,
         "removed_messages": max(0, before_msgs - after_msgs),
     }
-    history = getattr(agent, "_context_reduction_events", [])
+    # Prevent memory leak by ensuring history is always a fresh list
+    # Get existing history and validate it's a list
+    history = getattr(agent, "_context_reduction_events", None)
     if not isinstance(history, list):
         history = []
+    else:
+        # Create a copy to avoid unintended aliasing
+        history = list(history)
+
+    # Append new event
     history.append(payload)
+
+    # Trim immediately to prevent unbounded growth
     if len(history) > _MAX_REDUCTION_HISTORY:
         history = history[-_MAX_REDUCTION_HISTORY:]
+
     setattr(agent, "_context_reduction_events", history)
+
+    # Safe attribute deletion with proper error handling
+    # Clear the "no reduction" warning flag since we just recorded a reduction
     if hasattr(agent, _NO_REDUCTION_ATTR):
         try:
             delattr(agent, _NO_REDUCTION_ATTR)
-        except Exception:
+        except AttributeError:
+            # Attribute doesn't exist anymore (race condition), safe to ignore
+            pass
+        except Exception as e:
+            # Other unexpected errors - log and set to False as fallback
+            logger.debug("Failed to delete %s attribute: %s", _NO_REDUCTION_ATTR, e)
             setattr(agent, _NO_REDUCTION_ATTR, False)
 
 
@@ -205,6 +249,7 @@ class LargeToolResultMapper:
         self.sample_limit = sample_limit
         # Cache for JSON string lengths to avoid redundant serialization
         # Key format: (message_index, block_index) tuple to prevent collisions
+        # Using tuple keys ensures unique cache entries across different messages/blocks
         self._json_cache: dict[tuple[int, int], tuple[str, int]] = {}
 
     def _create_message_context(
@@ -243,7 +288,10 @@ class LargeToolResultMapper:
         return context
 
     def _estimate_message_tokens(self, message: Message) -> int:
-        """Quick token estimation for a single message."""
+        """Quick token estimation for a single message.
+
+        Uses safe division with validation.
+        """
         total_chars = len(message.get("role", "")) * 2
 
         for block in message.get("content", []):
@@ -255,8 +303,20 @@ class LargeToolResultMapper:
                 total_chars += len(str(block["toolUse"]))
             elif "toolResult" in block:
                 total_chars += self._tool_length(block["toolResult"], 0)
+            elif "reasoningContent" in block:
+                # Count reasoning blocks in token estimation
+                reasoning = block["reasoningContent"]
+                if isinstance(reasoning, dict):
+                    if "reasoningText" in reasoning:
+                        total_chars += len(reasoning["reasoningText"].get("text", ""))
+                    elif reasoning:
+                        total_chars += len(str(reasoning))
 
-        return max(1, int(total_chars / 3.7))
+        # Safe division - ratio is always positive, but add defensive check
+        ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
+        if ratio <= 0:
+            ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Fallback to default
+        return max(1, int(total_chars / ratio))
 
     def __call__(
         self, message: Message, index: int, messages: list[Message]
@@ -283,6 +343,20 @@ class LargeToolResultMapper:
                     )
                     indices_to_compress.append(idx)
 
+            tool_use = content_block.get("toolUse")
+            if tool_use:
+                tool_use_length = self._tool_use_length(tool_use)
+                if tool_use_length > self.max_tool_chars:
+                    logger.debug(
+                        "LAYER 2 COMPRESSION: Tool use at message %d block %d exceeds threshold "
+                        "(length=%d, threshold=%d)",
+                        index,
+                        idx,
+                        tool_use_length,
+                        self.max_tool_chars,
+                    )
+                    indices_to_compress.append(idx)
+
         if not indices_to_compress:
             return message
 
@@ -305,12 +379,22 @@ class LargeToolResultMapper:
             else:
                 # Compress this content block
                 tool_result = content_block.get("toolResult")
+                tool_use = content_block.get("toolUse")
+                
                 if tool_result:
                     # Shallow copy the content block, replace only toolResult
                     new_content.append(
                         {
                             **content_block,
                             "toolResult": self._compress(tool_result, idx),
+                        }
+                    )
+                elif tool_use:
+                    # Shallow copy the content block, replace only toolUse
+                    new_content.append(
+                        {
+                            **content_block,
+                            "toolUse": self._compress_tool_use(tool_use),
                         }
                     )
                 else:
@@ -320,7 +404,11 @@ class LargeToolResultMapper:
         return new_message
 
     def _tool_length(self, tool_result: dict[str, Any], cache_key: int = 0) -> int:
-        """Calculate tool result length with JSON caching."""
+        """Calculate tool result length with JSON caching.
+
+        Uses tuple-based cache keys (cache_key, block_idx) to prevent
+        collisions between different messages/blocks.
+        """
         length = 0
         for block_idx, block in enumerate(tool_result.get("content", [])):
             if "text" in block:
@@ -338,10 +426,30 @@ class LargeToolResultMapper:
                     self._json_cache[json_cache_key] = (json_str, json_len)
                     length += json_len
 
-                    # Cleanup cache if it gets too large
-                    if len(self._json_cache) > 100:
-                        self._json_cache.clear()
+                    # Use LRU-style eviction for cache cleanup
+                    if len(self._json_cache) > JSON_CACHE_MAX_SIZE:
+                        # Sort by key (message_index, block_index) to keep most recent
+                        # This assumes higher indices = more recent messages
+                        sorted_keys = sorted(self._json_cache.keys(), reverse=True)
+                        # Keep the most recent entries
+                        keys_to_keep = set(sorted_keys[:JSON_CACHE_KEEP_SIZE])
+                        self._json_cache = {
+                            k: v for k, v in self._json_cache.items() if k in keys_to_keep
+                        }
+                        logger.debug(
+                            "Cleaned JSON cache, kept %d most recent entries",
+                            len(self._json_cache)
+                        )
 
+        return length
+
+    def _tool_use_length(self, tool_use: dict[str, Any]) -> int:
+        """Calculate tool use length."""
+        length = 0
+        length += len(str(tool_use.get("name", "")))
+        length += len(str(tool_use.get("toolUseId", "")))
+        input_data = tool_use.get("input", {})
+        length += len(str(input_data))
         return length
 
     def _compress(
@@ -352,8 +460,20 @@ class LargeToolResultMapper:
 
         Uses both text and JSON indicators for better LLM comprehension
         of what was compressed.
+
+        Includes defensive checks for cache operations and error handling.
         """
-        original_size = self._tool_length(tool_result, cache_key)
+        # Validate input
+        if not isinstance(tool_result, dict):
+            logger.warning("Invalid tool_result type: %s", type(tool_result))
+            return tool_result
+
+        try:
+            original_size = self._tool_length(tool_result, cache_key)
+        except Exception as e:
+            # Handle errors gracefully in compression
+            logger.warning("Failed to calculate tool result length: %s", e, exc_info=True)
+            original_size = 0
         compressed_blocks: list[dict[str, Any]] = []
         json_original_keys = 0
         json_sample: dict[str, Any] = {}
@@ -396,15 +516,19 @@ class LargeToolResultMapper:
                         }
 
                     compressed_str = str(json_sample) if json_sample else ""
+                    # Safe division for compression ratio
+                    compression_ratio = (
+                        len(compressed_str) / payload_len
+                        if payload_len > 0
+                        else 0.0
+                    )
                     metadata = CompressionMetadata(
                         compressed=True,
                         original_size=payload_len,
                         compressed_size=len(compressed_str),
                         original_token_estimate=payload_len // 4,
                         compressed_token_estimate=len(compressed_str) // 4,
-                        compression_ratio=len(compressed_str) / payload_len
-                        if payload_len > 0
-                        else 0,
+                        compression_ratio=compression_ratio,
                         content_type="json",
                         n_original_keys=json_original_keys
                         if json_original_keys > 0
@@ -451,6 +575,40 @@ class LargeToolResultMapper:
         return {
             **tool_result,
             "content": [note, *compressed_blocks],
+        }
+
+    def _compress_tool_use(self, tool_use: dict[str, Any]) -> dict[str, Any]:
+        """Compress tool use input."""
+        input_data = tool_use.get("input", {})
+        if not input_data:
+            return tool_use
+
+        original_size = len(str(input_data))
+        compressed_input = {}
+        
+        # Compress input fields
+        for key, value in input_data.items():
+            value_str = str(value)
+            if len(value_str) > self.truncate_at:
+                compressed_input[key] = (
+                    value_str[: self.truncate_at]
+                    + f"... [truncated from {len(value_str)} chars]"
+                )
+            else:
+                compressed_input[key] = value
+
+        compressed_size = len(str(compressed_input))
+        
+        logger.info(
+            "Compressed tool use input: %d → %d chars (%.1f%% reduction)",
+            original_size,
+            compressed_size,
+            100 * (1 - compressed_size / original_size) if original_size > 0 else 0,
+        )
+
+        return {
+            **tool_use,
+            "input": compressed_input
         }
 
     def _summarize_json(self, data: Any, original_len: int) -> str:
@@ -503,13 +661,32 @@ class MappingConversationManager(SummarizingConversationManager):
         preserve_first_messages: int = PRESERVE_FIRST_DEFAULT,
         tool_result_mapper: Optional[LargeToolResultMapper] = None,
     ) -> None:
+        # Validate preservation ranges to prevent overlap and window size parameters
+        if window_size < 1:
+            logger.warning("Invalid window_size %d, using minimum 1", window_size)
+            window_size = 1
+        if preserve_first_messages < 0:
+            logger.warning("Invalid preserve_first_messages %d, using 0", preserve_first_messages)
+            preserve_first_messages = 0
+        if preserve_recent_messages < 0:
+            logger.warning("Invalid preserve_recent_messages %d, using 0", preserve_recent_messages)
+            preserve_recent_messages = 0
+        # Warn if preservation ranges might cause issues
+        if preserve_first_messages + preserve_recent_messages > window_size:
+            logger.warning(
+                "Preservation ranges (first=%d + last=%d = %d) exceed window_size=%d. "
+                "This may prevent effective pruning.",
+                preserve_first_messages, preserve_recent_messages,
+                preserve_first_messages + preserve_recent_messages, window_size
+            )
+
         super().__init__(
             summary_ratio=summary_ratio,
             preserve_recent_messages=preserve_recent_messages,
         )
         self._sliding = SlidingWindowConversationManager(
             window_size=window_size,
-            should_truncate_results=True,
+            should_truncate_results=False,  # Use our layers instead of SDK truncation
         )
         self.mapper = tool_result_mapper or LargeToolResultMapper()
         self.preserve_first = max(0, preserve_first_messages)
@@ -517,6 +694,13 @@ class MappingConversationManager(SummarizingConversationManager):
         self.removed_message_count = 0
 
     def apply_management(self, agent: Agent, **kwargs: Any) -> None:
+        """Apply mapper compression then sliding window trimming.
+
+        Layer 1: Compress large tool results in prunable range
+        Layer 2: Trim old messages via sliding window
+
+        SDK's SlidingWindow doesn't have a mapper, so no double-application risk.
+        """
         self._apply_mapper(agent)
         self._sliding.apply_management(agent, **kwargs)
 
@@ -526,6 +710,19 @@ class MappingConversationManager(SummarizingConversationManager):
         e: Optional[Exception] = None,
         **kwargs: Any,
     ) -> None:
+        messages = getattr(agent, "messages", [])
+        window_size = getattr(self._sliding, "window_size", 100) if self._sliding else 100
+
+        if len(messages) > window_size * 1.2:  # 20% buffer
+            logger.warning(
+                "FORCE PRUNING: Message count %d exceeds window %d with buffer "
+                "(token estimation may be inaccurate - V17 was 87x off)",
+                len(messages),
+                window_size
+            )
+
+
+        # Apply mapper compression
         self._apply_mapper(agent)
         before_msgs = _count_agent_messages(agent)
         # Use estimation to measure reduction impact (not telemetry - see docstring)
@@ -561,8 +758,14 @@ class MappingConversationManager(SummarizingConversationManager):
             )
 
         reason = getattr(agent, "_pending_reduction_reason", None)
+        # Safe attribute deletion
         if hasattr(agent, "_pending_reduction_reason"):
-            delattr(agent, "_pending_reduction_reason")
+            try:
+                delattr(agent, "_pending_reduction_reason")
+            except AttributeError:
+                pass  # Already deleted, safe to ignore
+            except Exception as e:
+                logger.debug("Failed to delete _pending_reduction_reason: %s", e)
         _record_context_reduction_event(
             agent,
             stage=stage,
@@ -586,6 +789,7 @@ class MappingConversationManager(SummarizingConversationManager):
         self.removed_message_count = (state or {}).get("removed_message_count", 0)
         return super().restore_from_session(state)
 
+
     def _apply_mapper(self, agent: Agent) -> None:
         """Apply tool result compression to messages in prunable range."""
         if not self.mapper:
@@ -602,7 +806,7 @@ class MappingConversationManager(SummarizingConversationManager):
         )
 
         # Skip pruning quietly for very small conversations (common for swarm agents)
-        if total < 3:
+        if total < SMALL_CONVERSATION_THRESHOLD:
             logger.debug(
                 "Skipping pruning for small conversation: %d messages (agent=%s)",
                 total,
@@ -612,8 +816,7 @@ class MappingConversationManager(SummarizingConversationManager):
 
         # Validate preservation ranges don't overlap entire message list
         if self.preserve_first + self.preserve_last >= total:
-            # Downgrade to DEBUG for small conversations to reduce noise
-            log_level = logger.debug if total < 5 else logger.warning
+            log_level = logger.debug if total <= PRESERVATION_OVERLAP_THRESHOLD else logger.warning
             log_level(
                 "Cannot prune: preservation ranges (%d first + %d last) cover all %d messages. "
                 "Consider reducing CYBER_CONVERSATION_PRESERVE_LAST (currently %d). "
@@ -653,6 +856,7 @@ class MappingConversationManager(SummarizingConversationManager):
         for idx, message in enumerate(messages):
             if idx < start_prune or idx >= end_prune:
                 # In preservation zone (initial or recent messages)
+                # System messages at index 0 are automatically preserved here
                 new_messages.append(message)
             else:
                 # In prunable zone - apply compression
@@ -660,7 +864,8 @@ class MappingConversationManager(SummarizingConversationManager):
                 mapped = self.mapper(message, idx, messages)
                 if mapped is None:
                     self.removed_message_count += 1
-                elif mapped != before_compression:
+                elif str(mapped) != str(before_compression):
+                    # Use string comparison to detect actual content changes
                     compressions += 1
                     new_messages.append(mapped)
                 else:
@@ -713,7 +918,7 @@ def _safe_estimate_tokens(agent: Agent) -> Optional[int]:
             return 0
 
         estimated = _estimate_prompt_tokens(agent)
-        logger.debug(
+        logger.info(
             "TOKEN ESTIMATION: Estimated %d tokens from %d messages (agent=%s)",
             estimated,
             len(messages),
@@ -756,13 +961,30 @@ def _get_metrics_input_tokens(agent: Agent) -> Optional[int]:
     - Fallback test/legacy hook: agent.callback_handler.sdk_input_tokens (absolute per-turn)
 
     Returns per-prompt input token count, or None if unavailable.
+
+    Includes validation to fix potential None dereference in metrics.
     """
+    # Validate agent is not None
+    if agent is None:
+        logger.warning("Cannot get metrics from None agent")
+        return None
+
     # Primary: SDK metrics with delta tracking
     metrics = getattr(agent, "event_loop_metrics", None)
     if metrics is not None and hasattr(metrics, "accumulated_usage"):
-        accumulated = metrics.accumulated_usage
+        # Safely access accumulated_usage
+        try:
+            accumulated = metrics.accumulated_usage
+        except AttributeError:
+            accumulated = None
+
         if isinstance(accumulated, dict):
             current_total = accumulated.get("inputTokens", 0)
+            # Validate current_total is numeric
+            if not isinstance(current_total, (int, float)):
+                logger.debug("Invalid inputTokens type: %s", type(current_total))
+                current_total = 0
+
             if current_total > 0:
                 previous_total = getattr(agent, "_metrics_previous_input_tokens", 0)
                 delta = current_total - previous_total
@@ -809,14 +1031,14 @@ def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
         Character-to-token ratio for estimation
     """
     if not model_id:
-        return 3.7  # Conservative default (slight overestimation)
+        return DEFAULT_CHAR_TO_TOKEN_RATIO  # Conservative default (slight overestimation)
 
     # Check cache first
     if model_id in _RATIO_CACHE:
         return _RATIO_CACHE[model_id]
 
-    # Compute ratio
-    ratio = 3.7  # Default
+    # Compute ratio with default fallback
+    ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Default
     try:
         client = get_models_client()
         info = client.get_model_info(model_id)
@@ -826,7 +1048,7 @@ def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
 
             # Provider-specific ratios based on tokenizer characteristics
             if "anthropic" in provider or ("bedrock" in provider and "claude" in model_id.lower()):
-                ratio = 3.7  # Claude tokenizer
+                ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Claude tokenizer (3.7)
             elif "google" in provider or "gemini" in provider or "vertex" in provider:
                 ratio = 4.2  # Gemini tokenizer (SentencePiece)
             elif "moonshot" in provider or "moonshotai" in provider:
@@ -904,9 +1126,39 @@ def _estimate_prompt_tokens(agent: Agent) -> int:
                 total_chars += len(doc.get("name", ""))
                 total_chars += 400
 
+            elif "reasoningContent" in block:
+                # Count reasoning blocks (Kimi K2, GPT-5, Claude Sonnet 4.5)
+                reasoning = block["reasoningContent"]
+                if isinstance(reasoning, dict):
+                    if "reasoningText" in reasoning:
+                        total_chars += len(reasoning["reasoningText"].get("text", ""))
+                    # Fallback: stringify entire reasoning block
+                    elif reasoning:
+                        total_chars += len(str(reasoning))
+
     # Get model-appropriate ratio dynamically from models.dev
-    model_id = getattr(agent, "model", "")
+    # Extract model_id string from model config (not model object)
+    # Validate model attributes before access
+    model = getattr(agent, "model", None)
+    model_id = ""
+    if model is not None:
+        if hasattr(model, "config"):
+            config = getattr(model, "config", None)
+            if isinstance(config, dict):
+                model_id = config.get("model_id", "")
+            elif config is not None:
+                # config might be an object with attributes
+                model_id = getattr(config, "model_id", "")
+        # Fallback: try to get model_id directly from model object
+        if not model_id and hasattr(model, "model_id"):
+            model_id = getattr(model, "model_id", "")
+
     ratio = _get_char_to_token_ratio_dynamic(model_id)
+
+    # Safe division with validation
+    if ratio <= 0:
+        logger.warning("Invalid char/token ratio %.2f, using default %.1f", ratio, DEFAULT_CHAR_TO_TOKEN_RATIO)
+        ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
     estimated_tokens = max(1, int(total_chars / ratio))
 
     logger.debug(
@@ -1010,7 +1262,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     threshold_ratio = PROMPT_TELEMETRY_THRESHOLD + (
         PROMPT_CACHE_RELAX if cache_hint else 0.0
     )
-    threshold_ratio = min(threshold_ratio, 0.98)
+    threshold_ratio = min(threshold_ratio, MAX_THRESHOLD_RATIO)
     threshold = int(limit_for_threshold * threshold_ratio)
     reduction_reason: Optional[str] = None
 
@@ -1018,11 +1270,17 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     # Do NOT use telemetry - it reflects cumulative usage, not current context
     if current_tokens >= threshold:
         reduction_reason = f"context size {current_tokens}"
+        # Safe division for percentage calculation
+        percentage = (
+            (current_tokens / limit_for_threshold * 100)
+            if limit_for_threshold > 0
+            else 0.0
+        )
         logger.warning(
             "THRESHOLD EXCEEDED: context=%d, threshold=%d (%.1f%%), limit=%d",
             current_tokens,
             threshold,
-            (current_tokens / limit_for_threshold * 100),
+            percentage,
             limit_for_threshold,
         )
 
@@ -1043,11 +1301,14 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
         )
         setattr(agent, _NO_REDUCTION_ATTR, True)
     elif current_tokens < warn_threshold:
-        # Reset warning flag when back under threshold
+        # Reset warning flag when back under threshold with safe deletion
         if hasattr(agent, _NO_REDUCTION_ATTR):
             try:
                 delattr(agent, _NO_REDUCTION_ATTR)
-            except Exception:
+            except AttributeError:
+                pass  # Already deleted, safe to ignore
+            except Exception as e:
+                logger.debug("Failed to delete %s attribute: %s", _NO_REDUCTION_ATTR, e)
                 setattr(agent, _NO_REDUCTION_ATTR, False)
 
     if reduction_reason is None:
@@ -1101,22 +1362,37 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
         )
     except Exception:
         logger.exception("Failed to proactively reduce context")
+        # Safe attribute deletion and reset escalation counter on error to prevent it from getting stuck
         if hasattr(agent, "_pending_reduction_reason"):
-            delattr(agent, "_pending_reduction_reason")
+            try:
+                delattr(agent, "_pending_reduction_reason")
+            except AttributeError:
+                pass  # Already deleted
+            except Exception as e:
+                logger.debug("Failed to delete _pending_reduction_reason: %s", e)
+
+        # Reset escalation counter to prevent infinite escalation
+        if hasattr(agent, "_prompt_budget_escalations"):
+            try:
+                delattr(agent, "_prompt_budget_escalations")
+            except AttributeError:
+                pass
+            except Exception as e:
+                logger.debug("Failed to delete _prompt_budget_escalations: %s", e)
+                setattr(agent, "_prompt_budget_escalations", 0)
         return
 
     # Escalate if still near/over threshold; perform up to 2 additional aggressive passes
     # with time budget to prevent hangs
     passes = 0
     escalation_start = time.time()
-    MAX_ESCALATION_TIME = 30.0  # 30 seconds maximum for all escalation passes
 
     while (
-        passes < 2
+        passes < ESCALATION_MAX_PASSES
         and after_tokens is not None
         and limit_for_threshold
-        and after_tokens >= int(limit_for_threshold * 0.9)
-        and (time.time() - escalation_start) < MAX_ESCALATION_TIME
+        and after_tokens >= int(limit_for_threshold * ESCALATION_THRESHOLD_RATIO)
+        and (time.time() - escalation_start) < ESCALATION_MAX_TIME_SECONDS
     ):
         passes += 1
         pass_start = time.time()
@@ -1137,8 +1413,8 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
 
     # Check if we hit time limit
     total_escalation_time = time.time() - escalation_start
-    if total_escalation_time >= MAX_ESCALATION_TIME and after_tokens >= int(
-        limit_for_threshold * 0.9
+    if total_escalation_time >= ESCALATION_MAX_TIME_SECONDS and after_tokens >= int(
+        limit_for_threshold * ESCALATION_THRESHOLD_RATIO
     ):
         logger.warning(
             "Escalation terminated after %.2fs (time budget exceeded). "
@@ -1152,14 +1428,18 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     if (
         after_tokens is not None
         and limit_for_threshold
-        and after_tokens >= int(limit_for_threshold * 0.9)
+        and after_tokens >= int(limit_for_threshold * ESCALATION_THRESHOLD_RATIO)
     ):
         setattr(agent, "_prompt_budget_escalations", escalation_count + 1)
     else:
+        # Safe attribute deletion with proper exception handling
         if hasattr(agent, "_prompt_budget_escalations"):
             try:
                 delattr(agent, "_prompt_budget_escalations")
-            except Exception:
+            except AttributeError:
+                pass  # Already deleted, safe to ignore
+            except Exception as e:
+                logger.debug("Failed to delete _prompt_budget_escalations: %s", e)
                 setattr(agent, "_prompt_budget_escalations", 0)
 
     if after_msgs < before_msgs or (
@@ -1209,13 +1489,46 @@ class PromptBudgetHook:
         )
 
     def _on_before_model_call(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Add type safety for event attributes."""
+        # Validate event
+        if event is None:
+            logger.warning("HOOK EVENT: Received None event in _on_before_model_call")
+            return
+
         logger.info(
             "HOOK EVENT: BeforeModelCallEvent fired - event=%s, has_agent=%s",
             type(event).__name__,
             getattr(event, "agent", None) is not None,
         )
         if self._callback and getattr(event, "agent", None) is not None:
-            self._callback(event.agent)
+            agent = event.agent
+
+            # CRITICAL: Strip reasoning content BEFORE conversation management
+            # Prevents 7000+ reasoning blocks from accumulating (85% of token bloat)
+            _strip_reasoning_content(agent)
+
+            # Proactively apply sliding window management before threshold check
+            # This enforces the configured window size (e.g., 100 messages)
+            conversation_manager = getattr(agent, "conversation_manager", None)
+            if conversation_manager is None:
+                conversation_manager = _SHARED_CONVERSATION_MANAGER
+
+            if conversation_manager is not None:
+                try:
+                    logger.info(
+                        "Applying conversation management before model call (agent=%s)",
+                        getattr(agent, "name", "unknown")
+                    )
+                    conversation_manager.apply_management(agent)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to apply conversation management (agent=%s, error=%s)",
+                        getattr(agent, "name", "unknown"),
+                        str(e),
+                        exc_info=True
+                    )
+
+            self._callback(agent)
         else:
             logger.warning(
                 "HOOK EVENT: BeforeModelCallEvent skipped - callback=%s, agent=%s",
@@ -1224,9 +1537,28 @@ class PromptBudgetHook:
             )
 
     def _on_after_model_call(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Add type safety for event attributes and cleanup temporary attributes."""
+        # Validate event
+        if event is None:
+            logger.warning("HOOK EVENT: Received None event in _on_after_model_call")
+            return
+
         logger.debug(
             "HOOK EVENT: AfterModelCallEvent fired - event=%s", type(event).__name__
         )
+
+        # Cleanup temporary attributes after model call
+        agent = getattr(event, "agent", None)
+        if agent is not None:
+            # Clean up pending reduction reason if it wasn't consumed
+            if hasattr(agent, "_pending_reduction_reason"):
+                try:
+                    delattr(agent, "_pending_reduction_reason")
+                except AttributeError:
+                    pass  # Already cleaned up
+                except Exception as e:
+                    logger.debug("Failed to cleanup _pending_reduction_reason: %s", e)
+
         # Telemetry deltas are picked up by _ensure_prompt_within_budget; no-op here
         return
 
