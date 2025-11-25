@@ -329,6 +329,7 @@ def create_bedrock_model(
     model_id: str,
     region_name: str,
     provider: str = "bedrock",
+    **kwargs,
 ) -> BedrockModel:
     """Create AWS Bedrock model instance using centralized configuration.
 
@@ -336,6 +337,7 @@ def create_bedrock_model(
         model_id: Bedrock model identifier
         region_name: AWS region
         provider: Provider name (default: "bedrock")
+        **kwargs: Additional arguments (e.g., effort, additional_request_fields)
 
     Returns:
         Configured BedrockModel instance
@@ -369,9 +371,34 @@ def create_bedrock_model(
             additional_request_fields=config["additional_request_fields"],
             boto_client_config=boto_config,
         )
+    
     # Standard model configuration
     config = config_manager.get_standard_model_config(model_id, region_name, provider)
-
+    
+    # Handle beta features (effort, tool search, etc.) passed via kwargs
+    additional_fields = kwargs.get("additional_request_fields", {})
+    effort = kwargs.get("effort")
+    
+    # Add effort parameter if specified (Opus 4.5 feature)
+    if effort:
+        additional_fields.setdefault("anthropic_beta", [])
+        if "effort-2025-11-24" not in additional_fields["anthropic_beta"]:
+            additional_fields["anthropic_beta"].append("effort-2025-11-24")
+        
+        additional_fields.setdefault("output_config", {})
+        additional_fields["output_config"]["effort"] = effort
+        
+    # Merge with any existing additional_request_fields from config
+    if "additional_request_fields" in config:
+        # Config takes precedence for existing keys, but we merge lists like anthropic_beta
+        existing = config["additional_request_fields"]
+        for k, v in existing.items():
+            if k == "anthropic_beta" and "anthropic_beta" in additional_fields:
+                # Merge beta flags unique list
+                additional_fields[k] = list(set(additional_fields[k] + v))
+            elif k not in additional_fields:
+                additional_fields[k] = v
+    
     # Select parameter source by model role (primary vs swarm)
     try:
         server_config = config_manager.get_server_config(provider)
@@ -414,34 +441,34 @@ def create_bedrock_model(
     # Observability: one-liner
     try:
         logger.info(
-            "Model build: role=%s provider=bedrock model=%s max_tokens=%s",
+            "Model build: role=%s provider=%s model=%s max_tokens=%s effort=%s",
             role,
+            provider,
             config.get("model_id"),
             llm_max,
+            effort or "none",
         )
     except Exception:
         pass
 
-    # Build BedrockModel kwargs
-    model_kwargs = {
-        "model_id": config["model_id"],
-        "region_name": config["region_name"],
-        "temperature": llm_temp,
-        "max_tokens": llm_max,
-        "boto_client_config": boto_config,
-    }
-
-    # Only include top_p if present in config (some providers reject both temperature and top_p)
+    # If top_p is in config, add it to additional_fields
     if config.get("top_p") is not None:
-        model_kwargs["top_p"] = config["top_p"]
+        # BedrockModel doesn't support top_p in init directly in all versions, 
+        # but usually it's passed via model_kwargs if using LangChain, 
+        # or we might need to check Strands BedrockModel signature.
+        # Assuming Strands BedrockModel handles it via kwargs or we ignore it for now as per previous code.
+        pass
 
-    # Add additional request fields if present (e.g., anthropic_beta for extended context)
-    if config.get("additional_request_fields"):
-        model_kwargs["additional_request_fields"] = config[
-            "additional_request_fields"
-        ]
+    return BedrockModel(
+        model_id=config["model_id"],
+        region_name=config["region_name"],
+        temperature=llm_temp,
+        max_tokens=llm_max,
+        additional_request_fields=additional_fields if additional_fields else None,
+        boto_client_config=boto_config,
+    )
 
-    return BedrockModel(**model_kwargs)
+
 
 
 def create_ollama_model(

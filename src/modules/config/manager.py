@@ -185,14 +185,55 @@ class ConfigManager:
         if llm_config.top_p is not None:
             config["top_p"] = llm_config.top_p
 
+        # Initialize additional_request_fields for Bedrock beta features
+        additional_fields = {}
+        
         # Add 1M context support for Claude Sonnet 4 and 4.5
         if (
             "claude-sonnet-4-20250514" in model_id
             or "claude-sonnet-4-5-20250929" in model_id
         ):
-            config["additional_request_fields"] = {
-                "anthropic_beta": ["context-1m-2025-08-07"]
-            }
+            additional_fields["anthropic_beta"] = ["context-1m-2025-08-07"]
+        
+        
+        # Add effort parameter if BEDROCK_EFFORT is set (Opus 4.5, Sonnet 4.5, Haiku 4.5 feature)
+        effort_level = self.getenv("BEDROCK_EFFORT")
+        if effort_level and provider == "bedrock":
+            if "anthropic_beta" not in additional_fields:
+                additional_fields["anthropic_beta"] = []
+            if "effort-2025-11-24" not in additional_fields["anthropic_beta"]:
+                additional_fields["anthropic_beta"].append("effort-2025-11-24")
+            
+            additional_fields["output_config"] = {"effort": effort_level}
+            logger.debug(
+                "BEDROCK_EFFORT=%s configured for model %s", effort_level, model_id
+            )
+        
+        # Add tool search beta flag if enabled (Claude Opus 4.5+ dynamic tool discovery)
+        enable_tool_search = self.getenv("ENABLE_TOOL_SEARCH")
+        if enable_tool_search and enable_tool_search.lower() in ("true", "1", "yes") and provider == "bedrock":
+            if "anthropic_beta" not in additional_fields:
+                additional_fields["anthropic_beta"] = []
+            if "tool-search-2025-10-01" not in additional_fields["anthropic_beta"]:
+                additional_fields["anthropic_beta"].append("tool-search-2025-10-01")
+            logger.debug(
+                "ENABLE_TOOL_SEARCH enabled for model %s", model_id
+            )
+        
+        # Add tool examples beta flag if enabled (Claude Opus 4.5+ enhanced tool definitions)
+        enable_tool_examples = self.getenv("ENABLE_TOOL_EXAMPLES")
+        if enable_tool_examples and enable_tool_examples.lower() in ("true", "1", "yes") and provider == "bedrock":
+            if "anthropic_beta" not in additional_fields:
+                additional_fields["anthropic_beta"] = []
+            if "tool-examples-2025-10-01" not in additional_fields["anthropic_beta"]:
+                additional_fields["anthropic_beta"].append("tool-examples-2025-10-01")
+            logger.debug(
+                "ENABLE_TOOL_EXAMPLES enabled for model %s", model_id
+            )
+        
+        # Only add to config if we have any fields
+        if additional_fields:
+            config["additional_request_fields"] = additional_fields
 
         return config
 

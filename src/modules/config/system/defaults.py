@@ -89,9 +89,9 @@ def build_bedrock_defaults() -> Dict[str, Any]:
     return {
         "llm": LLMConfig(
             provider=ModelProvider.AWS_BEDROCK,
-            model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            model_id="global.anthropic.claude-opus-4-5-20251124-v1:0",  # Latest Opus 4.5 with effort parameter support (cross-region)
             temperature=0.95,
-            max_tokens=32000,
+            max_tokens=64000,  # Opus 4.5 has 64K output limit
             # top_p removed - global.* models reject both temperature and top_p
         ),
         "embedding": EmbeddingConfig(
@@ -135,9 +135,9 @@ def build_litellm_defaults() -> Dict[str, Any]:
     return {
         "llm": LLMConfig(
             provider=ModelProvider.LITELLM,
-            model_id="bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",  # Default to Bedrock via LiteLLM
+            model_id="bedrock/global.anthropic.claude-opus-4-5-20251124-v1:0",  # Latest Opus 4.5 with effort parameter support (cross-region)
             temperature=0.95,
-            max_tokens=32000,  
+            max_tokens=64000,  # Opus 4.5 has 64K output limit
 
         ),
         "embedding": EmbeddingConfig(

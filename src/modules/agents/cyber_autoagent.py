@@ -800,8 +800,10 @@ Available {config.module} MCP tools:
             print_status(f"Ollama model initialized: {config.model_id}", "SUCCESS")
         elif config.provider == "bedrock":
             agent_logger.debug("Configuring BedrockModel")
+            # Check for effort configuration (Opus 4.5 feature)
+            effort = os.getenv("BEDROCK_EFFORT")
             model = create_bedrock_model(
-                config.model_id, config.region_name, config.provider
+                config.model_id, config.region_name, config.provider, effort=effort
             )
             print_status(f"Bedrock model initialized: {config.model_id}", "SUCCESS")
         elif config.provider == "litellm":
@@ -876,13 +878,12 @@ Available {config.module} MCP tools:
     conversation_window = getattr(server_config.sdk, "conversation_window_size", None)
     try:
         window_size = (
-            int(conversation_window) if conversation_window is not None else 30
+            int(conversation_window) if conversation_window is not None else 80
         )
     except (TypeError, ValueError):
-        window_size = 30
-    # Cap window size to 40 to prevent context overflow and tool blocking
-    # Reduced from 75 after observing SDK truncation at step 67 with 170 tools
-    window_size = min(40, max(10, window_size))
+        window_size = 80
+    # Cap window size to 120 (default 80) for balance between context and performance
+    window_size = min(120, max(10, window_size))
 
     # Create and register conversation manager for all agents (including swarm children)
     # Use environment variables for preservation to enable effective pruning

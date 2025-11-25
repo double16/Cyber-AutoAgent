@@ -294,6 +294,13 @@ MODEL_INPUT_LIMITS = {
     # AWS Bedrock - Claude Sonnet 4.5 (1M input)
     "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0": 1000000,
     "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0": 1000000,
+    # AWS Bedrock - Claude Opus 4.5 (200K input)
+    "bedrock/global.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
+    "bedrock/us.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
+    "bedrock/anthropic.claude-opus-4-5-20251124-v1:0": 200000,
+    "global.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
+    "us.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
+    "anthropic.claude-opus-4-5-20251124-v1:0": 200000,
     # AWS Bedrock - Claude 3 Opus/Sonnet (200K)
     "bedrock/anthropic.claude-3-opus-20240229-v1:0": 200000,
     "bedrock/anthropic.claude-3-sonnet-20240229-v1:0": 200000,
