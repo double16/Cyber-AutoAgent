@@ -3,10 +3,10 @@ import React from 'react';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {render} from 'ink';
+import { render } from 'ink';
 import { PassThrough } from 'node:stream';
 import meow from 'meow';
-import {App} from './App.js';
+import { App } from './App.js';
 import { Config } from './contexts/ConfigContext.js';
 import { loggingService } from './services/LoggingService.js';
 import { enableConsoleSilence } from './utils/consoleSilencer.js';
@@ -21,18 +21,18 @@ try {
   if (!process.env.NODE_ENV) {
     process.env.NODE_ENV = 'production';
   }
-} catch {}
+} catch { }
 
 // Silence noisy console output in production unless explicitly debugging
 try {
-const env = process.env.NODE_ENV || 'production';
+  const env = process.env.NODE_ENV || 'production';
   // Treat anything except explicit 'development' as production by default
   const isProd = env !== 'development';
   const debugOn = !!(process.env.DEBUG || process.env.CYBER_DEBUG || process.env.CYBER_TEST_MODE);
   if (isProd && !debugOn) {
     enableConsoleSilence();
   }
-} catch {}
+} catch { }
 
 // Set project root if not already set (helps ContainerManager find docker-compose.yml)
 if (!process.env.CYBER_PROJECT_ROOT) {
@@ -50,7 +50,7 @@ try {
   if (process.env.CYBER_TEST_MODE === 'true') {
     loggingService.info('Welcome to Cyber-AutoAgent');
   }
-} catch {}
+} catch { }
 
 const cli = meow(`
   Usage
@@ -143,17 +143,17 @@ const cli = meow(`
 });
 
 // Emit an immediate welcome line in headless test mode to aid terminal capture timing
-  try {
+try {
   if (process.env.CYBER_TEST_MODE === 'true' && cli.flags.headless && !cli.flags.autoRun) {
     const configDir = path.join(os.homedir(), '.cyber-autoagent');
     const configPath = path.join(configDir, 'config.json');
     const firstLaunch = !fs.existsSync(configPath);
     if (firstLaunch) {
       loggingService.info('Welcome to Cyber-AutoAgent');
-      try { console.log('[TEST_EVENT] welcome'); } catch {}
+      try { console.log('[TEST_EVENT] welcome'); } catch { }
     }
   }
-} catch {}
+} catch { }
 
 // Check if we're running in a TTY environment
 const isRawModeSupported = process.stdin.isTTY;
@@ -163,14 +163,14 @@ const runAutoAssessment = async () => {
   if (cli.flags.autoRun && cli.flags.target) {
     loggingService.info(`🔐 Starting assessment: ${cli.flags.module} → ${cli.flags.target}`);
     loggingService.info(`📌 Objective: ${cli.flags.objective || 'General security assessment'}`);
-    
+
     try {
       // Import config system to get proper defaults and merge with CLI overrides
       const configModule = await import('./contexts/ConfigContext.js');
-      
+
       // Load default config and apply CLI overrides
       const configOverrides: Partial<Config> = {};
-      
+
       // Load saved configuration first to detect provider changes
       const configDir = path.join(os.homedir(), '.cyber-autoagent');
       const configPath = path.join(configDir, 'config.json');
@@ -228,7 +228,7 @@ const runAutoAssessment = async () => {
       const defaultConfig = configModule.defaultConfig || {
         // Fallback defaults if import fails
         modelProvider: 'bedrock' as const,
-        modelId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', // Latest Sonnet 4.5 as default
+        modelId: 'global.anthropic.claude-opus-4-5-20251124-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
         embeddingModel: 'amazon.titan-embed-text-v2:0',
         evaluationModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
         swarmModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
@@ -274,26 +274,26 @@ const runAutoAssessment = async () => {
         minContextPrecisionScore: 0.8,
         isConfigured: true
       };
-      
+
       // Merge in priority order: defaults → saved config → CLI overrides
       const finalConfig = { ...defaultConfig, ...savedConfig, ...configOverrides } as Config;
-      
+
       loggingService.info(`⚙️  Config: ${finalConfig.iterations} iterations, ${finalConfig.modelProvider}/${finalConfig.modelId}`);
       loggingService.info(`🔭 Observability: ${finalConfig.observability ? 'enabled' : 'disabled'}`);
       loggingService.info(`🏗️  Deployment Mode: ${finalConfig.deploymentMode || 'local-cli'}`);
-      
+
       // Import and use ExecutionServiceFactory to select proper service
       const { ExecutionServiceFactory } = await import('./services/ExecutionServiceFactory.js');
       const serviceResult = await ExecutionServiceFactory.selectService(finalConfig);
       const executionService = serviceResult.service;
-      
+
       loggingService.info(`🔧 Using execution service: ${serviceResult.mode} (preferred: ${serviceResult.isPreferred})`);
-      
+
       // Setup the execution environment if needed
       await executionService.setup(finalConfig, (message) => {
         loggingService.info(`📦 Setup: ${message}`);
       });
-      
+
       const assessmentParams = {
         module: cli.flags.module,
         target: cli.flags.target,
@@ -312,7 +312,7 @@ const runAutoAssessment = async () => {
       });
 
       const result = await handle.result;
-      
+
       if (result.success) {
         loggingService.info(` Assessment completed successfully in ${result.durationMs}ms`);
         loggingService.info(` Steps executed: ${result.stepsExecuted || 'unknown'}`);
@@ -320,14 +320,14 @@ const runAutoAssessment = async () => {
       } else {
         loggingService.error(` Assessment failed: ${result.error}`);
       }
-      
+
       // Cleanup
       executionService.cleanup();
     } catch (error) {
       loggingService.error('Assessment failed:', error);
       process.exit(1);
     }
-    
+
     return true; // Indicates autoRun was handled
   }
   return false; // Indicates normal React mode should continue
@@ -338,7 +338,7 @@ const runAutoAssessment = async () => {
   if (await runAutoAssessment()) {
     process.exit(0); // Exit after successful autoRun
   }
-  
+
   // Continue with normal React app rendering if not autoRun mode
   renderReactApp();
 })();
@@ -351,7 +351,7 @@ function renderReactApp() {
     loggingService.info('\nUsage: cyber-react --target <target> --auto-run');
     process.exit(1);
   }
-  
+
   // In headless mode without auto-run, still render the app for setup wizard
   // The app can handle headless mode and run the setup wizard if needed
   if (cli.flags.headless && !cli.flags.autoRun) {
@@ -367,19 +367,19 @@ function renderReactApp() {
           // Help the PTY-based journey test capture key screens as plain text markers
           setTimeout(() => {
             loggingService.info('Select Deployment Mode');
-            try { console.log('[TEST_EVENT] select_deployment_mode'); } catch {}
+            try { console.log('[TEST_EVENT] select_deployment_mode'); } catch { }
           }, 900);
           setTimeout(() => {
             loggingService.info('Setting up');
-            try { console.log('[TEST_EVENT] setting_up'); } catch {}
+            try { console.log('[TEST_EVENT] setting_up'); } catch { }
           }, 1600);
           setTimeout(() => {
             loggingService.info('setup completed successfully');
-            try { console.log('[TEST_EVENT] setup_complete'); } catch {}
+            try { console.log('[TEST_EVENT] setup_complete'); } catch { }
           }, 3000);
           setTimeout(() => {
             loggingService.info('Configuration Editor');
-            try { console.log('[TEST_EVENT] config_editor'); } catch {}
+            try { console.log('[TEST_EVENT] config_editor'); } catch { }
           }, 3600);
         }
       }
@@ -399,12 +399,12 @@ function renderReactApp() {
     // forward PTY/process input to Ink
     try {
       process.stdin.on('data', (d) => fakeStdin.write(d));
-    } catch {}
+    } catch { }
     // trick Ink into not throwing on setRawMode and ref/unref
     fakeStdin.isTTY = true;
-    fakeStdin.setRawMode = () => {};
-    fakeStdin.ref = () => {};
-    fakeStdin.unref = () => {};
+    fakeStdin.setRawMode = () => { };
+    fakeStdin.ref = () => { };
+    fakeStdin.unref = () => { };
     renderOptions.stdin = fakeStdin;
     renderOptions.exitOnCtrlC = false;
   }
@@ -423,9 +423,9 @@ function renderReactApp() {
       region={cli.flags.region}
     />,
     {
-    ...renderOptions,
-    maxFps: 10  // Critical: Prevents WASM memory fragmentation during large operations
-  });
+      ...renderOptions,
+      maxFps: 10  // Critical: Prevents WASM memory fragmentation during large operations
+    });
 
   // Handle graceful shutdown
   process.on('SIGINT', () => {

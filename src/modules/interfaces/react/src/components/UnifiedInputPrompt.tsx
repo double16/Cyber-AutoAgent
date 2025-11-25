@@ -76,17 +76,16 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
   }, [appStateRef?.getCommandHistory?.()]);
 
   // Generate smart suggestions based on flow state and input
-  // Don't use useCallback here to avoid infinite loop
   const generateSuggestions = (input: string): Suggestion[] => {
     const suggestions: Suggestion[] = [];
-    
+
     if (!input.trim()) {
       // No input - show appropriate suggestions based on flow state and user journey
       switch (flowState.step) {
         case 'idle':
           // Check if user has existing memories to suggest continuation
           const hasMemories = recentTargets.length > 0;
-          
+
           if (hasMemories) {
             // Returning user - suggest continuing previous work
             suggestions.push(
@@ -155,12 +154,12 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
         { text: '/plugins', description: 'Select security assessment module', type: 'command' },
         { text: '/health', description: 'Check system and container status', type: 'command' },
         { text: '/setup', description: 'Deployment mode configuration', type: 'command' },
-        
+
         // Target patterns (matching user-instructions.md examples)
         { text: 'target https://testphp.vulnweb.com', description: 'Public authorized test target', type: 'command' },
         { text: 'target https://your-authorized-target.com', description: 'Your authorized application', type: 'command' },
         { text: 'target 192.168.1.0/24', description: 'Your authorized network range', type: 'command' },
-        
+
         // Flow commands
         { text: 'target', description: 'Set assessment target', type: 'command' },
         { text: 'execute', description: 'Start security assessment', type: 'command' },
@@ -169,7 +168,7 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
         { text: '/exit', description: 'Exit application', type: 'command' }
       ];
 
-      const filtered = allSuggestions.filter(suggestion => 
+      const filtered = allSuggestions.filter(suggestion =>
         suggestion.text.toLowerCase().includes(input.toLowerCase()) ||
         suggestion.description.toLowerCase().includes(input.toLowerCase())
       );
@@ -188,9 +187,9 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
       setFilteredSuggestions([]);
       return;
     }
-    
+
     const suggestions = generateSuggestions(value);
-    
+
     // Prevent infinite loops by only updating if suggestions actually changed
     setFilteredSuggestions(prev => {
       if (JSON.stringify(prev) === JSON.stringify(suggestions)) {
@@ -198,7 +197,7 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
       }
       return suggestions;
     });
-    
+
     const shouldShow = suggestions.length > 0 && value.length > 0;
     setShowSuggestions(prev => prev !== shouldShow ? shouldShow : prev);
     setSelectedSuggestionIndex(prev => prev !== 0 ? 0 : prev);

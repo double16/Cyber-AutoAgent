@@ -95,9 +95,9 @@ export const ENV_DETECTION = {
 
 // Default model settings
 export const MODEL_DEFAULTS = {
-  BEDROCK_MODEL: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', // Latest Sonnet 4.5 as default
+  BEDROCK_MODEL: 'global.anthropic.claude-opus-4-5-20251124-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
   BEDROCK_REGION: 'us-east-1',
-  OPENAI_MODEL: 'gpt-4',
+  OPENAI_MODEL: 'gpt-5.1',
   OLLAMA_MODEL: 'llama2',
   TEMPERATURE: 0.7,
   MAX_TOKENS: 4096,
@@ -125,20 +125,20 @@ export const EVENT_TYPES = {
   ERROR: 'error',
   METADATA: 'metadata',
   DIVIDER: 'divider',
-  
+
   // Swarm events
   SWARM_START: 'swarm_start',
   SWARM_HANDOFF: 'swarm_handoff',
   SWARM_COMPLETE: 'swarm_complete',
-  
+
   // User interaction
   USER_HANDOFF: 'user_handoff',
   USER_INPUT: 'user_input',
-  
+
   // Metrics
   METRICS_UPDATE: 'metrics_update',
   EVALUATION_COMPLETE: 'evaluation_complete',
-  
+
   // SDK events
   MODEL_INVOCATION_START: 'model_invocation_start',
   MODEL_STREAM_DELTA: 'model_stream_delta',

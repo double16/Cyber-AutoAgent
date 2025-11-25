@@ -81,7 +81,7 @@ export interface Config {
   sagemakerBaseUrl?: string;
   /** Ollama server host URL for local model serving */
   ollamaHost?: string;
-  
+
   // Model Pricing Configuration (per 1K tokens)
   /** Custom model pricing configuration - overrides defaults */
   modelPricing?: {
@@ -91,7 +91,7 @@ export interface Config {
       description?: string;
     };
   };
-  
+
   // LiteLLM API Integration - Third-party model provider credentials
   /** OpenAI API key for GPT models via LiteLLM */
   openaiApiKey?: string;
@@ -123,6 +123,12 @@ export interface Config {
   maxTokens?: number;
   /** Thinking budget for Claude thinking models */
   thinkingBudget?: number;
+  /** Bedrock effort level for Claude Opus 4.5/Sonnet 4.5/Haiku 4.5 (low/medium/high) */
+  bedrockEffort?: 'low' | 'medium' | 'high';
+  /** Enable tool search beta feature for Claude Opus 4.5+ (dynamic tool discovery) */
+  enableToolSearch?: boolean;
+  /** Enable tool examples beta feature for Claude Opus 4.5+ (enhanced tool definitions) */
+  enableToolExamples?: boolean;
 
   // Docker Container Execution Configuration
   /** Docker image name for assessment execution */
@@ -131,7 +137,7 @@ export interface Config {
   dockerTimeout: number;
   /** Additional volume mounts for container access */
   volumes?: string[];
-  
+
   // Security Assessment Execution Parameters
   /** Maximum tool executions before automatic termination */
   iterations: number;
@@ -163,7 +169,7 @@ export interface Config {
   executionMode?: 'python-cli' | 'docker-single' | 'docker-stack';
   /** Allow fallback to other execution modes if preferred is unavailable */
   allowExecutionFallback: boolean;
-  
+
   // Memory Settings
   memoryPath?: string; // Path to existing FAISS memory store to load
   memoryMode: 'auto' | 'fresh'; // Memory initialization mode
@@ -173,19 +179,19 @@ export interface Config {
   opensearchHost?: string; // OpenSearch host URL
   opensearchUsername?: string;
   opensearchPassword?: string;
-  
+
   // Output Settings
   outputDir: string; // Base directory for output artifacts
   unifiedOutput: boolean; // Enable unified output directory structure
-  
+
   // UI Settings
   theme: 'default' | 'dark' | 'light' | 'hacker' | 'retro';
   showMemoryUsage: boolean;
   showOperationId: boolean; // Show operation ID in UI
-  
+
   // Environment Variables
   environment: EnvironmentMap;
-  
+
   // Report Settings
   reportSettings: {
     includeRemediation: boolean;
@@ -194,7 +200,7 @@ export interface Config {
     includeEvidence: boolean;
     includeMemoryOps: boolean;
   };
-  
+
   // Observability Settings
   observability: boolean; // Enable observability with Langfuse
   langfuseHost?: string;
@@ -206,7 +212,7 @@ export interface Config {
   enableLangfusePrompts?: boolean; // Enable Langfuse prompt management
   langfusePromptLabel?: string; // Prompt label (production, staging, dev)
   langfusePromptCacheTTL?: number; // Cache TTL in seconds
-  
+
   // Evaluation Settings
   autoEvaluation: boolean; // Enable automatic evaluation after operations
   evaluationBatchSize?: number; // Number of items per evaluation batch
@@ -220,12 +226,12 @@ export interface Config {
   evalMaxWaitSecs?: number;
   evalPollIntervalSecs?: number;
   evalSummaryMaxChars?: number;
-  
+
   // Setup Status
   isConfigured: boolean;
   hasSeenWelcome?: boolean; // Track if user has seen welcome tutorial
   deploymentMode?: 'local-cli' | 'single-container' | 'full-stack'; // Selected deployment mode
-  
+
   // Backward compatibility
   enableObservability?: boolean; // Deprecated, use observability instead
   updateChannel?: string; // Update channel for future use
@@ -319,7 +325,7 @@ const deploymentDefaults = getDeploymentDefaults();
 export const defaultConfig: Config = {
   // Model Provider Settings
   modelProvider: 'bedrock',
-  modelId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', // Latest Sonnet 4.5 as default
+  modelId: 'global.anthropic.claude-opus-4-5-20251124-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
   embeddingModel: 'amazon.titan-embed-text-v2:0',
   evaluationModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
   swarmModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
@@ -337,7 +343,7 @@ export const defaultConfig: Config = {
   awsExternalId: process.env.AWS_EXTERNAL_ID,
   sagemakerBaseUrl: process.env.SAGEMAKER_BASE_URL,
   ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
-  
+
   // Model Pricing (per 1K tokens)
   // AWS Bedrock: Real AWS CLI pricing from us-east-1
   // Ollama: Free local models (0 cost)
@@ -364,6 +370,11 @@ export const defaultConfig: Config = {
       description: 'MXBAI Embeddings - Local Ollama model (free)'
     },
     // Anthropic Claude Models (Verified AWS CLI pricing)
+    'global.anthropic.claude-opus-4-5-20251124-v1:0': {
+      inputCostPer1k: 0.005,
+      outputCostPer1k: 0.025,
+      description: 'Claude Opus 4.5 - Flagship model with effort parameter support (AWS Bedrock cross-region)'
+    },
     'us.anthropic.claude-sonnet-4-5-20250929-v1:0': {
       inputCostPer1k: 0.003,
       outputCostPer1k: 0.015,
@@ -458,7 +469,7 @@ export const defaultConfig: Config = {
       description: 'Cohere Command R - Balanced RAG performance'
     }
   },
-  
+
   // LiteLLM API Keys
   openaiApiKey: process.env.OPENAI_API_KEY,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
@@ -468,12 +479,12 @@ export const defaultConfig: Config = {
   azureApiKey: process.env.AZURE_API_KEY,
   azureApiBase: process.env.AZURE_API_BASE,
   azureApiVersion: process.env.AZURE_API_VERSION,
-  
+
   // Docker Settings
   dockerImage: 'cyber-autoagent:latest',
   dockerTimeout: 300,
   volumes: [],
-  
+
   // Assessment Settings
   iterations: 100, // Default from original Python CLI
   autoApprove: true, // Default to auto-approve (bypass confirmations)
@@ -492,7 +503,7 @@ export const defaultConfig: Config = {
   // Execution Configuration
   executionMode: undefined, // Auto-select based on availability
   allowExecutionFallback: true, // Allow fallback modes by default
-  
+
   // Memory Settings
   memoryPath: undefined, // No existing memory path by default
   memoryMode: 'auto', // Auto-load existing memory if found
@@ -502,19 +513,19 @@ export const defaultConfig: Config = {
   opensearchHost: process.env.OPENSEARCH_HOST,
   opensearchUsername: process.env.OPENSEARCH_USERNAME,
   opensearchPassword: process.env.OPENSEARCH_PASSWORD,
-  
+
   // Output Settings
   outputDir: './outputs', // Default base directory for output artifacts
   unifiedOutput: true, // Enable unified output by default
-  
+
   // UI Settings
   theme: 'retro', // Default to retro theme for 80s aesthetic
   showMemoryUsage: false,
   showOperationId: true, // Show operation ID for tracking
-  
+
   // Environment Variables
   environment: {} as EnvironmentMap,
-  
+
   // Report Settings
   reportSettings: {
     includeRemediation: true,
@@ -523,7 +534,7 @@ export const defaultConfig: Config = {
     includeEvidence: true, // Include evidence in reports
     includeMemoryOps: true // Include memory operations in reports
   },
-  
+
   // Observability Settings - deployment-aware defaults
   observability: deploymentDefaults.observabilityDefault || false, // Smart defaults based on deployment mode
   langfuseHost: process.env.LANGFUSE_HOST || deploymentDefaults.langfuseHost || 'http://localhost:3000',
@@ -535,7 +546,7 @@ export const defaultConfig: Config = {
   enableLangfusePrompts: deploymentDefaults.observabilityDefault || false,
   langfusePromptLabel: 'production',
   langfusePromptCacheTTL: 300,
-  
+
   // Evaluation Settings - deployment-aware defaults  
   autoEvaluation: deploymentDefaults.evaluationDefault || false, // Smart defaults based on deployment mode
   evaluationBatchSize: 5,
@@ -549,7 +560,7 @@ export const defaultConfig: Config = {
   evalMaxWaitSecs: 30,
   evalPollIntervalSecs: 5,
   evalSummaryMaxChars: 8000,
-  
+
   // Setup Status
   isConfigured: false,
   deploymentMode: 'local-cli', // Default to Local CLI for minimal setup
@@ -654,7 +665,7 @@ export const ConfigProvider: FC<{ children: ReactNode }> = ({ children }) => {
       if (loadedConfig.autoApprove !== undefined) {
         // no-op, will be merged below
       }
-      
+
       // Apply deployment-aware defaults for observability and evaluation
       const deploymentMode = loadedConfig.deploymentMode || 'local-cli';
       if ((deploymentMode === 'local-cli' || deploymentMode === 'single-container')) {
@@ -666,7 +677,7 @@ export const ConfigProvider: FC<{ children: ReactNode }> = ({ children }) => {
           loadedConfig.autoEvaluation = false;
         }
       }
-      
+
       // For sensitive fields like passwords/tokens, respect the saved value
       // even if it's empty. Don't let env vars override explicitly saved empty values.
       // Only use env vars as defaults when the field is undefined (not saved).
@@ -680,7 +691,7 @@ export const ConfigProvider: FC<{ children: ReactNode }> = ({ children }) => {
       if (loadedConfig.awsSecretAccessKey === '') {
         loadedConfig.awsSecretAccessKey = '';
       }
-      
+
       setConfig(prev => deepMerge(prev, loadedConfig));
     } catch (error) {
       // If the file doesn't exist or is invalid, we just use the default config
@@ -714,7 +725,7 @@ export const ConfigProvider: FC<{ children: ReactNode }> = ({ children }) => {
         loadedConfig.isConfigured = loadedConfig.isConfigured ?? false;
       }
     }
-    
+
     // Apply deployment-aware defaults for observability and evaluation
     const deploymentMode = loadedConfig.deploymentMode || 'local-cli';
     if ((deploymentMode === 'local-cli' || deploymentMode === 'single-container')) {
@@ -747,7 +758,7 @@ export const ConfigProvider: FC<{ children: ReactNode }> = ({ children }) => {
     saveConfig,
     loadConfig,
     validateAndLoadConfig,
-  resetToDefaults,
+    resetToDefaults,
   }), [config, isConfigLoading, updateConfig, saveConfig, loadConfig, validateAndLoadConfig, resetToDefaults]);
 
   return (
@@ -760,11 +771,11 @@ export const ConfigProvider: FC<{ children: ReactNode }> = ({ children }) => {
 const fallbackContext: ConfigContextType = {
   config: defaultConfig,
   isConfigLoading: false,
-  updateConfig: () => {},
-  saveConfig: async () => {},
-  loadConfig: async () => {},
-  validateAndLoadConfig: async () => {},
-  resetToDefaults: () => {},
+  updateConfig: () => { },
+  saveConfig: async () => { },
+  loadConfig: async () => { },
+  validateAndLoadConfig: async () => { },
+  resetToDefaults: () => { },
 };
 
 /**
