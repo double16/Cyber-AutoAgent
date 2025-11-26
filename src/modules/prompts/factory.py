@@ -418,7 +418,8 @@ def _plan_first_directive(has_existing_memories: bool) -> str:
             """
             Starting fresh assessment with no previous context
             Do NOT check memory on fresh operations (no retrieval of prior data)
-            CRITICAL FIRST ACTION: Create a strategic plan in memory via mem0_memory(action="store_plan")
+            CRITICAL FIRST ACTION: Create a strategic plan via mem0_memory(action="store_plan", content={...})
+            Format: content={objective, current_phase, total_phases, phases: [{id, title, status, criteria}]}
             Then begin reconnaissance and target information gathering guided by the plan
             Store all findings immediately with category="finding"
             """
@@ -563,158 +564,102 @@ def get_system_prompt(
     plan_snapshot: Optional[str] = None,
     plan_current_phase: Optional[int] = None,
 ) -> str:
-    """Build the system prompt used by the main agent (centralized).
+    """Build the system prompt using the master template."""
+    
+    # 1. Calculate Reflection Snapshot (Budget & Checkpoints)
+    reflection_snapshot = ""
+    try:
+        _budget_pct = int((current_step / max_steps) * 100) if max_steps > 0 else 0
+        _checkpoints = [int(max_steps * pct) for pct in [0.2, 0.4, 0.6, 0.8]]
+        _next_checkpoint = next((cp for cp in _checkpoints if cp > current_step), max_steps)
+        _steps_until = max(0, _next_checkpoint - current_step)
+        
+        lines = []
+        lines.append(f"Budget Used: {_budget_pct}% ({current_step}/{max_steps})")
+        lines.append(f"Next Checkpoint: Step {_next_checkpoint} (in {_steps_until} steps)")
+        if plan_current_phase is not None:
+            lines.append(f"Current Phase: {plan_current_phase}")
+        
+        # Add checkpoint warning if close/overdue
+        if _steps_until <= 5:
+            lines.append(f"WARNING: Checkpoint approaching. Review plan and confidence.")
+        
+        reflection_snapshot = "\n".join(lines)
+    except Exception:
+        reflection_snapshot = "Budget: Unknown"
 
-    Produces a concise, structured prompt with memory context and environment context.
-    Also appends a planning block and tools guidance when available.
-    """
-    if not remaining_steps:
-        remaining_steps = max(0, max_steps - current_step)
-
-    parts: List[str] = []
-    parts.append("# SECURITY ASSESSMENT SYSTEM PROMPT")
-    parts.append(f"Target: {target}")
-    parts.append(f"Objective: {objective}")
-    parts.append(f"Operation: {operation_id}")
-    parts.append(f"Budget: {max_steps} steps (multiple tools per step allowed)")
-    if provider:
-        parts.append(f"Provider: {provider}")
-        parts.append(f'model_provider: "{provider}"')
-
-    # Memory context section
-    memory_context_text = get_memory_context_guidance(
-        has_memory_path=has_memory_path,
-        has_existing_memories=has_existing_memories,
-        memory_overview=memory_overview,
-    )
-    parts.append(memory_context_text)
-
-    # Inject plan snapshot IMMEDIATELY after memory context for coherence
-    if plan_snapshot:
-        parts.append("## PLAN SNAPSHOT")
-        parts.append(str(plan_snapshot).strip())
-
-    # Include tools context if provided
-    if tools_context:
-        parts.append("## ENVIRONMENTAL CONTEXT")
-        parts.append(str(tools_context).strip())
-
-    # Output directory structure
-    if isinstance(output_config, dict) and output_config:
-        base_dir = (
-            output_config.get("base_dir") or output_config.get("base") or "./outputs"
-        )
-        target_name = output_config.get("target_name") or target
+    # 2. Extract and format operation directories from output_config
+    operation_paths_block = ""
+    if isinstance(output_config, dict):
         artifacts_path = output_config.get("artifacts_path", "")
         tools_path = output_config.get("tools_path", "")
-        parts.append("## OUTPUT DIRECTORY STRUCTURE")
-        parts.append(f"Base directory: {base_dir}")
-        parts.append(f"Target organization: {base_dir}/{target_name}/")
-        parts.append(f"Target: {target_name}")
-        parts.append(f"Operation: {operation_id}")
+
+        path_lines = []
         if isinstance(artifacts_path, str) and artifacts_path:
+            # Make path relative for cleaner display (strip /app/ prefix if present)
             rel_artifacts = (
                 artifacts_path.replace("/app/", "")
                 if "/app/" in artifacts_path
                 else artifacts_path
             )
-            parts.append(
-                "\n**OPERATION ARTIFACTS DIRECTORY** (save all evidence here):"
-            )
-            parts.append(f"  → {rel_artifacts}")
+            path_lines.append(f"**ARTIFACTS DIRECTORY**: `{rel_artifacts}`")
+
         if isinstance(tools_path, str) and tools_path:
             rel_tools = (
-                tools_path.replace("/app/", "") if "/app/" in tools_path else tools_path
+                tools_path.replace("/app/", "")
+                if "/app/" in tools_path
+                else tools_path
             )
-            parts.append("\n**OPERATION TOOLS DIRECTORY** (for editor/load_tool):")
-            parts.append(f"  → {rel_tools}")
+            path_lines.append(f"**TOOLS DIRECTORY**: `{rel_tools}`")
 
-    # Inject reflection snapshot with progressive checkpoint enforcement
+        if path_lines:
+            operation_paths_block = "\n".join(path_lines)
+
+    # 3. Generate Memory Context
+    memory_context_text = get_memory_context_guidance(
+        has_memory_path=has_memory_path,
+        has_existing_memories=has_existing_memories,
+        memory_overview=memory_overview,
+    )
+    if plan_snapshot:
+        memory_context_text += f"\n\n## PLAN SNAPSHOT\n{plan_snapshot}"
+
+    # 4. Load Tools Guide
+    tools_guide_text = ""
     try:
-        _budget_pct = int((current_step / max_steps) * 100) if max_steps > 0 else 0
-
-        # Calculate checkpoint intervals for 800+ step operations
-        # Primary checkpoints: 20%, 40%, 60%, 80%
-        _checkpoints = [int(max_steps * pct) for pct in [0.2, 0.4, 0.6, 0.8]]
-        _next_checkpoint = next(
-            (cp for cp in _checkpoints if cp > current_step), max_steps
-        )
-        _steps_until = max(0, _next_checkpoint - current_step)
-        _checkpoint_pct = (
-            int((_next_checkpoint / max_steps) * 100) if max_steps > 0 else 0
-        )
-
-        parts.append("## REFLECTION SNAPSHOT")
-        parts.append(f"Current step: {current_step}")
-        parts.append(f"Budget: {_budget_pct}% ({current_step}/{max_steps})")
-        parts.append(
-            f"Phase: {plan_current_phase if plan_current_phase is not None else '-'}"
-        )
-        parts.append(f"Checkpoint: {_next_checkpoint} in {_steps_until} steps")
-
-        # Checkpoint guidance (not enforced - agent will self-regulate via learning patterns)
-        _overdue_checkpoints = [cp for cp in _checkpoints if current_step >= cp]
-        if _overdue_checkpoints and current_step > 0:
-            _last_checkpoint = _overdue_checkpoints[-1]
-            _checkpoint_pct_hit = int((_last_checkpoint / max_steps) * 100)
-            parts.append(
-                f"\nCHECKPOINT {_checkpoint_pct_hit}%: Review plan, check confidence, pivot if <50%"
-            )
-
-        parts.append(
-            "\nReflection triggers: High/Critical finding; same method >5 times; phase >40% budget without progress; technique succeeds but criteria unmet."
-        )
+        tools_guide_text = load_prompt_template("tools_guide.md")
     except Exception:
-        pass
+        tools_guide_text = ""
 
+    # 5. Load System Template
+    system_template = load_prompt_template("system_prompt.md")
+    if not system_template:
+        # Fallback if template missing
+        return f"# CRITICAL ERROR\nSystem prompt template missing.\nTarget: {target}\nObjective: {objective}"
+
+    # 6. Inject Variables
+    prompt = system_template.replace("{{ target }}", str(target))
+    prompt = prompt.replace("{{ objective }}", str(objective))
+    prompt = prompt.replace("{{ operation_id }}", str(operation_id))
+    prompt = prompt.replace("{{ current_step }}", str(current_step))
+    prompt = prompt.replace("{{ max_steps }}", str(max_steps))
+    prompt = prompt.replace("{{ memory_context }}", memory_context_text)
+    prompt = prompt.replace("{{ reflection_snapshot }}", reflection_snapshot)
+    prompt = prompt.replace("{{ tools_guide }}", tools_guide_text)
+    prompt = prompt.replace("{{ operation_paths }}", operation_paths_block)
+
+    # Inject Environmental Context if present
+    env_context_str = ""
+    if tools_context:
+        env_context_str = f"**ENVIRONMENTAL CONTEXT**:\n{tools_context}"
+    prompt = prompt.replace("{{ environmental_context }}", env_context_str)
+
+    # 7. Append Overlay (Adaptive Directives)
     overlay_block = _render_overlay_block(output_config, operation_id, current_step)
     if overlay_block:
-        parts.append(overlay_block)
+        prompt += f"\n\n{overlay_block}"
 
-    # Append explicit planning and reflection block from template if available
-    try:
-        system_template = load_prompt_template("system_prompt.md")
-        if system_template:
-            # Extract the PLANNING AND REFLECTION section
-            marker = "## PLANNING AND REFLECTION"
-            start = system_template.find(marker)
-            if start != -1:
-                # Find next section header or end
-                next_header_idx = system_template.find("\n## ", start + len(marker))
-                planning_block = (
-                    system_template[start:next_header_idx]
-                    if next_header_idx != -1
-                    else system_template[start:]
-                )
-                # Replace minimal placeholders we rely on
-                planning_block = (
-                    planning_block.replace("{{ memory_context }}", memory_context_text)
-                    .replace("{{ objective }}", str(objective))
-                    .replace("{{ max_steps }}", str(max_steps))
-                )
-                parts.append(planning_block.strip())
-    except Exception:
-        # Best-effort: ignore template failures
-        pass
-
-    # Append tools guide if available
-    try:
-        tools_guide = load_prompt_template("tools_guide.md")
-        if tools_guide:
-            # Substitute operation tools directory path from OUTPUT DIRECTORY STRUCTURE section
-            tools_path = (
-                output_config.get("tools_path", "")
-                if isinstance(output_config, dict)
-                else ""
-            )
-            # Only append tools_guide if we have a valid absolute path to inject
-            if tools_path:
-                tools_guide = tools_guide.replace("{{operation_tools_dir}}", tools_path)
-                parts.append(tools_guide.strip())
-    except Exception:
-        pass
-
-    return "\n".join(parts)
+    return prompt
 
 
 def get_report_generation_prompt(
