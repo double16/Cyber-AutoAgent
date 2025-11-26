@@ -121,7 +121,7 @@ def _get_prompt_limit_from_model(model_id: Optional[str]) -> Optional[int]:
                         if isinstance(mt, (int, float)) and int(mt) > 0:
                             limit = int(mt)
                             logger.debug(
-                                "Using get_max_tokens=%d for '%s' (may be output limit, verify with CYBER_PROMPT_FALLBACK_TOKENS)",
+                                "Using get_max_tokens=%d for '%s' (may be output limit, verify with CYBER_CONTEXT_LIMIT)",
                                 limit,
                                 cand,
                             )
@@ -153,7 +153,7 @@ def _resolve_prompt_token_limit(
     1. CYBER_PROMPT_LIMIT_FORCE - Explicit override
     2. Static model registry - Known models with verified limits
     3. LiteLLM max_input_tokens - Auto-detection from registry
-    4. CYBER_PROMPT_FALLBACK_TOKENS - Explicit fallback
+    4. CYBER_CONTEXT_LIMIT - Explicit context limit (fallback)
     5. Provider defaults - Conservative last resort
 
     Args:
@@ -194,10 +194,10 @@ def _resolve_prompt_token_limit(
             )
             return limit
 
-    # Priority 4: CYBER_PROMPT_FALLBACK_TOKENS (explicit fallback config)
+    # Priority 4: CYBER_CONTEXT_LIMIT (explicit context limit config)
     if PROMPT_TOKEN_FALLBACK_LIMIT > 0:
         logger.info(
-            "Using CYBER_PROMPT_FALLBACK_TOKENS=%d as fallback for model %s",
+            "Using CYBER_CONTEXT_LIMIT=%d as fallback for model %s",
             PROMPT_TOKEN_FALLBACK_LIMIT,
             model_id,
         )
@@ -208,7 +208,7 @@ def _resolve_prompt_token_limit(
     if provider_default:
         logger.warning(
             "Using conservative provider default limit=%d for %s (model %s). "
-            "Consider setting CYBER_PROMPT_FALLBACK_TOKENS for accurate limit.",
+            "Consider setting CYBER_CONTEXT_LIMIT for accurate limit.",
             provider_default,
             provider,
             model_id,
@@ -218,7 +218,7 @@ def _resolve_prompt_token_limit(
     # No limit could be determined - warn and return None
     logger.warning(
         "Could not resolve input token limit for provider=%s model=%s. "
-        "Set CYBER_PROMPT_FALLBACK_TOKENS or CYBER_PROMPT_LIMIT_FORCE to specify limit.",
+        "Set CYBER_CONTEXT_LIMIT or CYBER_PROMPT_LIMIT_FORCE to specify limit.",
         provider,
         model_id,
     )
@@ -360,41 +360,47 @@ def create_bedrock_model(
         max_pool_connections=100,
     )
 
-    if config_manager.is_thinking_model(model_id):
-        # Use thinking model configuration
-        config = config_manager.get_thinking_model_config(model_id, region_name)
-        return BedrockModel(
-            model_id=config["model_id"],
-            region_name=config["region_name"],
-            temperature=config["temperature"],
-            max_tokens=config["max_tokens"],
-            additional_request_fields=config["additional_request_fields"],
-            boto_client_config=boto_config,
-        )
-    
-    # Standard model configuration
-    config = config_manager.get_standard_model_config(model_id, region_name, provider)
-    
-    # Handle beta features (effort, tool search, etc.) passed via kwargs
+    # Handle beta features (effort, etc.) passed via kwargs
     additional_fields = kwargs.get("additional_request_fields", {})
     effort = kwargs.get("effort")
-    
-    # Add effort parameter if specified (Opus 4.5 feature)
+
     if effort:
         additional_fields.setdefault("anthropic_beta", [])
         if "effort-2025-11-24" not in additional_fields["anthropic_beta"]:
             additional_fields["anthropic_beta"].append("effort-2025-11-24")
-        
         additional_fields.setdefault("output_config", {})
         additional_fields["output_config"]["effort"] = effort
-        
-    # Merge with any existing additional_request_fields from config
+
+    if config_manager.is_thinking_model(model_id):
+        # Use thinking model configuration
+        config = config_manager.get_thinking_model_config(model_id, region_name)
+
+        # Merge with config's additional_request_fields if present
+        if "additional_request_fields" in config:
+            for k, v in config["additional_request_fields"].items():
+                if k == "anthropic_beta" and "anthropic_beta" in additional_fields:
+                    additional_fields[k] = list(set(additional_fields[k] + v))
+                elif k not in additional_fields:
+                    additional_fields[k] = v
+
+        model = BedrockModel(
+            model_id=config["model_id"],
+            region_name=config["region_name"],
+            temperature=config["temperature"],
+            max_tokens=config["max_tokens"],
+            additional_request_fields=additional_fields if additional_fields else None,
+            boto_client_config=boto_config,
+        )
+
+        return model
+    
+    # Standard model configuration
+    config = config_manager.get_standard_model_config(model_id, region_name, provider)
+
+    # Merge with config's additional_request_fields if present
     if "additional_request_fields" in config:
-        # Config takes precedence for existing keys, but we merge lists like anthropic_beta
-        existing = config["additional_request_fields"]
-        for k, v in existing.items():
+        for k, v in config["additional_request_fields"].items():
             if k == "anthropic_beta" and "anthropic_beta" in additional_fields:
-                # Merge beta flags unique list
                 additional_fields[k] = list(set(additional_fields[k] + v))
             elif k not in additional_fields:
                 additional_fields[k] = v
@@ -459,7 +465,8 @@ def create_bedrock_model(
         # Assuming Strands BedrockModel handles it via kwargs or we ignore it for now as per previous code.
         pass
 
-    return BedrockModel(
+
+    model = BedrockModel(
         model_id=config["model_id"],
         region_name=config["region_name"],
         temperature=llm_temp,
@@ -467,6 +474,8 @@ def create_bedrock_model(
         additional_request_fields=additional_fields if additional_fields else None,
         boto_client_config=boto_config,
     )
+    
+    return model
 
 
 

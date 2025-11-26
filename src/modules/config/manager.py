@@ -209,28 +209,9 @@ class ConfigManager:
                 "BEDROCK_EFFORT=%s configured for model %s", effort_level, model_id
             )
         
-        # Add tool search beta flag if enabled (Claude Opus 4.5+ dynamic tool discovery)
-        enable_tool_search = self.getenv("ENABLE_TOOL_SEARCH")
-        if enable_tool_search and enable_tool_search.lower() in ("true", "1", "yes") and provider == "bedrock":
-            if "anthropic_beta" not in additional_fields:
-                additional_fields["anthropic_beta"] = []
-            if "tool-search-2025-10-01" not in additional_fields["anthropic_beta"]:
-                additional_fields["anthropic_beta"].append("tool-search-2025-10-01")
-            logger.debug(
-                "ENABLE_TOOL_SEARCH enabled for model %s", model_id
-            )
-        
-        # Add tool examples beta flag if enabled (Claude Opus 4.5+ enhanced tool definitions)
-        enable_tool_examples = self.getenv("ENABLE_TOOL_EXAMPLES")
-        if enable_tool_examples and enable_tool_examples.lower() in ("true", "1", "yes") and provider == "bedrock":
-            if "anthropic_beta" not in additional_fields:
-                additional_fields["anthropic_beta"] = []
-            if "tool-examples-2025-10-01" not in additional_fields["anthropic_beta"]:
-                additional_fields["anthropic_beta"].append("tool-examples-2025-10-01")
-            logger.debug(
-                "ENABLE_TOOL_EXAMPLES enabled for model %s", model_id
-            )
-        
+        # Tool Search & Tool Examples: Not supported on Converse API
+        # See BEDROCK_BETA_FEATURES.md for details and future updates
+
         # Only add to config if we have any fields
         if additional_fields:
             config["additional_request_fields"] = additional_fields
