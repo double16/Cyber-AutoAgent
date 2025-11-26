@@ -494,11 +494,11 @@ export const defaultConfig: Config = {
   verbose: false, // Default to non-verbose mode
 
   // Context Management
-  conversationWindow: 40, // Default conversation window size (capped for efficiency)
+  conversationWindow: 100, // Default conversation window size (sliding window)
   conversationPreserveFirst: 1, // Preserve system messages
-  conversationPreserveLast: 12, // Preserve recent context
+  conversationPreserveLast: 12, // Preserve recent context (dynamically scaled to 15% of window)
   toolMaxResultChars: 30000, // Max tool output before truncation
-  toolArtifactThreshold: 50000, // Externalize outputs larger than this
+  toolArtifactThreshold: 10000, // Externalize outputs larger than this
 
   // Execution Configuration
   executionMode: undefined, // Auto-select based on availability

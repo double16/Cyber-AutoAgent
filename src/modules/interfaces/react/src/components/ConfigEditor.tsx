@@ -732,7 +732,8 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
           const bedrockFields = [
             'awsAccessKeyId', 'awsSecretAccessKey', 'awsBearerToken', 'awsRegion',
             'awsProfile', 'awsRoleArn', 'awsSessionName', 'awsWebIdentityTokenFile', 'awsStsEndpoint', 'awsExternalId',
-            'temperature', 'maxTokens', 'thinkingBudget', 'bedrockEffort'
+            'temperature', 'maxTokens', 'thinkingBudget', 'bedrockEffort',
+            'enableToolSearch', 'enableToolExamples'
           ];
           return bedrockFields.includes(f.key);
         } else if (config.modelProvider === 'ollama') {
