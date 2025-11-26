@@ -52,7 +52,9 @@ Adaptation Tracking:
 - Include what was blocked (script tags, specific chars, etc.) and next strategy
 - After 3 retries with same approach, mandatory pivot to different technique
 
-Plan Storage - CRITICAL: Pass as JSON dict, NOT as string! (the tool serializes to a TOON table internally)
+Plan Storage - CRITICAL: Pass as dict/object, NOT string! (serializes to TOON internally)
+
+**━━━ EXACT FORMAT (copy this structure) ━━━**
 
 ```python
 mem0_memory(
@@ -62,33 +64,52 @@ mem0_memory(
     "current_phase": 1,
     "total_phases": 3,
     "phases": [
-      {"id": 1, "title": "Reconnaissance", "status": "active", "criteria": "tech stack identified, endpoints mapped"},
+      {"id": 1, "title": "Reconnaissance", "status": "active", "criteria": "tech stack identified"},
       {"id": 2, "title": "Testing", "status": "pending", "criteria": "vulns validated with PoC"},
-      {"id": 3, "title": "Exploitation", "status": "pending", "criteria": "flag extracted, evidence saved"}
+      {"id": 3, "title": "Exploitation", "status": "pending", "criteria": "flag extracted"}
     ]
   }
 )
 ```
 
-This stores a compact TOON snippet such as:
+**Phase fields (REQUIRED - use EXACT names):**
+- id: int (NOT "phase")
+- title: str (NOT "name")
+- status: str (active/pending/done)
+- criteria: str (NOT "completion_criteria" or "tasks")
 
+**Common mistakes to AVOID:**
+✗ Passing content="string..." (must be dict!)
+✗ Using {"phase": 1, "name": "X"} (use id/title)
+✗ Adding extra fields like tasks, budget_percent (invalid)
+
+**Internal TOON storage** (30-60% more token-efficient than JSON):
 ```
 plan_overview[1]{objective,current_phase,total_phases}:
   Comprehensive security assessment,1,3
 plan_phases[3]{id,title,status,criteria}:
-  1,Reconnaissance,active,tech stack identified; endpoints mapped
+  1,Reconnaissance,active,tech stack identified
   2,Testing,pending,vulns validated with PoC
-  3,Exploitation,pending,flag extracted; evidence saved
+  3,Exploitation,pending,flag extracted
 ```
 
-Required fields: objective, current_phase, total_phases, phases (each phase needs id, title, status, criteria)
+Required: objective, current_phase, total_phases, phases (each with: id, title, status, criteria)
 
 Proof Pack policy:
-- For any HIGH/CRITICAL finding stored via mem0_memory, include a short Proof Pack authored by the LLM:
-  • 2–4 sentences that reference at least one concrete artifact (evidence/<...> path, HTTP transcript, RPC JSON, or screenshot)
-  • One-line rationale linking the artifact to the claim
-- If no artifact exists, set metadata.validation_status="hypothesis" (not "verified") and include next steps to obtain proof.
-- Recommended metadata keys: severity, confidence, validation_status.
+- For any HIGH/CRITICAL finding stored via mem0_memory, include Proof Pack in metadata:
+  • proof_pack: {"artifacts": ["path1", "path2"], "rationale": "one-line explanation"}
+  • All artifact paths MUST exist and be >200 bytes (authentic tool outputs)
+  • Rationale links artifacts to the claim with technical explanation
+- If no valid proof_pack exists:
+  • Set validation_status="hypothesis" (NOT "verified" or "unverified")
+  • Set status="hypothesis" (NOT "verified" or "solved")
+  • Confidence capped at 60% automatically
+  • Include next steps to obtain proof in content
+- For FLAGS specifically:
+  • MUST include artifact_hash (sha256 of artifact containing flag)
+  • MUST include extraction_line (line number where flag found)
+  • status="verified" ONLY after submission API returns success
+- Recommended metadata keys: severity, confidence, validation_status, status, proof_pack, artifact_hash
 
 Capability gaps (Ask-Enable-Retry):
 - If a missing capability blocks progress (e.g., web3), the LLM should:
@@ -251,15 +272,34 @@ def _infer_plan_from_text(plan_text: str) -> Optional[Dict[str, Any]]:
 TOOL_SPEC = {
     "name": "mem0_memory",
     "description": (
-        "Memory management: store/retrieve/list/get/delete.\n"
-        "Actions: store, store_plan, get_plan, get, list, retrieve, delete.\n"
-        "Plan entries: supply dicts with objective/current_phase/phases[id|title|status|criteria]; stored as TOON tables for compact recall.\n"
-        "Plan evaluation: MANDATORY checkpoints at 20%/40%/60%/80% budget → get_plan, assess criteria, update phases if met (store_plan).\n"
-        "Context preservation: For 800+ step operations, checkpoints anchor strategy in memory across context window limits.\n"
-        "Phase transitions: Criteria satisfied → status='done', advance current_phase, next status='active', store_plan.\n"
-        "Finding Format: [VULNERABILITY][WHERE][IMPACT][EVIDENCE][STEPS][REMEDIATION][CONFIDENCE].\n"
-        "Proof Pack (High/Critical): artifact path + one-line rationale; else validation_status='hypothesis' with next steps.\n"
-        "Default user_id='cyber_agent' if unspecified.\n"
+        "Memory management for storing plans, findings, and observations.\n\n"
+        "━━━ CRITICAL: store_plan FORMAT ━━━\n"
+        "For action='store_plan', content MUST be a dict/object (NOT a string!).\n\n"
+        "EXACT FORMAT (copy this structure):\n"
+        '  mem0_memory(action="store_plan", content={\n'
+        '    "objective": "CTF Challenge 63360",\n'
+        '    "current_phase": 1,\n'
+        '    "total_phases": 3,\n'
+        '    "phases": [\n'
+        '      {"id": 1, "title": "Analysis", "status": "active", "criteria": "source reviewed"},\n'
+        '      {"id": 2, "title": "Exploit", "status": "pending", "criteria": "flag extracted"},\n'
+        '      {"id": 3, "title": "Submit", "status": "pending", "criteria": "flag accepted"}\n'
+        "    ]\n"
+        "  })\n\n"
+        "Phase fields (REQUIRED, do NOT use other field names):\n"
+        "  - id: int (NOT 'phase')\n"
+        "  - title: str (NOT 'name')\n"
+        "  - status: str (active/pending/done)\n"
+        "  - criteria: str (NOT 'completion_criteria')\n\n"
+        "WRONG (common mistakes):\n"
+        '  ✗ content="string..." (must be dict!)\n'
+        '  ✗ {"phase": 1} (use "id")\n'
+        '  ✗ {"name": "X"} (use "title")\n'
+        '  ✗ {"tasks": [...]} (not a valid field)\n'
+        '  ✗ {"budget_percent": 10} (not a valid field)\n\n'
+        "Actions: store, store_plan, get_plan, list, retrieve, delete.\n"
+        "Checkpoints: At 20%/40%/60%/80% budget → get_plan, assess, update if met.\n"
+        "Default user_id='cyber_agent'.\n"
     ),
     "inputSchema": {
         "json": {
@@ -282,7 +322,13 @@ TOOL_SPEC = {
                 },
                 "content": {
                     "type": ["string", "object"],
-                    "description": "Content to store - string for store, dict for store_plan",
+                    "description": (
+                        "Content to store. For action='store': string. "
+                        "For action='store_plan': MUST be object/dict (NOT string) with structure:\n"
+                        '{"objective": "...", "current_phase": 1, "total_phases": 3, '
+                        '"phases": [{"id": 1, "title": "Phase Name", "status": "active", "criteria": "..."}]}.\n'
+                        "Required phase fields: id (int), title (string), status (active/pending/done), criteria (string, optional)."
+                    ),
                 },
                 "memory_id": {
                     "type": "string",
@@ -302,7 +348,11 @@ TOOL_SPEC = {
                 },
                 "metadata": {
                     "type": "object",
-                    "description": "Optional metadata to store with the memory",
+                    "description": (
+                        "For store: metadata dict with category (required for reports: finding/signal/observation/discovery), "
+                        "severity (CRITICAL/HIGH/MEDIUM/LOW), status (verified/hypothesis), validation_status, technique, etc. "
+                        "For retrieve: metadata dict used as filters (e.g., {category: 'finding', status: 'verified'})."
+                    ),
                 },
             },
             "required": ["action"],
@@ -400,6 +450,8 @@ class Mem0ServiceClient:
             server_type = "bedrock"
         elif active_provider in ("litellm", "bedrock", "ollama"):
             server_type = active_provider
+        elif active_provider == "gemini":
+            server_type = "gemini"
         else:
             server_type = "ollama"
 
@@ -532,16 +584,35 @@ class Mem0ServiceClient:
             store_existed_before = os.path.exists(faiss_path)
         else:
             # Create memory path using unified output structure
-            # Memory is stored at: ./outputs/<target-name>/memory/mem0_faiss_<target-name>
             target_name = merged_config.get("target_name", "default_target")
+            operation_id = merged_config.get("operation_id", "default_operation")
 
-            # Use unified output structure for memory - per-target, not per-operation
             # Get output directory from environment or config
             output_dir = os.environ.get("CYBER_AGENT_OUTPUT_DIR") or merged_config.get(
                 "output_dir", "outputs"
             )
-            memory_base_path = os.path.join(output_dir, target_name, "memory")
-            faiss_path = memory_base_path
+
+            # Memory isolation strategy (controlled via MEMORY_ISOLATION env var)
+            # Options: "operation" (per-operation, safe for parallel) | "shared" (per-target, cross-learning)
+            isolation_mode = os.environ.get("MEMORY_ISOLATION", "operation")
+
+            if isolation_mode == "shared":
+                # Shared per-target store (enables automatic cross-learning but parallel-unsafe)
+                memory_base_path = os.path.join(output_dir, target_name, "memory")
+                faiss_path = memory_base_path
+                logger.info(
+                    "Memory mode: SHARED per-target at %s (cross-learning enabled, NOT parallel-safe)",
+                    memory_base_path
+                )
+            else:
+                # Per-operation isolation (parallel-safe, explicit cross-learning needed)
+                # Pattern: ./outputs/<target>/memory/<operation_id>/mem0_faiss
+                memory_base_path = os.path.join(output_dir, target_name, "memory", operation_id)
+                faiss_path = memory_base_path
+                logger.info(
+                    "Memory mode: ISOLATED per-operation at %s (parallel-safe)",
+                    memory_base_path
+                )
 
             # Check if store existed before we create directories
             store_existed_before = os.path.exists(memory_base_path)
@@ -799,7 +870,11 @@ class Mem0ServiceClient:
         agent_id: Optional[str] = None,
         metadata: Optional[Dict] = None,
     ):
-        """Store a memory in Mem0."""
+        """Store a memory in Mem0 with native operation scoping via run_id.
+
+        Uses run_id for mem0's native operation isolation instead of manual metadata filtering.
+        This provides O(log n) indexed lookups vs O(n) local filtering.
+        """
         if not user_id and not agent_id:
             raise ValueError("Either user_id or agent_id must be provided")
 
@@ -807,19 +882,43 @@ class Mem0ServiceClient:
         if user_id and not agent_id:
             agent_id = user_id
 
+        # Get operation ID for native session scoping
+        op_id = os.getenv("CYBER_OPERATION_ID")
+
         messages = [{"role": "user", "content": content}]
         try:
             # For cybersecurity findings, use infer=False to ensure all data is stored
             # regardless of mem0's fact filtering (critical for security assessments)
-            result = self.mem0.add(
-                messages,
-                user_id=user_id,
-                agent_id=agent_id,
-                metadata=metadata,
-                infer=False,
+            # Use session_id=operation_id for mem0's native operation isolation
+            add_kwargs = {
+                "messages": messages,
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "metadata": metadata,
+                "infer": False,
+            }
+
+            # Add run_id for native operation scoping (mem0 1.0.0 API)
+            if op_id:
+                add_kwargs["run_id"] = op_id
+
+            # Debug: Log metadata BEFORE storage
+            logger.debug(
+                "BEFORE mem0.add() - category=%s, metadata=%s",
+                metadata.get("category") if metadata else "none",
+                metadata
             )
-            # Log successful storage
-            logger.debug("Memory stored successfully: %s", result)
+
+            result = self.mem0.add(**add_kwargs)
+
+            # Debug: Verify what was actually stored
+            logger.info(
+                "Memory stored successfully - run_id=%s, category=%s, result=%s",
+                op_id or "none",
+                metadata.get("category") if metadata else "none",
+                result
+            )
+
             return result
         except Exception as e:
             logger.error("Critical error storing memory: %s", str(e), exc_info=True)
@@ -909,8 +1008,21 @@ class Mem0ServiceClient:
         *,
         user_id: str = "cyber_agent",
         agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Compatibility wrapper providing Mem0-style search with filter support."""
+        """Compatibility wrapper providing Mem0-style search with filter support.
+
+        Args:
+            query: Semantic search query
+            filters: Metadata filters (legacy - use run_id for operation scoping)
+            limit: Maximum results to return
+            user_id: User identifier
+            agent_id: Agent identifier
+            run_id: Run/operation ID for native mem0 scoping (recommended)
+
+        Returns:
+            List of memory dictionaries with 'memory' and 'metadata' fields
+        """
 
         filters = filters or {}
         top_k = max(int(limit or 20), 1)
@@ -939,8 +1051,15 @@ class Mem0ServiceClient:
             search_kwargs: Dict[str, Any] = {"user_id": user_id}
             if agent_id:
                 search_kwargs["agent_id"] = agent_id
+
+            # Prefer run_id for operation scoping (mem0 1.0.0 API)
+            if run_id:
+                search_kwargs["run_id"] = run_id
+                logger.debug("Using run_id=%s for native operation scoping", run_id)
+
+            # Pass filters to mem0's native search (supports advanced operators like "in")
             if filters:
-                search_kwargs["metadata"] = filters
+                search_kwargs["filters"] = filters
 
             for size_kw in ("top_k", "limit"):
                 try:
@@ -973,9 +1092,15 @@ class Mem0ServiceClient:
         raw_entries = [_coerce_entry(entry) for entry in raw_entries]
 
         def _matches_filters(entry: Dict[str, Any]) -> bool:
+            """Match filters with support for simple list values (FAISS-compatible)."""
             metadata = entry.get("metadata", {}) or {}
             for key, value in filters.items():
-                if str(metadata.get(key)) != str(value):
+                meta_val = metadata.get(key)
+                # Handle list filter values (e.g., {"category": ["finding", "observation"]})
+                if isinstance(value, list):
+                    if meta_val not in value:
+                        return False
+                elif str(meta_val) != str(value):
                     return False
             return True
 
@@ -1114,13 +1239,21 @@ class Mem0ServiceClient:
         ):
             raise ValueError("Plan must have 'phases' as non-empty list")
 
-        for phase in plan_content["phases"]:
-            phase_required = ["id", "title", "status", "criteria"]
+        for idx, phase in enumerate(plan_content["phases"]):
+            # Validate each phase is a dict
+            if not isinstance(phase, dict):
+                raise ValueError(
+                    f"Phase at index {idx} must be a dict/object, got {type(phase).__name__}"
+                )
+            # Make criteria optional with default empty string
+            phase_required = ["id", "title", "status"]
             phase_missing = [f for f in phase_required if f not in phase]
             if phase_missing:
                 raise ValueError(
                     f"Phase {phase.get('id', '?')} missing fields: {phase_missing}"
                 )
+            # Set default empty criteria if not provided
+            phase.setdefault("criteria", "")
 
         # Format dict as structured text for storage
         plan_content_str = _format_plan_as_toon(plan_content)
@@ -1727,40 +1860,87 @@ def mem0_memory(
     metadata: Optional[Dict] = None,
 ) -> str:
     """
-    Memory management tool for storing, retrieving, and managing memories in Mem0.
+    Memory management with automatic operation scoping and cross-session learning.
 
-    Purpose and scope:
-    - Store atomic, reproducible evidence and findings; aggregation happens at report generation.
-    - Never store executive summaries/final reports in memory.
+    QUICK START:
+        # Store finding ONLY after flag submission succeeds
+        mem0_memory(action="store",
+            content="[FINDING] Challenge 54373 - Flag: HTB{...} - Technique: buffer_overflow",
+            metadata={"category": "finding", "severity": "HIGH", "challenge_id": "54373",
+                      "status": "verified", "validation_status": "submission_accepted",
+                      "technique": "buffer_overflow", "artifact_hash": "sha256_of_artifact"})
 
-    Planning and Checkpoints (MANDATORY for long operations):
-    - Step 0: store_plan with phases ({"status": "active/pending/done/partial_failure/blocked"})
-    - At checkpoints (20%/40%/60%/80% budget): MUST get_plan → evaluate criteria vs evidence → store_plan with updated status
-    - Pivot triggers: Phase marked 'partial_failure' or 'blocked' → switch to alternative capability (don't retry exhausted approach)
-    - Status values: 'active' (current), 'pending' (not started), 'done' (criteria met), 'partial_failure' (stuck, need pivot), 'blocked' (dependency failed)
+        # Store observation during reconnaissance
+        mem0_memory(action="store",
+            content="[OBSERVATION] Discovered 15 endpoints, JWT auth, admin panel at /admin returns 403",
+            metadata={"category": "observation"})
 
-    Failure-mode hardening (validation first):
-    - HIGH/CRITICAL findings REQUIRE: (1) Artifact path in proof_pack (2) validation_status="verified" (3) Claimed data verified in artifact
-    - Before storing extraction claim: Verify target data IN response artifact (not just in payload sent)
-    - Pattern-only signals (response size diffs, status changes) = hypothesis/MEDIUM max
-    - Defensive layer responses (error pages, challenges) ≠ backend access = INFO/LOW max
+        # Query verified challenges before attempting (avoid duplicate work)
+        mem0_memory(action="retrieve", query="verified challenges",
+            metadata={"category": "finding", "status": "verified", "validation_status": "submission_accepted"})
 
-    Structured finding content:
-    [VULNERABILITY] title [WHERE] location [IMPACT] impact
-    [EVIDENCE] proof [STEPS] reproduction [REMEDIATION] fix or "Not determined"
-    [CONFIDENCE] percentage with justification
+    ACTIONS:
+        store       Store finding/observation with content and metadata
+        retrieve    Semantic search with optional metadata filters
+        list        Get all memories for user/agent
+        get         Get specific memory by ID
+        delete      Remove memory by ID
+        store_plan  Store operation plan with phases
+        get_plan    Get current operation plan
+
+    CATEGORIES (report generation):
+        finding     Exploits, flags, vulnerabilities - APPEARS IN REPORTS
+        signal      Strong indicators, access evidence - APPEARS IN REPORTS
+        observation Reconnaissance, artifacts, failed attempts - APPEARS IN REPORTS
+        discovery   New techniques, bypasses - APPEARS IN REPORTS
+        plan        Strategic planning - internal only, NOT in reports
+        decision    Filtering choices - internal only, NOT in reports
+
+    CROSS-SESSION LEARNING:
+        Memory Isolation: Per-operation stores prevent parallel corruption
+        - Each operation: ./outputs/<target>/memory/<operation_id>/mem0_faiss
+        - Parallel-safe: 5 agents can run simultaneously without conflicts
+        - Set MEMORY_ISOLATION=shared for automatic cross-learning (sequential only)
+
+        Operation Scoping: Memories auto-scoped via run_id (CYBER_OPERATION_ID)
+        - Report gen retrieves operation-specific first
+        - Falls back to general evidence for cross-learning
+
+        Swarm Intelligence: Agents query previous operations explicitly
+        - Query format: Use retrieve with semantic search (not scoped to current operation)
+        - Skip verified: query for status="verified" + validation_status="submission_accepted"
+        - IGNORE hypotheses: status="hypothesis" means unverified, retry challenge
+        - Learn techniques: query category="discovery"
+        - Avoid failures: query for failed_technique or blocker in metadata
+        - Share progress: Store observations every 5-10 steps
+
+    STORAGE RULES:
+        1. ONE finding = ONE memory (atomic, not summaries)
+        2. Store IMMEDIATELY after success (not batched at end)
+        3. Use category="finding" for exploits/flags (required for reports)
+        4. Include severity="HIGH" minimum (CRITICAL for auth bypass, RCE, data exfil)
+        5. Add technique metadata for pattern-based cross-learning queries
+        6. Store observations every 5-10 steps (category="observation")
+
+    STATUS VERIFICATION (prevent hallucination):
+        - status="hypothesis" → Flag extracted but NOT verified (requires testing/submission)
+        - status="unverified" → Flag in artifact, grep verified, but NOT submitted
+        - status="verified" → Flag submission accepted (ONLY use after external validation success)
+        - FORBIDDEN: status="solved" (ambiguous - use "verified" or "hypothesis")
+        - CRITICAL: Never store status="verified" until submission API returns success
+        - Memory contamination: status="solved" + validation_status="hypothesis" = contradiction/hallucination
 
     Args:
-        action: One of store|get|list|retrieve|delete|store_plan|get_plan
-        content: Content to store (for store action) — use structured format for findings/plans
-        memory_id: Memory ID (for get, delete actions)
-        query: Search query (for retrieve action)
-        user_id: User ID for memory operations (defaults to 'cyber_agent')
-        agent_id: Agent ID for memory operations
-        metadata: Optional metadata with category, severity, confidence; for findings include severity, validation_status, and proof_pack when verified
+        action: Action to perform (see ACTIONS above)
+        content: Content string with [FINDING] or [OBSERVATION] markers
+        memory_id: Memory ID for get/delete
+        query: Semantic search query for retrieve
+        user_id: User ID (defaults to 'cyber_agent')
+        agent_id: Agent ID
+        metadata: Dict with category (required), severity, technique, challenge_id, status, etc.
 
     Returns:
-        JSON/text response summarizing the memory operation; on parsing issues, returns a safe fallback summary.
+        JSON/text response with operation result
     """
     global _MEMORY_CLIENT
 
@@ -1834,17 +2014,22 @@ def mem0_memory(
             if not content:
                 raise ValueError("content is required for store_plan action")
 
-            # Parse JSON string to dict if needed
+            # Validate content type
             if isinstance(content, str):
+                # Must be valid JSON string
                 try:
                     plan_dict = json.loads(content)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
                     raise ValueError(
-                        "Content must be valid JSON dict with: objective, current_phase, total_phases, phases. "
-                        "Got invalid JSON string."
+                        f"store_plan requires JSON object/dict with fields: objective, current_phase, total_phases, phases. "
+                        f"Got string that is not valid JSON: {str(e)}"
                     )
-            else:
+            elif isinstance(content, dict):
                 plan_dict = content
+            else:
+                raise ValueError(
+                    f"store_plan content must be object/dict or JSON string, got {type(content).__name__}"
+                )
 
             results = _MEMORY_CLIENT.store_plan(plan_dict, user_id or "cyber_agent")
             if not strands_dev:
@@ -1906,12 +2091,37 @@ def mem0_memory(
                 metadata = {}
 
             # Tag with current operation ID when available
+            # Keep operation_id in metadata for backward compatibility and debugging
+            # Primary scoping now uses session_id parameter in mem0.add()
             op_id = os.getenv("CYBER_OPERATION_ID")
             if op_id and "operation_id" not in metadata:
                 metadata["operation_id"] = op_id
+                logger.debug("Tagged memory with operation_id=%s (metadata backup)", op_id)
+
+            # Validate category field exists (CRITICAL for report generation)
+            if "category" not in metadata:
+                logger.warning(
+                    "MISSING CATEGORY in metadata - defaulting to 'observation'. "
+                    "This memory will appear in reports but may be miscategorized. "
+                    "Add metadata={'category': 'finding'} for exploits."
+                )
+                metadata["category"] = "observation"
+
+            # Debug: Log category before any processing
+            logger.debug("Category validation: category=%s", metadata.get("category"))
 
             # Consolidated validation for findings (single pass)
             if metadata.get("category") == "finding":
+                # 0. Warn on forbidden status="solved" (ambiguous - use verified/hypothesis)
+                status_val = str(metadata.get("status", "")).lower()
+                if status_val == "solved":
+                    logger.warning(
+                        "FORBIDDEN status='solved' detected - this is ambiguous. "
+                        "Use status='verified' (after submission success) or status='hypothesis' (unconfirmed). "
+                        "Changing to 'hypothesis' to prevent memory contamination."
+                    )
+                    metadata["status"] = "hypothesis"
+
                 # 1. Normalize severity
                 valid_severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
                 sev = str(metadata.get("severity", "MEDIUM")).upper()
@@ -2065,7 +2275,23 @@ def mem0_memory(
             if not query:
                 raise ValueError("query is required for retrieve action")
 
-            memories = _MEMORY_CLIENT.search_memories(query, user_id, agent_id)
+            # Debug: Log retrieval parameters
+            logger.debug(
+                "RETRIEVE query='%s', metadata_filters=%s, user_id=%s",
+                query,
+                metadata,
+                user_id
+            )
+
+            # Use search() directly to support metadata filters (e.g., category, status)
+            memories = _MEMORY_CLIENT.search(
+                query=query,
+                filters=metadata,  # Pass metadata as filters for category/status filtering
+                limit=50,
+                user_id=user_id or "cyber_agent",
+                agent_id=agent_id,
+            )
+
             # Normalize to list with better error handling
             if memories is None:
                 results_list = []
@@ -2075,6 +2301,21 @@ def mem0_memory(
                 results_list = memories.get("results", [])
             else:
                 results_list = []
+
+            # Debug: Verify categories in retrieved memories
+            if results_list:
+                categories = {}
+                for m in results_list:
+                    cat = m.get("metadata", {}).get("category", "MISSING")
+                    categories[cat] = categories.get(cat, 0) + 1
+                logger.info(
+                    "RETRIEVE complete: %d memories, categories=%s",
+                    len(results_list),
+                    categories
+                )
+            else:
+                logger.warning("RETRIEVE returned 0 results for query='%s'", query)
+
             if not strands_dev:
                 panel = format_retrieve_response(results_list)
                 console.print(panel)

@@ -257,6 +257,25 @@ def build_report_sections(
                 logger.debug("Fallback Mem0 load failed: %s", mem_err)
 
         if raw_memories:
+            # Debug logging: show what we loaded from memory
+            logger.info(f"Total memories loaded from shared storage: {len(raw_memories)}")
+
+            # Count by operation_id and category for debugging
+            try:
+                from collections import Counter
+                op_ids = Counter()
+                categories = Counter()
+                for m in raw_memories:
+                    meta = m.get("metadata", {}) or {}
+                    op_ids[meta.get("operation_id", "unknown")] += 1
+                    categories[meta.get("category", "unknown")] += 1
+                logger.info(f"Memories by operation_id: {dict(op_ids)}")
+                logger.info(f"Memories by category: {dict(categories)}")
+            except Exception as debug_err:
+                logger.debug(f"Debug counter failed: {debug_err}")
+
+            logger.info(f"Filtering evidence for current operation_id: {operation_id}")
+
             # Select the newest active plan for this operation when possible
             try:
                 plan_candidates = []
@@ -290,10 +309,26 @@ def build_report_sections(
             except Exception as _pe:
                 logger.debug(f"Plan selection fallback due to: {_pe}")
 
-            # Process evidence entries
+            # Process evidence entries - FILTER BY OPERATION_ID
+            evidence_skipped = 0
+            evidence_included = 0
+
             for memory_item in raw_memories:
                 memory_content = memory_item.get("memory", "")
-                metadata = memory_item.get("metadata", {})
+                metadata = memory_item.get("metadata", {}) or {}
+
+                # CRITICAL FIX: Filter evidence by operation_id to prevent cross-operation pollution
+                # Only include evidence from THIS operation for per-operation reports
+                item_op_id = str(metadata.get("operation_id", ""))
+
+                if item_op_id and item_op_id != str(operation_id):
+                    # Skip evidence from other operations
+                    logger.debug(f"Skipping evidence from different operation: {item_op_id} (current: {operation_id})")
+                    evidence_skipped += 1
+                    continue
+
+                # If no operation_id in metadata, include it for backwards compatibility
+                # (older evidence may not have operation_id)
 
                 # Always include original content in evidence for downstream filters/tests
                 base_evidence = {
@@ -306,10 +341,12 @@ def build_report_sections(
                     "anchor": ("#finding-" + str(memory_item.get("id", "")))
                     if memory_item.get("id")
                     else "",
+                    "metadata": metadata,  # Include metadata for traceability
                 }
 
                 # Findings via metadata
                 if metadata and metadata.get("category") == "finding":
+                    evidence_included += 1
                     item = base_evidence.copy()
                     sev = metadata.get("severity", "MEDIUM")
                     conf = str(metadata.get("confidence", ""))
@@ -331,7 +368,7 @@ def build_report_sections(
                     evidence.append(item)
                     continue
 
-                    # JSON-encoded finding
+                # JSON-encoded finding
                     if memory_content.startswith("{"):
                         try:
                             parsed = json.loads(memory_content)
