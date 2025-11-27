@@ -339,73 +339,26 @@ def _retrieve_evidence_from_memory(_operation_id: str) -> List[Dict[str, Any]]:
                     categories[cat] = categories.get(cat, 0) + 1
                 logger.debug("Operation-scoped search returned categories: %s", categories)
 
-            if op_scoped_memories:
-                scoped = op_scoped_memories
+            # Use operation-scoped memories (no fallback - cross-learning requires shared mode)
+            scoped = op_scoped_memories or []
+            if scoped:
                 logger.info(
-                    "Found %d operation-scoped memories for %s using native run_id filtering",
-                    len(op_scoped_memories),
+                    "Found %d memories for operation %s",
+                    len(scoped),
                     _operation_id,
                 )
-                logger.info(
-                    "Per-operation isolation mode: Memories are from current operation only. "
-                    "Cross-learning disabled (set MEMORY_ISOLATION=shared for sequential cross-learning)."
-                )
             else:
-                # Fallback: Cross-operation learning - search without session_id
-                # This enables agents to learn from previous operations
-                logger.info(
-                    "No operation-specific memories found for %s, searching for general evidence (cross-operation learning)",
-                    _operation_id
+                logger.warning(
+                    "No memories found for operation %s. "
+                    "Note: Cross-operation learning requires MEMORY_ISOLATION=shared",
+                    _operation_id,
                 )
-
-                general_evidence = memory_client.search(
-                    query="findings evidence observations discoveries signals",
-                    user_id="cyber_agent",
-                    agent_id="cyber_agent",
-                    # No session_id = search across all operations
-                    filters={
-                        "category": ["finding", "signal", "observation", "discovery"]
-                    },
-                    limit=50
-                )
-
-                if general_evidence:
-                    logger.warning(
-                        "Using %d general evidence from memory store for cross-operation learning",
-                        len(general_evidence),
-                    )
-                    scoped = general_evidence
-                else:
-                    logger.warning(
-                        "No memories found for operation %s and no general evidence available",
-                        _operation_id,
-                    )
-                    scoped = []
         except Exception as search_error:
             logger.error(
-                "Error during native mem0 search: %s, falling back to legacy list+filter",
+                "Error during native mem0 search: %s",
                 search_error
             )
-            # Legacy fallback: list_memories + local filtering
-            memories_response = memory_client.list_memories(
-                user_id="cyber_agent", agent_id="cyber_agent"
-            )
-
-            # Parse and filter locally (legacy O(n) approach)
-            if isinstance(memories_response, dict):
-                raw_memories = memories_response.get(
-                    "memories", memories_response.get("results", [])
-                )
-            elif isinstance(memories_response, list):
-                raw_memories = memories_response
-            else:
-                raw_memories = []
-
-            scoped = [
-                m for m in raw_memories
-                if m.get("metadata", {}).get("category") in ["finding", "signal", "observation", "discovery"]
-            ]
-            logger.warning("Using legacy filtering, found %d memories", len(scoped))
+            scoped = []
 
         # Filter and format memories
         for mem in scoped:
@@ -448,23 +401,6 @@ def _retrieve_evidence_from_memory(_operation_id: str) -> List[Dict[str, Any]]:
                         "id": memory_id,
                         "severity": metadata.get("severity", "unknown"),
                         "confidence": metadata.get("confidence", "unknown"),
-                    }
-                )
-                continue
-
-            # Lightweight: include very short general notes (backward compat)
-            if (
-                "category" not in metadata
-                and memory_content
-                and len(memory_content.split()) < 100
-            ):
-                evidence.append(
-                    {
-                        "category": "general",
-                        "content": memory_content,
-                        "id": memory_id,
-                        "severity": "unknown",
-                        "confidence": "unknown",
                     }
                 )
 
