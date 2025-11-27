@@ -189,23 +189,37 @@ def build_report_sections(
                         server="bedrock",  # memory path base does not depend on model provider semantics
                         target_name=sanitize_target_name(target),
                     )
+                    # Respect MEMORY_ISOLATION mode for path construction
+                    import os as _os
+                    isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
+                    if isolation_mode == "operation" and operation_id:
+                        # Per-operation isolation: include operation_id in path
+                        unified_path = _os.path.join(unified_path, operation_id)
                     config["vector_store"]["config"]["path"] = unified_path
                 except Exception:
                     # Fallback to sanitized path logic if manager is unavailable
+                    import os as _os
                     safe_target_name = sanitize_target_for_path(target)
-                    config["vector_store"]["config"]["path"] = (
-                        f"outputs/{safe_target_name}/memory"
-                    )
+                    isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
+                    if isolation_mode == "operation" and operation_id:
+                        config["vector_store"]["config"]["path"] = (
+                            f"outputs/{safe_target_name}/memory/{operation_id}"
+                        )
+                    else:
+                        config["vector_store"]["config"]["path"] = (
+                            f"outputs/{safe_target_name}/memory"
+                        )
             # Use silent mode to suppress initialization output during report generation
             memory_client = Mem0ServiceClient(config, silent=True)
-            logger.info("Initialized memory client (fallback) for target: %s", target)
+            logger.info("Initialized memory client (fallback) for target: %s, operation: %s", target, operation_id)
         else:
             logger.info("Using existing memory client for report sections")
 
         raw_memories: List[Dict[str, Any]] = []
         if memory_client:
             try:
-                memories = memory_client.list_memories(user_id="cyber_agent")
+                # Use run_id scoping to get operation-specific memories
+                memories = memory_client.list_memories(user_id="cyber_agent", limit=100, run_id=operation_id)
             except Exception as mem_err:
                 logger.warning(
                     "Failed to load memories from existing client: %s", mem_err
@@ -224,6 +238,7 @@ def build_report_sections(
         # If no memories were returned (e.g., different backend in tests), try fallback Mem0 client (mockable)
         if not raw_memories:
             try:
+                import os as _os
                 config = Mem0ServiceClient.get_default_config()
                 if (
                     config
@@ -236,14 +251,25 @@ def build_report_sections(
                             server="bedrock",
                             target_name=sanitize_target_name(target),
                         )
+                        # Respect MEMORY_ISOLATION mode for path construction
+                        isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
+                        if isolation_mode == "operation" and operation_id:
+                            unified_path = _os.path.join(unified_path, operation_id)
                         config["vector_store"]["config"]["path"] = unified_path
                     except Exception:
                         safe_target_name = sanitize_target_for_path(target)
-                        config["vector_store"]["config"]["path"] = (
-                            f"outputs/{safe_target_name}/memory"
-                        )
+                        isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
+                        if isolation_mode == "operation" and operation_id:
+                            config["vector_store"]["config"]["path"] = (
+                                f"outputs/{safe_target_name}/memory/{operation_id}"
+                            )
+                        else:
+                            config["vector_store"]["config"]["path"] = (
+                                f"outputs/{safe_target_name}/memory"
+                            )
                 fallback_client = Mem0ServiceClient(config, silent=True)
-                memories = fallback_client.list_memories(user_id="cyber_agent")
+                # Use run_id scoping to get operation-specific memories
+                memories = fallback_client.list_memories(user_id="cyber_agent", limit=100, run_id=operation_id)
                 if isinstance(memories, dict):
                     raw_memories = (
                         memories.get("results", [])
@@ -276,19 +302,14 @@ def build_report_sections(
 
             logger.info(f"Filtering evidence for current operation_id: {operation_id}")
 
-            # Select the newest active plan for this operation when possible
+            # Select the newest active plan for this operation
             try:
                 plan_candidates = []
                 for m in raw_memories:
                     meta = m.get("metadata", {}) or {}
                     if str(meta.get("category", "")) == "plan":
+                        # Only include plans from current operation (no cross-op fallback)
                         if str(meta.get("operation_id", "")) == str(operation_id):
-                            plan_candidates.append(m)
-                # Fallback: include any plan if no op-scoped candidates
-                if not plan_candidates:
-                    for m in raw_memories:
-                        meta = m.get("metadata", {}) or {}
-                        if str(meta.get("category", "")) == "plan":
                             plan_candidates.append(m)
 
                 # Sort by created_at descending
@@ -327,10 +348,7 @@ def build_report_sections(
                     evidence_skipped += 1
                     continue
 
-                # If no operation_id in metadata, include it for backwards compatibility
-                # (older evidence may not have operation_id)
-
-                # Always include original content in evidence for downstream filters/tests
+                # Build base evidence structure
                 base_evidence = {
                     "category": "finding",
                     "content": memory_content,
@@ -366,85 +384,12 @@ def build_report_sections(
                         }
                     )
                     evidence.append(item)
-                    continue
 
-                # JSON-encoded finding
-                    if memory_content.startswith("{"):
-                        try:
-                            parsed = json.loads(memory_content)
-                            if parsed.get("category") == "finding":
-                                item = base_evidence.copy()
-                                item.update(parsed)
-                                evidence.append(item)
-                                continue
-                        except json.JSONDecodeError:
-                            pass
-
-                    # Text-based structured evidence (markers)
-                    if any(
-                        marker in memory_content
-                        for marker in [
-                            "[FINDING]",
-                            "[SIGNAL]",
-                            "[VULNERABILITY]",
-                            "[DISCOVERY]",
-                        ]
-                    ):
-                        severity = str(metadata.get("severity", "INFO"))
-                        if severity == "INFO":
-                            if "[CRITICAL]" in memory_content:
-                                severity = "CRITICAL"
-                            elif (
-                                "[HIGH]" in memory_content
-                                or metadata.get("severity") == "high"
-                            ):
-                                severity = "HIGH"
-                            elif (
-                                "[MEDIUM]" in memory_content
-                                or metadata.get("severity") == "medium"
-                            ):
-                                severity = "MEDIUM"
-                            elif "[LOW]" in memory_content:
-                                severity = "LOW"
-
-                        parsed_evidence = _parse_structured_evidence(memory_content)
-
-                        # Confidence preference: parsed value if present else metadata (pass-through)
-                        parsed_conf = (
-                            parsed_evidence.get("confidence")
-                            if isinstance(parsed_evidence, dict)
-                            else ""
-                        )
-                        conf = parsed_conf or str(metadata.get("confidence", ""))
-
-                        item = base_evidence.copy()
-                        item.update(
-                            {
-                                "severity": severity,
-                                "parsed": parsed_evidence,
-                                "confidence": conf,
-                                "validation_status": str(
-                                    metadata.get("validation_status", "")
-                                ).strip()
-                                or None,
-                            }
-                        )
-                        evidence.append(item)
-
-                # Legacy fallback kept for robustness (should rarely execute now)
-                if not operation_plan:
-                    for memory_item in raw_memories:
-                        meta = memory_item.get("metadata", {})
-                        if meta and meta.get("category") == "plan":
-                            operation_plan = memory_item.get("memory", "")
-                            logger.info(
-                                "Selected first available plan from memory (fallback)"
-                            )
-                            break
-
-                logger.info(
-                    "Retrieved %d pieces of evidence from memory", len(evidence)
-                )
+            logger.info(
+                "Retrieved %d pieces of evidence from memory (skipped %d from other ops)",
+                len(evidence),
+                evidence_skipped
+            )
 
         # If no evidence, let LLM handle empty evidence
         if not evidence:
