@@ -191,7 +191,7 @@ def print_banner():
     ]
 
     subtitle = "Full Spectrum Cyber Operations"
-    version = "v0.1.3"
+    version = "v0.1.4"
 
     # Terminal Pro gradient colors (24-bit RGB ANSI codes)
     # Matrix green → Cyan → Apple blue (Gemini-inspired multi-color gradient)
