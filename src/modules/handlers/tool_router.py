@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Hook that reroutes unknown tools to shell and externalizes large outputs."""
+"""Hook that reroutes unknown tools to shell and externalizes large outputs.
+
+SDK Contract Compliance:
+- AfterToolCallEvent.result is the ONLY writable field
+- Modifications MUST REPLACE event.result, not mutate nested dicts
+- See: strands/hooks/events.py AfterToolCallEvent._can_write()
+"""
 
 import logging
 import os
 import re
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 class ToolRouterHook:
-    """BeforeToolCall hook that maps unknown tool names to shell and truncates large results."""
+    """BeforeToolCall hook that maps unknown tool names to shell and truncates large results.
+
+    SDK Contract:
+    - BeforeToolCallEvent: Can write to selected_tool, tool_use, cancel_tool
+    - AfterToolCallEvent: Can ONLY write to result (must REPLACE, not mutate)
+    """
 
     MAX_ARTIFACTS_PER_SESSION = 100
     ARTIFACT_CLEANUP_THRESHOLD = 150
@@ -36,10 +48,9 @@ class ToolRouterHook:
         else:
             self._artifact_dir = None
         self._artifact_threshold = artifact_threshold or 10000
-        self._inline_artifact_head = (
-            str(os.getenv("CYBER_TOOL_INLINE_ARTIFACT_HEAD", "true")).lower() == "true"
-        )
         self._artifact_count = 0
+        # Thread safety for artifact counting
+        self._artifact_lock = threading.Lock()
 
     def register_hooks(self, registry) -> None:  # type: ignore[no-untyped-def]
         from strands.hooks import AfterToolCallEvent
@@ -113,7 +124,13 @@ class ToolRouterHook:
         tool_use["input"] = {"command": command}
 
     async def _truncate_large_results_async(self, event) -> None:
-        """Truncate large tool results and externalize to artifacts."""
+        """Truncate large tool results and externalize to artifacts.
+
+        SDK Contract Compliance:
+        - MUST REPLACE event.result with new dict, NOT mutate nested content
+        - Creates new content list with modified blocks
+        - Preserves all ToolResult schema fields (status, toolUseId, content)
+        """
         if event is None:
             logger.warning("Received None event in _truncate_large_results")
             return
@@ -121,72 +138,115 @@ class ToolRouterHook:
         result = getattr(event, "result", None)
         if not result or not isinstance(result, dict):
             return
-        content = result.get("content", [])
+
+        # Validate ToolResult schema (graceful handling of malformed results)
+        content = result.get("content")
+        if not isinstance(content, list):
+            logger.debug("ToolResult content is not a list, skipping truncation")
+            return
+
+        # Track if any modifications were made
+        modified = False
+        new_content = []
+
         for block in content:
             if not isinstance(block, dict) or "text" not in block:
+                # Preserve non-text blocks unchanged
+                new_content.append(block)
                 continue
-            text = block["text"]
+
+            text = block.get("text")
             if not isinstance(text, str):
+                new_content.append(block)
                 continue
-            needs_externalization = len(text) > self._artifact_threshold
-            needs_truncation = (
-                len(text) > self._max_result_chars or needs_externalization
-            )
-            if not needs_truncation:
+
+            original_size = len(text)
+            needs_externalization = original_size > self._artifact_threshold
+            needs_truncation = original_size > self._max_result_chars
+
+            # Skip if no action needed - preserve original block
+            if not needs_externalization and not needs_truncation:
+                new_content.append(block)
                 continue
 
             tool_name = getattr(event, "tool_use", {}).get("name", "unknown")
             artifact_path = None
+
+            # Always externalize large outputs to preserve full evidence
             if needs_externalization:
                 artifact_path = self._persist_artifact(tool_name, text)
-            logger.warning(
-                "Truncating large tool result: tool=%s, original_size=%d chars, truncated_to=%d",
-                tool_name,
-                len(text),
-                min(self._max_result_chars, len(text)),
-            )
+
+            # Calculate actual truncation target
+            # When externalizing, use smaller inline preview (artifact_threshold)
+            # When just truncating, use max_result_chars
             if artifact_path is not None:
-                preview_limit = max(100, self._max_result_chars - 5000)
+                # Externalized: use smaller inline preview to save context
+                truncate_target = min(self._artifact_threshold, self._max_result_chars)
             else:
-                preview_limit = self._max_result_chars
-            snippet = text[:preview_limit]
+                truncate_target = self._max_result_chars
+
+            # Only log "Truncating" if we're actually reducing size
+            actual_truncated_size = min(truncate_target, original_size)
+            if actual_truncated_size < original_size:
+                logger.warning(
+                    "Truncating large tool result: tool=%s, original_size=%d chars, truncated_to=%d",
+                    tool_name,
+                    original_size,
+                    actual_truncated_size,
+                )
+            elif artifact_path is not None:
+                # Just externalized, not truncated
+                logger.info(
+                    "Externalized tool result to artifact: tool=%s, size=%d chars, artifact=%s",
+                    tool_name,
+                    original_size,
+                    artifact_path,
+                )
+
+            # Build new text content (DO NOT mutate original block)
+            snippet = text[:truncate_target]
             if artifact_path is not None:
                 try:
                     relative_path = os.path.relpath(artifact_path, os.getcwd())
                 except Exception:
                     relative_path = str(artifact_path)
-                artifact_preview = ""
-                try:
-                    with open(
-                        artifact_path, "r", encoding="utf-8", errors="ignore"
-                    ) as fh:
-                        artifact_preview = fh.read(4000)
-                except Exception:
-                    artifact_preview = ""
+                # Build concise summary with artifact reference
                 summary_lines = [
-                    f"[Tool output: {len(text):,} chars total | Preview: {len(snippet):,} chars below | Full: {relative_path}]",
+                    f"[Tool output: {original_size:,} chars | Inline: {len(snippet):,} chars | Full: {relative_path}]",
                     "",
                     snippet,
+                    "",
+                    f"[Complete output saved to: {relative_path}]"
                 ]
-                if artifact_preview:
-                    if self._inline_artifact_head:
-                        summary_lines.extend([
-                            "",
-                            "[Artifact head - 4000 chars:]",
-                            artifact_preview,
-                            "",
-                            f"[Complete output saved to: {relative_path}]"
-                        ])
-                    else:
-                        summary_lines.extend([
-                            "",
-                            "[Artifact head - 4000 chars:]",
-                            artifact_preview
-                        ])
-                block["text"] = "\n".join(summary_lines)
+                new_text = "\n".join(summary_lines)
             else:
-                suffix_lines = [f"[Truncated: {len(text)} chars total]"]
-                block["text"] = f"{snippet}\n\n" + "\n".join(suffix_lines)
+                suffix_lines = [f"[Truncated: {original_size:,} chars total]"]
+                new_text = f"{snippet}\n\n" + "\n".join(suffix_lines)
+
+            # Create NEW block with modified text (SDK compliant - no mutation)
+            new_block = dict(block)  # Shallow copy of block
+            new_block["text"] = new_text
+            new_content.append(new_block)
+            modified = True
+
+        # SDK Contract: REPLACE event.result with new dict (not mutate)
+        if modified:
+            # Build new ToolResult preserving all schema fields
+            new_result = {
+                "content": new_content,
+            }
+            # Preserve required ToolResult fields
+            if "status" in result:
+                new_result["status"] = result["status"]
+            if "toolUseId" in result:
+                new_result["toolUseId"] = result["toolUseId"]
+            # Preserve any additional fields
+            for key in result:
+                if key not in new_result:
+                    new_result[key] = result[key]
+
+            # REPLACE event.result (SDK compliant)
+            event.result = new_result
 
     def _persist_artifact(self, tool_name: str, payload: str) -> Optional[Path]:
         """Validate artifact path operations."""
@@ -237,8 +297,13 @@ class ToolRouterHook:
             logger.debug("Persisted artifact: %s", artifact_path)
 
             # Track artifacts and clean up old ones to prevent disk exhaustion
-            self._artifact_count += 1
-            if self._artifact_count >= self.ARTIFACT_CLEANUP_THRESHOLD:
+            # Thread-safe artifact counting
+            should_cleanup = False
+            with self._artifact_lock:
+                self._artifact_count += 1
+                should_cleanup = self._artifact_count >= self.ARTIFACT_CLEANUP_THRESHOLD
+
+            if should_cleanup:
                 self._cleanup_old_artifacts()
 
             return artifact_path
@@ -259,8 +324,9 @@ class ToolRouterHook:
             # Get all .log files in artifact directory
             artifacts = list(self._artifact_dir.glob("*.log"))
             if len(artifacts) <= self.MAX_ARTIFACTS_PER_SESSION:
-                # No cleanup needed
-                self._artifact_count = len(artifacts)
+                # No cleanup needed - thread-safe update
+                with self._artifact_lock:
+                    self._artifact_count = len(artifacts)
                 return
 
             # Sort by modification time (oldest first)
@@ -276,8 +342,9 @@ class ToolRouterHook:
                 except Exception as e:
                     logger.debug("Failed to remove old artifact %s: %s", artifact, e)
 
-            # Update count
-            self._artifact_count = self.MAX_ARTIFACTS_PER_SESSION
+            # Update count - thread-safe
+            with self._artifact_lock:
+                self._artifact_count = self.MAX_ARTIFACTS_PER_SESSION
             logger.info(
                 "Cleaned up %d old artifacts, keeping %d most recent",
                 removed_count,

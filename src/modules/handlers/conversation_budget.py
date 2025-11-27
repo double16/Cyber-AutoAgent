@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Callable, Sequence, TypedDict
+from typing import Any, Dict, Optional, Callable, Sequence
 
 from strands import Agent
 from strands.agent.conversation_manager import (
@@ -74,24 +74,6 @@ def get_shared_conversation_manager() -> Optional[Any]:
     """
     with _MANAGER_LOCK:
         return _SHARED_CONVERSATION_MANAGER
-
-
-class MessageContext(TypedDict, total=False):
-    """
-    Rich metadata for pruning decisions.
-
-    Provides comprehensive information about a message to enable intelligent
-    pruning strategies.
-    """
-
-    token_count: int  # Estimated tokens in this message
-    has_tool_use: bool  # Contains toolUse content blocks
-    has_tool_result: bool  # Contains toolResult content blocks
-    tool_result_size: int  # Size of tool result content in chars
-    message_index: int  # Position in conversation (0-based)
-    total_messages: int  # Total messages in conversation
-    message_age: int  # Steps since this message (for time-based pruning)
-    is_preserved: bool  # In preservation zone (initial/recent)
 
 
 @dataclass
@@ -178,12 +160,9 @@ PROMPT_TELEMETRY_THRESHOLD = max(
 PROMPT_CACHE_RELAX = max(0.0, min(_get_env_float("CYBER_PROMPT_CACHE_RELAX", 0.1), 0.3))
 NO_REDUCTION_WARNING_RATIO = 0.8  # Warn when at 80% of limit with no reductions
 
-# Compression threshold for large tool results - INTERNAL constant
-# This is a safety net for results that bypass ToolRouterHook externalization (10K).
-# Set to 4x the externalization threshold to only catch edge cases.
-# NOT user-configurable - the relationship with externalization threshold must be maintained.
-_TOOL_ARTIFACT_THRESHOLD = 10000  # Must match ToolRouterHook default
-TOOL_COMPRESS_THRESHOLD = _TOOL_ARTIFACT_THRESHOLD * 4  # 40K - safety net only
+# Compression threshold - aligned with ToolRouterHook externalization threshold (10K)
+_TOOL_ARTIFACT_THRESHOLD = 10000
+TOOL_COMPRESS_THRESHOLD = _TOOL_ARTIFACT_THRESHOLD
 TOOL_COMPRESS_TRUNCATE = _get_env_int("CYBER_TOOL_COMPRESS_TRUNCATE", 8000)
 
 # Token estimation overhead constants for content not in agent.messages
@@ -193,8 +172,11 @@ MESSAGE_METADATA_OVERHEAD_TOKENS = 50
 
 # Proactive compression threshold (percentage of window capacity)
 PROACTIVE_COMPRESSION_THRESHOLD = 0.7
+# Window overflow threshold - force pruning above this
+WINDOW_OVERFLOW_THRESHOLD = 1.0  # Force prune when at 100% of window
 PRESERVE_FIRST_DEFAULT = _get_env_int("CYBER_CONVERSATION_PRESERVE_FIRST", 1)
-PRESERVE_LAST_DEFAULT = _get_env_int("CYBER_CONVERSATION_PRESERVE_LAST", 12)
+# Reduced from 12 to 5 to prevent preservation overlap blocking all pruning
+PRESERVE_LAST_DEFAULT = _get_env_int("CYBER_CONVERSATION_PRESERVE_LAST", 5)
 _MAX_REDUCTION_HISTORY = 5  # Keep last 5 reduction events for diagnostics
 _NO_REDUCTION_ATTR = "_prompt_budget_warned_no_reduction"
 
@@ -207,7 +189,8 @@ ESCALATION_MAX_TIME_SECONDS = 30.0  # Maximum time for all escalation passes
 ESCALATION_THRESHOLD_RATIO = 0.9  # Escalate if still at 90% of limit
 MAX_THRESHOLD_RATIO = 0.98  # Maximum threshold ratio (never exceed 98% of limit)
 SMALL_CONVERSATION_THRESHOLD = 3  # Skip pruning for conversations with fewer messages
-PRESERVATION_OVERLAP_THRESHOLD = 13  # Expected overlap for early operations (first+last)
+# With preserve_first=1 and preserve_last=5, overlap is 6 messages
+PRESERVATION_OVERLAP_THRESHOLD = 6  # Expected overlap for early operations (first+last)
 
 
 def _record_context_reduction_event(
@@ -280,72 +263,6 @@ class LargeToolResultMapper:
         self.truncate_at = truncate_at
         self.sample_limit = sample_limit
 
-    def _create_message_context(
-        self, message: Message, index: int, messages: list[Message]
-    ) -> MessageContext:
-        """
-        Create rich metadata context for the message.
-
-        Provides comprehensive information for intelligent pruning decisions.
-        """
-        context: MessageContext = {
-            "message_index": index,
-            "total_messages": len(messages),
-            "has_tool_use": False,
-            "has_tool_result": False,
-            "tool_result_size": 0,
-            "token_count": 0,
-            "is_preserved": False,
-        }
-
-        # Analyze content blocks
-        for block in message.get("content", []):
-            if isinstance(block, dict):
-                if "toolUse" in block:
-                    context["has_tool_use"] = True
-
-                if "toolResult" in block:
-                    context["has_tool_result"] = True
-                    tool_result = block["toolResult"]
-                    size = self._tool_length(tool_result, index)
-                    context["tool_result_size"] = max(context["tool_result_size"], size)
-
-        # Estimate token count for this message
-        context["token_count"] = self._estimate_message_tokens(message)
-
-        return context
-
-    def _estimate_message_tokens(self, message: Message) -> int:
-        """Quick token estimation for a single message.
-
-        Uses safe division with validation.
-        """
-        total_chars = len(message.get("role", "")) * 2
-
-        for block in message.get("content", []):
-            if not isinstance(block, dict):
-                continue
-            if "text" in block:
-                total_chars += len(block["text"])
-            elif "toolUse" in block:
-                total_chars += len(str(block["toolUse"]))
-            elif "toolResult" in block:
-                total_chars += self._tool_length(block["toolResult"], 0)
-            elif "reasoningContent" in block:
-                # Count reasoning blocks in token estimation
-                reasoning = block["reasoningContent"]
-                if isinstance(reasoning, dict):
-                    if "reasoningText" in reasoning:
-                        total_chars += len(reasoning["reasoningText"].get("text", ""))
-                    elif reasoning:
-                        total_chars += len(str(reasoning))
-
-        # Safe division - ratio is always positive, but add defensive check
-        ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
-        if ratio <= 0:
-            ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Fallback to default
-        return max(1, int(total_chars / ratio))
-
     def __call__(
         self, message: Message, index: int, messages: list[Message]
     ) -> Optional[Message]:
@@ -360,7 +277,9 @@ class LargeToolResultMapper:
             tool_result = content_block.get("toolResult")
             if tool_result:
                 tool_length = self._tool_length(tool_result, idx)
-                if tool_length > self.max_tool_chars:
+                # Use >= to catch boundary case where tool_length equals threshold
+                # (e.g., ToolRouterHook creates exactly 10K inline previews)
+                if tool_length >= self.max_tool_chars:
                     logger.debug(
                         "LAYER 2 COMPRESSION: Tool result at message %d block %d exceeds threshold "
                         "(length=%d, threshold=%d)",
@@ -477,7 +396,7 @@ class LargeToolResultMapper:
         json_sample: dict[str, Any] = {}
         content_types: list[str] = []
 
-        for block_idx, block in enumerate(tool_result.get("content", [])):
+        for block in tool_result.get("content", []):
             if "text" in block:
                 content_types.append("text")
                 text = block["text"]
@@ -709,17 +628,156 @@ class MappingConversationManager(SummarizingConversationManager):
         """
         messages = getattr(agent, "messages", [])
         window_size = self._window_size
+        message_count = len(messages)
 
-        if len(messages) > window_size * PROACTIVE_COMPRESSION_THRESHOLD:
+        if message_count > window_size * PROACTIVE_COMPRESSION_THRESHOLD:
             logger.info(
                 "Proactive compression: %d messages (%.0f%% of %d window)",
-                len(messages),
-                len(messages) / window_size * 100,
+                message_count,
+                message_count / window_size * 100,
                 window_size
             )
 
+        # Apply mapper compression first
         self._apply_mapper(agent)
+
+        # Check for window overflow and force prune if needed
+        messages = getattr(agent, "messages", [])
+        message_count = len(messages)
+
+        if message_count >= window_size * WINDOW_OVERFLOW_THRESHOLD:
+            # Target 90% of window to leave room for new messages
+            target_count = int(window_size * 0.9)
+            prune_count = max(1, message_count - target_count)  # At least 1
+            logger.warning(
+                "FORCE PRUNING: Window at capacity (%d messages >= %d window). "
+                "Pruning %d messages to reach target %d.",
+                message_count,
+                window_size,
+                prune_count,
+                target_count
+            )
+            self._force_prune_oldest(agent, prune_count)
+
+        # Apply sliding window management and sync removal count
+        before_sliding = _count_agent_messages(agent)
         self._sliding.apply_management(agent, **kwargs)
+        after_sliding = _count_agent_messages(agent)
+
+        sliding_removed = max(0, before_sliding - after_sliding)
+        if sliding_removed > 0:
+            self.removed_message_count += sliding_removed
+
+    def _force_prune_oldest(self, agent: Agent, count: int) -> None:
+        """Force remove oldest messages while preserving tool pairs.
+
+        This is called when window is exceeded to guarantee message count stays bounded.
+        Tool pairs (toolUse + toolResult) are kept together to avoid API errors:
+        - 'messages with role tool must be a response to a preceeding message with tool_calls'
+        - 'toolResult blocks exceeds the number of toolUse blocks of previous turn'
+        """
+        messages = getattr(agent, "messages", [])
+        if not messages or count <= 0:
+            return
+
+        # Calculate safe removal range (skip preserved messages)
+        start_idx = self.preserve_first
+        end_idx = len(messages) - self.preserve_last
+
+        if start_idx >= end_idx:
+            logger.warning(
+                "Cannot force prune: preservation ranges overlap (first=%d, last=%d, total=%d)",
+                self.preserve_first,
+                self.preserve_last,
+                len(messages)
+            )
+            return
+
+        # Build set of indices to remove, ensuring we remove complete tool pairs
+        indices_to_remove: set[int] = set()
+        removed_count = 0
+
+        # Process prunable range, identifying tool pairs
+        idx = start_idx
+        while idx < end_idx and removed_count < count:
+            msg = messages[idx]
+            content = msg.get("content", [])
+
+            # Check if this message contains toolUse (assistant message)
+            has_tool_use = any(
+                isinstance(block, dict) and "toolUse" in block
+                for block in content
+                if isinstance(block, dict)
+            )
+
+            # Check if this message contains toolResult (user message)
+            has_tool_result = any(
+                isinstance(block, dict) and "toolResult" in block
+                for block in content
+                if isinstance(block, dict)
+            )
+
+            if has_tool_use:
+                # This is assistant message with toolUse
+                # The next message should have toolResult - remove both
+                indices_to_remove.add(idx)
+                removed_count += 1
+
+                # Check next message for toolResult
+                next_idx = idx + 1
+                if next_idx < len(messages):
+                    next_msg = messages[next_idx]
+                    next_content = next_msg.get("content", [])
+                    next_has_result = any(
+                        isinstance(block, dict) and "toolResult" in block
+                        for block in next_content
+                        if isinstance(block, dict)
+                    )
+                    # Include toolResult even if at boundary (use <= not <)
+                    # This prevents orphaned toolUse when toolResult is at end of prunable range
+                    if next_has_result and next_idx <= end_idx:
+                        indices_to_remove.add(next_idx)
+                        removed_count += 1
+                        idx = next_idx + 1
+                        continue
+
+            elif has_tool_result:
+                # Orphaned toolResult - should not happen but remove it safely
+                indices_to_remove.add(idx)
+                removed_count += 1
+            else:
+                # Regular message without tool content - safe to remove
+                indices_to_remove.add(idx)
+                removed_count += 1
+
+            idx += 1
+
+        if not indices_to_remove:
+            return
+
+        # Build new message list, skipping marked indices
+        new_messages: list[Message] = [
+            msg for i, msg in enumerate(messages)
+            if i not in indices_to_remove
+        ]
+
+        # In-place modification per SDK contract
+        before_count = len(messages)
+        agent.messages[:] = new_messages
+        after_count = len(new_messages)
+
+        # Track removed messages for SDK session management
+        # SDK's RepositorySessionManager uses this for offset tracking
+        actual_removed = before_count - after_count
+        self.removed_message_count += actual_removed
+
+        logger.info(
+            "Force pruned %d messages (preserving tool pairs): %d -> %d (total removed: %d)",
+            actual_removed,
+            before_count,
+            after_count,
+            self.removed_message_count
+        )
 
     def reduce_context(
         self,
@@ -753,6 +811,13 @@ class MappingConversationManager(SummarizingConversationManager):
             super().reduce_context(agent, e or overflow_exc, **kwargs)
         after_msgs = _count_agent_messages(agent)
         after_tokens = _safe_estimate_tokens(agent)
+
+        # Sync removal count (only for sliding path - summarizing handles its own)
+        if stage == "sliding":
+            removed_this_cycle = max(0, before_msgs - after_msgs)
+            if removed_this_cycle > 0:
+                self.removed_message_count += removed_this_cycle
+
         changed = after_msgs < before_msgs or (
             before_tokens is not None
             and after_tokens is not None
@@ -770,9 +835,23 @@ class MappingConversationManager(SummarizingConversationManager):
                 after_tokens if after_tokens is not None else "unknown",
             )
         else:
-            logger.debug(
-                "Context reduction requested but no change detected for stage=%s", stage
+            # SDK Contract: If reduction was not possible, raise exception
+            # This allows caller to know context management is exhausted
+            logger.warning(
+                "Context reduction requested but no change detected for stage=%s "
+                "(before=%d, after=%d messages). Reduction may be exhausted.",
+                stage,
+                before_msgs,
+                after_msgs,
             )
+            # Check if we're truly exhausted (can't reduce further)
+            total_preserved = self.preserve_first + self.preserve_last
+            if after_msgs <= total_preserved + 1:
+                # All remaining messages are in preservation zone
+                raise ContextWindowOverflowException(
+                    f"Context reduction exhausted: {after_msgs} messages remaining, "
+                    f"{total_preserved} preserved. Cannot reduce further."
+                ) from e
 
         reason = getattr(agent, "_pending_reduction_reason", None)
         # Safe attribute deletion

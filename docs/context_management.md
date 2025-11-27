@@ -9,12 +9,12 @@ The system guarantees operational continuity under context pressure while preser
 
 ### Reduction Layer Hierarchy
 
-The context management system employs a four-layer reduction cascade, where each layer activates only when preceding layers prove insufficient:
+The context management system employs a five-layer reduction cascade (Layer 0-4), where each layer activates only when preceding layers prove insufficient:
 
 ```mermaid
 graph TD
     A[Tool Execution] --> B{Output Size Analysis}
-    B -->|"> 10KB"| C[Artifact Externalization]
+    B -->|"> 10KB"| C["Layer 0: Artifact Externalization<br/>(ToolRouterHook)"]
     B -->|"≤ 10KB"| D[Conversation Integration]
 
     C --> D
@@ -23,7 +23,7 @@ graph TD
     E -->|"< 65% capacity"| F[Continue Execution]
     E -->|"≥ 65% capacity"| G[Initiate Reduction]
 
-    G --> H["Layer 1: Tool Result Compression<br/>(threshold: 40K chars)"]
+    G --> H["Layer 1: Tool Result Compression<br/>(threshold: 10K chars, aligned with L0)"]
     H --> I["Layer 2: Sliding Window<br/>(window: 100 messages)"]
     I --> J["Layer 3: LLM Summarization<br/>(ratio: 30%)"]
     J --> K["Layer 4: Escalation<br/>(max 2 passes, 30s budget)"]
@@ -35,6 +35,16 @@ graph TD
     style E fill:#fbbf24,stroke:#333,stroke-width:2px
     style G fill:#0f172a,stroke:#818cf8,color:#f8fafc
 ```
+
+**Layer Summary:**
+
+| Layer | Component | Trigger | Action |
+|-------|-----------|---------|--------|
+| 0 | ToolRouterHook | Output > 10KB | Externalize to artifact, inject preview |
+| 1 | LargeToolResultMapper | Tool result > 10KB | Compress with metadata |
+| 2 | SlidingWindowConversationManager | Messages > window | Remove oldest (preserve tool pairs) |
+| 3 | SummarizingConversationManager | Layer 2 overflow | LLM-based summarization |
+| 4 | PromptBudgetHook | > 90% after reduction | Additional reduction passes |
 
 ### Event-Driven Execution Model
 
@@ -76,6 +86,17 @@ sequenceDiagram
 
     Agent->>Agent: Proceed with model invocation
 ```
+
+## SDK Contract Compliance
+
+The system implements the Strands SDK `ConversationManager` interface with these key requirements:
+
+| Contract | Requirement |
+|----------|-------------|
+| **Message Modification** | Must use `agent.messages[:] = new` (in-place), not `agent.messages = new` |
+| **Removal Tracking** | `removed_message_count` must reflect total messages removed (used as session restore offset) |
+| **State Serialization** | `get_state()` must include `__name__` for class validation |
+| **Hook Events** | `AfterToolCallEvent.result` must be replaced, not mutated |
 
 ## Component Specification
 
@@ -149,7 +170,7 @@ Stateless message mapper implementing the SDK `MessageMapper` protocol for tool 
 | Attribute | Value |
 |-----------|-------|
 | **Location** | `modules/handlers/conversation_budget.py` |
-| **Compression Threshold** | 40,000 characters |
+| **Compression Threshold** | 10,000 characters |
 | **Truncation Target** | 8,000 characters |
 | **Sample Limit** | 3 key-value pairs for JSON |
 
@@ -210,12 +231,20 @@ Ratios are resolved dynamically via models.dev integration with result caching.
 
 ## Multi-Layer Reduction System
 
+### Layer 0: Artifact Externalization
+
+Intercepts large tool outputs before conversation integration, persisting full output to disk while injecting a preview into the conversation.
+
+**Trigger**: Tool output exceeds 10,000 characters
+
+**Output**: `artifacts/<tool>_<timestamp>_<uuid>.log` with inline preview reference
+
 ### Layer 1: Tool Result Compression
 
 Selectively compresses tool results exceeding the compression threshold while preserving semantic content.
 
 **Trigger Conditions**:
-- Tool result content exceeds 40,000 characters
+- Tool result content exceeds 10,000 characters
 - Message resides within the prunable range (excludes preservation zones)
 
 **Compression Operations**:
@@ -243,10 +272,10 @@ Maintains bounded conversation length by removing oldest messages while preservi
 
 **Configuration**:
 - Window size: 100 messages (configurable via `CYBER_CONVERSATION_WINDOW`)
-- Tool pair preservation: Delegated to SDK's `SlidingWindowConversationManager`
+- Prune target: 90% of window (leaves room for new messages)
 
 **Tool Pair Constraint**:
-The SDK enforces that `toolUse` blocks are never orphaned from their corresponding `toolResult`:
+The system ensures `toolUse` blocks are never orphaned from their corresponding `toolResult`:
 ```
 Cannot remove: toolResult without preceding toolUse
 Cannot remove: toolUse without following toolResult (unless terminal)
@@ -339,15 +368,13 @@ Note: `CYBER_PROMPT_FALLBACK_TOKENS` is deprecated but still supported for backw
 | `CYBER_TOOL_MAX_RESULT_CHARS` | 30,000 | Conversation truncation limit |
 | `CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD` | 10,000 | Artifact externalization trigger |
 
-Note: `TOOL_COMPRESS_THRESHOLD` is an internal constant (40K) derived as 4x the artifact threshold. This ensures the compression layer acts as a safety net for results that bypass externalization.
-
 #### Conversation Preservation
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CYBER_CONVERSATION_WINDOW` | 100 | Sliding window size (messages) |
 | `CYBER_CONVERSATION_PRESERVE_FIRST` | 1 | Initial messages to preserve |
-| `CYBER_CONVERSATION_PRESERVE_LAST` | 12 | Recent messages to preserve (overridden by dynamic scaling) |
+| `CYBER_CONVERSATION_PRESERVE_LAST` | 5 | Recent messages to preserve (reduced from 12 to prevent pruning deadlock) |
 
 ### Code-Level Constants
 
@@ -395,6 +422,10 @@ The system constructs prompts as `SystemContentBlock[]` with cache point hints f
 ### Threshold Relaxation
 
 When prompt caching is active (`_prompt_cache_hit` or `CYBER_PROMPT_CACHE_HINT=true`), the reduction threshold is relaxed by `PROMPT_CACHE_RELAX` (default: 10%) to avoid premature reductions that would invalidate cache entries.
+
+## Session Persistence
+
+The conversation manager state is serialized via `get_state()` and restored via `restore_from_session()`. The `removed_message_count` field is critical—it serves as an offset when the SDK restores messages from session storage, ensuring removed messages are properly skipped.
 
 ## Diagnostic Framework
 
@@ -469,7 +500,5 @@ grep "HOOK REGISTRATION" logs/cyber_operations.log
 
 ## References
 
-- Strands SDK: `ConversationManager` interface specification
-- Strands SDK: `MessageMapper` protocol (stateless transformation)
-- Strands SDK: Hook events (`BeforeModelCallEvent`, `AfterToolCallEvent`)
+- Strands SDK: `ConversationManager` interface, `MessageMapper` protocol, Hook events
 - models.dev: Provider-specific token limits and ratios

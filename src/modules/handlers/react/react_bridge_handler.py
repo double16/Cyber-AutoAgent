@@ -78,8 +78,10 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         self.memory_ops = 0
         self.evidence_count = 0
         # Track SDK metrics as authoritative source
-        self.sdk_input_tokens = 0
-        self.sdk_output_tokens = 0
+        # THREAD SAFETY: Use lock to protect token counters accessed by metrics thread
+        self._metrics_lock = threading.RLock()
+        self._sdk_input_tokens = 0
+        self._sdk_output_tokens = 0
         # Metrics emission handled by background thread
 
         # Tool tracking
@@ -381,6 +383,32 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             if usage:
                 self.sdk_input_tokens = usage.get("inputTokens", 0)
                 self.sdk_output_tokens = usage.get("outputTokens", 0)
+
+    # -- Thread-safe token counter properties --------------------------------
+
+    @property
+    def sdk_input_tokens(self) -> int:
+        """Thread-safe getter for input token count."""
+        with self._metrics_lock:
+            return self._sdk_input_tokens
+
+    @sdk_input_tokens.setter
+    def sdk_input_tokens(self, value: int) -> None:
+        """Thread-safe setter for input token count."""
+        with self._metrics_lock:
+            self._sdk_input_tokens = value
+
+    @property
+    def sdk_output_tokens(self) -> int:
+        """Thread-safe getter for output token count."""
+        with self._metrics_lock:
+            return self._sdk_output_tokens
+
+    @sdk_output_tokens.setter
+    def sdk_output_tokens(self, value: int) -> None:
+        """Thread-safe setter for output token count."""
+        with self._metrics_lock:
+            self._sdk_output_tokens = value
 
     # -- Helper methods ----------------------------------------------------
 
@@ -1250,19 +1278,23 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         # Update live metrics for memory operations and evidence collection
         try:
             if tool_name == "mem0_memory" and success:
-                # Increment memory operation count on successful store actions
+                # Increment memory operation count on successful store/store_plan actions
                 if isinstance(tool_input, dict):
                     action = tool_input.get("action") or tool_input.get("Action")
-                    if action == "store":
+                    # Count both store and store_plan as memory operations
+                    if action in ("store", "store_plan"):
                         self.memory_ops += 1
-                        metadata = (
-                            tool_input.get("metadata", {})
-                            if isinstance(tool_input.get("metadata"), dict)
-                            else {}
-                        )
-                        category = str(metadata.get("category", "")).lower()
-                        if category in ("finding", "evidence"):
-                            self.evidence_count += 1
+                        # Only count evidence for store actions with report-generating categories
+                        # Categories per memory.py: finding, signal, observation, discovery
+                        if action == "store":
+                            metadata = (
+                                tool_input.get("metadata", {})
+                                if isinstance(tool_input.get("metadata"), dict)
+                                else {}
+                            )
+                            category = str(metadata.get("category", "")).lower()
+                            if category in ("finding", "signal", "observation", "discovery"):
+                                self.evidence_count += 1
         except Exception:
             # Never allow metrics update errors to disrupt output
             pass
@@ -3015,13 +3047,43 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             self._report_generated = True
 
             # If nothing was persisted to memory/evidence, skip report generation
+            # But also check FAISS files as a fallback (metrics may undercount)
             try:
                 mem_ops = int(getattr(self, "memory_ops", 0) or 0)
                 ev_count = int(getattr(self, "evidence_count", 0) or 0)
             except Exception:
                 mem_ops, ev_count = 0, 0
 
-            if mem_ops <= 0 and ev_count <= 0:
+            # Check if FAISS files exist with meaningful data (fallback for metrics issues)
+            has_memory_data = False
+            try:
+                import os as _os
+                from pathlib import Path
+                from modules.handlers.utils import get_output_path, sanitize_target_name
+
+                target_name = sanitize_target_name(target)
+                output_dir = get_output_path(target_name, self.operation_id, "", "./outputs")
+
+                # Memory path depends on MEMORY_ISOLATION mode (default: "operation")
+                # - "operation" mode: outputs/<target>/memory/<operation_id>/mem0.faiss
+                # - "shared" mode: outputs/<target>/memory/mem0.faiss
+                isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
+                memory_base = Path(output_dir).parent / "memory"
+
+                if isolation_mode == "operation":
+                    # Per-operation isolation (default) - include operation_id
+                    faiss_file = memory_base / self.operation_id / "mem0.faiss"
+                else:
+                    # Shared mode - no operation_id in path
+                    faiss_file = memory_base / "mem0.faiss"
+
+                # FAISS file > 5KB indicates meaningful stored data (not just initialization)
+                if faiss_file.exists() and faiss_file.stat().st_size > 5000:
+                    has_memory_data = True
+            except Exception:
+                pass
+
+            if mem_ops <= 0 and ev_count <= 0 and not has_memory_data:
                 # Inform the UI and conclude cleanly without generating a report
                 try:
                     self._emit_ui_event(

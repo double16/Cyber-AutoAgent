@@ -887,11 +887,11 @@ Available {config.module} MCP tools:
 
     # Create and register conversation manager for all agents (including swarm children)
     # Use environment variables for preservation to enable effective pruning
-    # Keep preserve_last low (12) to allow pruning: first (3) + last (12) = 15 preserved out of 120 window
+    # Keep preserve_last low (5) to allow pruning: first (1) + last (5) = 6 preserved out of 120 window
     conversation_manager = MappingConversationManager(
         window_size=window_size,
         summary_ratio=0.3,
-        preserve_recent_messages=PRESERVE_LAST_DEFAULT,  # Env default: 12 (not 20!)
+        preserve_recent_messages=PRESERVE_LAST_DEFAULT,  # Env default: 5 (reduced from 12)
         preserve_first_messages=PRESERVE_FIRST_DEFAULT,  # Env default: 1 (scripts often use 3)
         tool_result_mapper=LargeToolResultMapper(),
     )

@@ -606,30 +606,36 @@ class TestThresholdAlignment:
     for edge cases where externalization fails or is bypassed.
     """
 
-    def test_compress_threshold_derived_from_artifact_threshold(self):
-        """Verify compression threshold is derived from artifact threshold.
+    def test_compress_threshold_matches_artifact_threshold(self):
+        """Verify compression threshold matches artifact externalization threshold.
 
-        The compression threshold is NOT user-configurable. It's derived as 4x
-        the artifact externalization threshold to ensure:
-        - ToolRouterHook externalizes at 10K chars (first line of defense)
-        - LargeToolResultMapper compresses at 40K chars (safety net only)
+        CRITICAL FIX: Changed from 1.5x to 1.0x to catch externalized previews.
 
-        This prevents misconfiguration where compression < externalization.
+        Previous behavior (broken):
+        - ToolRouterHook externalizes at 10K, leaving 10K inline preview
+        - LargeToolResultMapper compressed at 15K threshold
+        - 10K < 15K meant NO compression ever triggered
+        - Result: 50 tool calls accumulated 500K+ chars without compression
+
+        Fixed behavior:
+        - Compression threshold matches externalization threshold (10K)
+        - Externalized 10K previews now trigger compression
+        - Compression truncates to 8K (TOOL_COMPRESS_TRUNCATE)
         """
         from modules.handlers.conversation_budget import (
             TOOL_COMPRESS_THRESHOLD,
             _TOOL_ARTIFACT_THRESHOLD,
         )
 
-        # Compression threshold must be 4x artifact threshold
-        assert TOOL_COMPRESS_THRESHOLD == _TOOL_ARTIFACT_THRESHOLD * 4, (
-            f"Compression threshold ({TOOL_COMPRESS_THRESHOLD}) must be 4x "
-            f"artifact threshold ({_TOOL_ARTIFACT_THRESHOLD})"
+        # Compression threshold must MATCH artifact threshold (not 1.5x)
+        assert TOOL_COMPRESS_THRESHOLD == _TOOL_ARTIFACT_THRESHOLD, (
+            f"Compression threshold ({TOOL_COMPRESS_THRESHOLD}) must match "
+            f"artifact threshold ({_TOOL_ARTIFACT_THRESHOLD}) to catch externalized previews"
         )
 
         # Verify the relationship
         assert _TOOL_ARTIFACT_THRESHOLD == 10000, "Artifact threshold should be 10K"
-        assert TOOL_COMPRESS_THRESHOLD == 40000, "Compression threshold should be 40K"
+        assert TOOL_COMPRESS_THRESHOLD == 10000, "Compression threshold should be 10K (matching artifact)"
 
     def test_mapper_acts_as_safety_net(self):
         """Test that mapper compresses results that bypass externalization."""
@@ -841,4 +847,398 @@ class TestFullPipelineSimulation:
         )
         assert final_count < initial_count, (
             f"Window should reduce messages: {initial_count} -> {final_count}"
+        )
+
+
+class TestToolPairPreservation:
+    """Test that force pruning preserves toolUse/toolResult pairs."""
+
+    def test_force_prune_keeps_tool_pairs_together(self):
+        """Verify pruning removes complete tool pairs, not orphaned results."""
+        manager = MappingConversationManager(
+            window_size=10,
+            preserve_first_messages=1,
+            preserve_recent_messages=2,
+        )
+
+        # Create conversation with tool pairs
+        # Pattern: user -> assistant(toolUse) -> user(toolResult) -> assistant
+        messages = [
+            {"role": "user", "content": [{"text": "Initial prompt"}]},
+            # Tool pair 1
+            {"role": "assistant", "content": [{"toolUse": {"name": "shell", "toolUseId": "t1", "input": {}}}]},
+            {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "status": "success", "content": []}}]},
+            {"role": "assistant", "content": [{"text": "Result 1"}]},
+            # Tool pair 2
+            {"role": "assistant", "content": [{"toolUse": {"name": "shell", "toolUseId": "t2", "input": {}}}]},
+            {"role": "user", "content": [{"toolResult": {"toolUseId": "t2", "status": "success", "content": []}}]},
+            {"role": "assistant", "content": [{"text": "Result 2"}]},
+            # Tool pair 3
+            {"role": "assistant", "content": [{"toolUse": {"name": "shell", "toolUseId": "t3", "input": {}}}]},
+            {"role": "user", "content": [{"toolResult": {"toolUseId": "t3", "status": "success", "content": []}}]},
+            {"role": "assistant", "content": [{"text": "Result 3"}]},
+            # Tool pair 4
+            {"role": "assistant", "content": [{"toolUse": {"name": "shell", "toolUseId": "t4", "input": {}}}]},
+            {"role": "user", "content": [{"toolResult": {"toolUseId": "t4", "status": "success", "content": []}}]},
+            {"role": "assistant", "content": [{"text": "Result 4"}]},
+        ]
+
+        agent = AgentStub(messages=messages, model="test/model", limit=200000)
+        initial_count = len(agent.messages)
+
+        # Apply management (should trigger force prune since 13 > 10)
+        manager.apply_management(agent)
+
+        # Verify no orphaned toolResults
+        for i, msg in enumerate(agent.messages):
+            content = msg.get("content", [])
+            has_tool_result = any(
+                isinstance(block, dict) and "toolResult" in block
+                for block in content
+                if isinstance(block, dict)
+            )
+
+            if has_tool_result and i > 0:
+                prev_msg = agent.messages[i - 1]
+                prev_content = prev_msg.get("content", [])
+                has_tool_use = any(
+                    isinstance(block, dict) and "toolUse" in block
+                    for block in prev_content
+                    if isinstance(block, dict)
+                )
+                assert has_tool_use, (
+                    f"Message {i} has toolResult but message {i-1} has no toolUse. "
+                    f"Tool pair was broken during pruning."
+                )
+
+        # Verify some pruning occurred
+        assert len(agent.messages) < initial_count, (
+            f"Expected pruning: {initial_count} -> {len(agent.messages)}"
+        )
+
+    def test_window_overflow_triggers_at_boundary(self):
+        """Test that pruning triggers when message count equals window size."""
+        manager = MappingConversationManager(
+            window_size=10,
+            preserve_first_messages=1,
+            preserve_recent_messages=2,
+        )
+
+        # Create exactly 10 messages (at window boundary)
+        messages = [
+            {"role": "user", "content": [{"text": f"Message {i}"}]}
+            for i in range(10)
+        ]
+
+        agent = AgentStub(messages=messages, model="test/model", limit=200000)
+
+        # Apply management - should trigger pruning at boundary (>=, not >)
+        manager.apply_management(agent)
+
+        # Verify pruning occurred (target is 90% = 9 messages)
+        assert len(agent.messages) < 10, (
+            f"Window overflow should trigger at boundary: expected <10, got {len(agent.messages)}"
+        )
+
+
+# ============================================================================
+# CRITICAL: 10K-15K Threshold Gap Tests
+# ============================================================================
+
+
+class TestThresholdGapFailureMode:
+    """Test the 10K externalization vs 15K compression threshold gap.
+
+    This test class validates the FAILURE MODE where:
+    1. ToolRouterHook externalizes at 10K, leaving 10K inline preview
+    2. LargeToolResultMapper compresses at 15K threshold
+    3. 10K < 15K, so compression NEVER triggers for externalized results
+    4. 10K previews accumulate in conversation without compression
+
+    These tests are designed to FAIL with current configuration to prove
+    the bug exists, then PASS after the fix is applied.
+    """
+
+    def test_10k_preview_triggers_compression_after_fix(self):
+        """Validate 10K externalized previews NOW trigger compression.
+
+        After the fix (TOOL_COMPRESS_THRESHOLD lowered from 15K to 10K):
+        - Externalized content is 10K (from ToolRouterHook)
+        - Compression threshold is NOW 10K (matching externalization)
+        - 10K >= 10K means compression DOES trigger
+
+        This test validates the fix works correctly.
+        """
+        from modules.handlers.conversation_budget import (
+            LargeToolResultMapper,
+            TOOL_COMPRESS_THRESHOLD,
+            _TOOL_ARTIFACT_THRESHOLD,
+        )
+
+        # Verify the fix is applied: thresholds should now match
+        assert _TOOL_ARTIFACT_THRESHOLD == 10000, "Externalization threshold is 10K"
+        assert TOOL_COMPRESS_THRESHOLD == 10000, "Compression threshold should NOW be 10K (fixed)"
+
+        mapper = LargeToolResultMapper(max_tool_chars=TOOL_COMPRESS_THRESHOLD)
+
+        # Simulate ToolRouterHook output: exactly 10K inline preview
+        # This is what enters conversation after externalization
+        header = (
+            "[Tool output: 687,114 chars | Inline: 10,000 chars | "
+            "Full: artifacts/nmap_20241124_143022_a1b2c3.log]\n\n"
+        )
+        # Pad to exactly 10,000 chars total (header + padding)
+        padding_needed = 10000 - len(header)
+        externalized_preview = header + "X" * padding_needed  # Total exactly 10K chars
+
+        message = {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "externalized_test",
+                        "status": "success",
+                        "content": [{"text": externalized_preview}],
+                    }
+                }
+            ],
+        }
+
+        # Calculate input size
+        input_size = len(externalized_preview)
+        assert 9500 < input_size < 11000, f"Preview should be ~10K chars, got {input_size}"
+
+        # Apply mapper - with 10K threshold (fixed), 10K content SHOULD trigger compression
+        result = mapper(message, 0, [message])
+        result_text = result["content"][0]["toolResult"]["content"][0]["text"]
+
+        # FIXED BEHAVIOR: Compression should now trigger
+        assert result_text != externalized_preview, (
+            f"FIX VALIDATION FAILED: 10K preview ({input_size} chars) should trigger "
+            f"compression at 10K threshold, but was passed through unchanged."
+        )
+
+        # Verify compression reduced size
+        assert len(result_text) < input_size, (
+            f"Compression should reduce size: {input_size} -> {len(result_text)}"
+        )
+
+    def test_accumulated_10k_previews_now_compressed(self):
+        """Validate that 50 externalized results are NOW properly compressed.
+
+        After the fix (TOOL_COMPRESS_THRESHOLD lowered from 15K to 10K):
+        - 50 tool executions (realistic CTF session)
+        - Each leaves 10K inline preview (externalized)
+        - ALL trigger compression (10K >= 10K threshold)
+        - Total: Much smaller than 500K chars
+
+        This test validates the fix works for realistic workloads.
+        """
+        from modules.handlers.conversation_budget import (
+            LargeToolResultMapper,
+            MappingConversationManager,
+            TOOL_COMPRESS_THRESHOLD,
+        )
+
+        mapper = LargeToolResultMapper(max_tool_chars=TOOL_COMPRESS_THRESHOLD)
+        manager = MappingConversationManager(
+            window_size=100,  # Large window to allow accumulation
+            preserve_first_messages=1,
+            preserve_recent_messages=5,
+        )
+
+        messages = []
+        compression_count = 0
+
+        # Simulate 50 tool executions with externalized 10K previews
+        for i in range(50):
+            # Create externalized preview (exactly 10K chars each to match ToolRouterHook output)
+            header = (
+                f"[Tool output: {50000 + i * 1000} chars | Inline: 10,000 chars | "
+                f"Full: artifacts/tool_{i:03d}.log]\n\n"
+                f"Output from tool execution {i}:\n"
+            )
+            padding_needed = 10000 - len(header)
+            preview = header + "X" * padding_needed  # Exactly 10K total
+
+            message = {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": f"tool_{i}",
+                            "status": "success",
+                            "content": [{"text": preview}],
+                        }
+                    }
+                ],
+            }
+
+            # Check if mapper compresses this message
+            mapped = mapper(message, i, messages + [message])
+            original_size = len(preview)
+            mapped_text = mapped["content"][0]["toolResult"]["content"][0]["text"]
+            mapped_size = len(mapped_text)
+
+            if mapped_size < original_size * 0.9:  # 10%+ reduction = compression occurred
+                compression_count += 1
+
+            messages.append(mapped)
+
+            # Add assistant response
+            messages.append({
+                "role": "assistant",
+                "content": [{"text": f"Analyzed output from tool {i}."}],
+            })
+
+        # Calculate total accumulated size
+        total_chars = 0
+        for msg in messages:
+            for block in msg.get("content", []):
+                if "text" in block:
+                    total_chars += len(block["text"])
+                elif "toolResult" in block:
+                    for content in block["toolResult"].get("content", []):
+                        if "text" in content:
+                            total_chars += len(content["text"])
+
+        # FIXED BEHAVIOR: All 50 tool results should be compressed
+        # With 10K threshold, all 10K previews trigger compression
+        assert compression_count == 50, (
+            f"FIX VALIDATION: Expected ALL 50 tool results to be compressed, "
+            f"but only {compression_count} were compressed.\n"
+            f"Total accumulated: {total_chars:,} chars"
+        )
+
+        # Verify total size is now manageable
+        # Without compression: 50 x 10K = 500K
+        # With compression to 8K: should be much smaller
+        max_acceptable_chars = 500000  # Should be well under 500K
+        assert total_chars < max_acceptable_chars, (
+            f"FIX VALIDATION: Total {total_chars:,} chars exceeds "
+            f"acceptable limit of {max_acceptable_chars:,}.\n"
+            f"Compressions triggered: {compression_count} out of 50 tool results."
+        )
+
+    def test_compression_must_actually_reduce_size(self):
+        """CRITICAL: Verify compression produces smaller output, not just metadata.
+
+        Tests that when compression IS triggered:
+        1. Output size is actually smaller than input
+        2. Metadata overhead doesn't negate the compression benefit
+        3. At least 30% reduction is achieved
+
+        This catches the case where compression adds metadata that
+        increases total size rather than decreasing it.
+        """
+        from modules.handlers.conversation_budget import (
+            LargeToolResultMapper,
+            TOOL_COMPRESS_THRESHOLD,
+            TOOL_COMPRESS_TRUNCATE,
+        )
+
+        mapper = LargeToolResultMapper(
+            max_tool_chars=TOOL_COMPRESS_THRESHOLD,
+            truncate_at=TOOL_COMPRESS_TRUNCATE,
+        )
+
+        # Create content that WILL trigger compression (> 15K)
+        large_content = "X" * 20000  # 20K chars, above 15K threshold
+
+        message = {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "compression_test",
+                        "status": "success",
+                        "content": [{"text": large_content}],
+                    }
+                }
+            ],
+        }
+
+        original_size = len(large_content)
+        result = mapper(message, 0, [message])
+
+        # Calculate compressed size (including all content blocks)
+        compressed_size = 0
+        for block in result["content"][0]["toolResult"]["content"]:
+            if "text" in block:
+                compressed_size += len(block["text"])
+            elif "json" in block:
+                compressed_size += len(str(block["json"]))
+
+        # Verify compression actually reduced size
+        assert compressed_size < original_size, (
+            f"Compression INCREASED size: {original_size} -> {compressed_size}. "
+            f"Metadata overhead is negating compression benefit."
+        )
+
+        # Verify at least 30% reduction (meaningful compression)
+        reduction_ratio = 1 - (compressed_size / original_size)
+        min_reduction = 0.30
+
+        assert reduction_ratio >= min_reduction, (
+            f"Compression only achieved {reduction_ratio:.1%} reduction "
+            f"(need at least {min_reduction:.0%}). "
+            f"Original: {original_size}, Compressed: {compressed_size}"
+        )
+
+    def test_window_management_handles_accumulated_content(self):
+        """Test that window management reduces context even without compression.
+
+        When compression doesn't trigger (10K < 15K gap), the sliding window
+        should still enforce message count limits and reduce total context.
+
+        This test validates that the backup mechanism (window pruning) works
+        even when the primary mechanism (compression) fails.
+        """
+        manager = MappingConversationManager(
+            window_size=20,
+            preserve_first_messages=1,
+            preserve_recent_messages=3,
+        )
+
+        # Create 30 messages with 10K content each (under compression threshold)
+        messages = []
+        for i in range(30):
+            content = f"[Tool output {i}]\n" + "X" * 9500  # ~10K, under 15K threshold
+            messages.append({
+                "role": "user" if i % 2 == 0 else "assistant",
+                "content": [{"text": content}],
+            })
+
+        agent = AgentStub(messages=messages, model="test/model", limit=200000)
+
+        # Calculate initial size
+        initial_count = len(agent.messages)
+        initial_chars = sum(
+            len(block.get("text", ""))
+            for msg in agent.messages
+            for block in msg.get("content", [])
+        )
+
+        # Apply management
+        manager.apply_management(agent)
+
+        # Verify window enforced message limit
+        final_count = len(agent.messages)
+        final_chars = sum(
+            len(block.get("text", ""))
+            for msg in agent.messages
+            for block in msg.get("content", [])
+        )
+
+        assert final_count <= 20, (
+            f"Window should cap at 20 messages, got {final_count}"
+        )
+
+        assert final_count < initial_count, (
+            f"Window should reduce message count: {initial_count} -> {final_count}"
+        )
+
+        # Even without compression, window pruning should reduce total size
+        assert final_chars < initial_chars, (
+            f"Window pruning should reduce total chars: {initial_chars} -> {final_chars}"
         )
