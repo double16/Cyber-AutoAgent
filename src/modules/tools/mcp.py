@@ -408,9 +408,9 @@ class FileWritingAgentToolAdapter(AgentTool):
                         tool_result = getattr(event, "tool_result", None)
                         output_paths, output_size = await asyncio.to_thread(self._write_result, tool_result)
 
-                        # Use same threshold as ToolRouter (50KB) for consistency
-                        # Only replace content for very large outputs (>50KB)
-                        ARTIFACT_THRESHOLD = int(os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", "50000"))
+                        # Use same threshold as ToolRouter (10KB) for consistency
+                        # Only replace content for large outputs (>10KB)
+                        ARTIFACT_THRESHOLD = int(os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", "10000"))
 
                         if output_size > ARTIFACT_THRESHOLD:
                             # Large output: externalize and provide preview + path
