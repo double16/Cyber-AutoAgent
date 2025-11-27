@@ -245,6 +245,10 @@ export interface SDKTelemetryEvent extends BaseEvent {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    /** Cache read tokens (prompt caching - 75% cheaper) */
+    cacheReadTokens?: number;
+    /** Cache write tokens (prompt caching - 25% more expensive) */
+    cacheWriteTokens?: number;
   };
   /** Cost tracking information */
   cost?: {

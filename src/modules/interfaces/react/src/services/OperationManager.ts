@@ -37,9 +37,17 @@ export interface CostInfo {
   estimatedCost: number;
   inputTokens: number;
   outputTokens: number;
+  /** Cache read tokens from prompt caching (75% cheaper than input) */
+  cacheReadTokens: number;
+  /** Cache write tokens from prompt caching (25% more expensive than input) */
+  cacheWriteTokens: number;
   modelPricing: {
     inputCostPer1k: number;
     outputCostPer1k: number;
+    /** Cost per 1k cache read tokens (typically ~25% of input cost) */
+    cacheReadCostPer1k: number;
+    /** Cost per 1k cache write tokens (typically ~125% of input cost) */
+    cacheWriteCostPer1k: number;
   };
 }
 
@@ -62,7 +70,9 @@ export class OperationManager {
     estimatedCost: 0,
     inputTokens: 0,
     outputTokens: 0,
-    modelPricing: { inputCostPer1k: 0, outputCostPer1k: 0 }
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    modelPricing: { inputCostPer1k: 0, outputCostPer1k: 0, cacheReadCostPer1k: 0, cacheWriteCostPer1k: 0 }
   };
 
   constructor(config: Config) {
@@ -180,6 +190,8 @@ export class OperationManager {
       estimatedCost: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       modelPricing: this.getModelPricing(model)
     };
 
@@ -200,6 +212,8 @@ export class OperationManager {
         estimatedCost: 0,
         inputTokens: 0,
         outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         modelPricing: this.getModelPricing(model)
       },
       model
@@ -293,26 +307,44 @@ export class OperationManager {
     return true;
   }
 
-  // Update token usage
-  updateTokenUsage(operationId: string, inputTokens: number, outputTokens: number): void {
+  // Update token usage (with optional cache token support)
+  updateTokenUsage(
+    operationId: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens: number = 0,
+    cacheWriteTokens: number = 0
+  ): void {
     const operation = this.operations.get(operationId);
     if (!operation) return;
 
     operation.cost.inputTokens += inputTokens;
     operation.cost.outputTokens += outputTokens;
+    operation.cost.cacheReadTokens += cacheReadTokens;
+    operation.cost.cacheWriteTokens += cacheWriteTokens;
     operation.cost.tokensUsed = operation.cost.inputTokens + operation.cost.outputTokens;
-    
-    // Calculate cost
+
+    // Calculate cost including cache savings/overhead
+    // Cache read tokens are ~75% cheaper (use cacheReadCostPer1k)
+    // Cache write tokens are ~25% more expensive (use cacheWriteCostPer1k)
     const pricing = operation.cost.modelPricing;
-    operation.cost.estimatedCost = 
+    operation.cost.estimatedCost =
       (operation.cost.inputTokens / 1000) * pricing.inputCostPer1k +
-      (operation.cost.outputTokens / 1000) * pricing.outputCostPer1k;
+      (operation.cost.outputTokens / 1000) * pricing.outputCostPer1k +
+      (operation.cost.cacheReadTokens / 1000) * pricing.cacheReadCostPer1k +
+      (operation.cost.cacheWriteTokens / 1000) * pricing.cacheWriteCostPer1k;
 
     // Update session totals
     this.sessionCost.inputTokens += inputTokens;
     this.sessionCost.outputTokens += outputTokens;
+    this.sessionCost.cacheReadTokens += cacheReadTokens;
+    this.sessionCost.cacheWriteTokens += cacheWriteTokens;
     this.sessionCost.tokensUsed = this.sessionCost.inputTokens + this.sessionCost.outputTokens;
-    this.sessionCost.estimatedCost += (inputTokens / 1000) * pricing.inputCostPer1k + (outputTokens / 1000) * pricing.outputCostPer1k;
+    this.sessionCost.estimatedCost +=
+      (inputTokens / 1000) * pricing.inputCostPer1k +
+      (outputTokens / 1000) * pricing.outputCostPer1k +
+      (cacheReadTokens / 1000) * pricing.cacheReadCostPer1k +
+      (cacheWriteTokens / 1000) * pricing.cacheWriteCostPer1k;
   }
 
   // Add log entry
@@ -429,29 +461,53 @@ export class OperationManager {
     return `OP_${timestamp}_${random}`;
   }
 
-  private getModelPricing(modelId: string): { inputCostPer1k: number; outputCostPer1k: number } {
+  private getModelPricing(modelId: string): {
+    inputCostPer1k: number;
+    outputCostPer1k: number;
+    cacheReadCostPer1k: number;
+    cacheWriteCostPer1k: number;
+  } {
     // All Ollama models are free (local execution)
     if (this.config.modelProvider === 'ollama') {
       return {
         inputCostPer1k: 0,
-        outputCostPer1k: 0
+        outputCostPer1k: 0,
+        cacheReadCostPer1k: 0,
+        cacheWriteCostPer1k: 0
       };
     }
-    
+
     // Try to get pricing from configuration first
     if (this.config.modelPricing && this.config.modelPricing[modelId]) {
       const pricing = this.config.modelPricing[modelId];
+      const inputCost = pricing.inputCostPer1k;
       return {
-        inputCostPer1k: pricing.inputCostPer1k,
-        outputCostPer1k: pricing.outputCostPer1k
+        inputCostPer1k: inputCost,
+        outputCostPer1k: pricing.outputCostPer1k,
+        // Cache pricing: read is ~25% of input, write is ~125% of input (if not specified)
+        cacheReadCostPer1k: pricing.cacheReadCostPer1k ?? inputCost * 0.25,
+        cacheWriteCostPer1k: pricing.cacheWriteCostPer1k ?? inputCost * 1.25
       };
     }
-    
+
     // Fallback to model info if not in config pricing
     const model = this.getModelInfo(modelId);
-    return model ? 
-      { inputCostPer1k: model.inputCostPer1k, outputCostPer1k: model.outputCostPer1k } :
-      { inputCostPer1k: 0, outputCostPer1k: 0 };
+    if (model) {
+      return {
+        inputCostPer1k: model.inputCostPer1k,
+        outputCostPer1k: model.outputCostPer1k,
+        // Default cache pricing based on input cost
+        cacheReadCostPer1k: model.inputCostPer1k * 0.25,
+        cacheWriteCostPer1k: model.inputCostPer1k * 1.25
+      };
+    }
+
+    return {
+      inputCostPer1k: 0,
+      outputCostPer1k: 0,
+      cacheReadCostPer1k: 0,
+      cacheWriteCostPer1k: 0
+    };
   }
 
   private loadSessionData(): void {

@@ -88,6 +88,10 @@ export interface Config {
     [modelId: string]: {
       inputCostPer1k: number;
       outputCostPer1k: number;
+      /** Cost per 1k cache read tokens (prompt caching - ~25% of input cost) */
+      cacheReadCostPer1k?: number;
+      /** Cost per 1k cache write tokens (prompt caching - ~125% of input cost) */
+      cacheWriteCostPer1k?: number;
       description?: string;
     };
   };

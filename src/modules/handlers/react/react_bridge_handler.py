@@ -82,6 +82,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         self._metrics_lock = threading.RLock()
         self._sdk_input_tokens = 0
         self._sdk_output_tokens = 0
+        # Cache token metrics for prompt caching (Bedrock/Anthropic)
+        self._sdk_cache_read_tokens = 0
+        self._sdk_cache_write_tokens = 0
         # Metrics emission handled by background thread
 
         # Tool tracking
@@ -383,6 +386,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             if usage:
                 self.sdk_input_tokens = usage.get("inputTokens", 0)
                 self.sdk_output_tokens = usage.get("outputTokens", 0)
+                # Extract cache metrics for prompt caching validation
+                self.sdk_cache_read_tokens = usage.get("cacheReadInputTokens", 0)
+                self.sdk_cache_write_tokens = usage.get("cacheWriteInputTokens", 0)
 
     # -- Thread-safe token counter properties --------------------------------
 
@@ -409,6 +415,30 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         """Thread-safe setter for output token count."""
         with self._metrics_lock:
             self._sdk_output_tokens = value
+
+    @property
+    def sdk_cache_read_tokens(self) -> int:
+        """Thread-safe getter for cache read token count."""
+        with self._metrics_lock:
+            return self._sdk_cache_read_tokens
+
+    @sdk_cache_read_tokens.setter
+    def sdk_cache_read_tokens(self, value: int) -> None:
+        """Thread-safe setter for cache read token count."""
+        with self._metrics_lock:
+            self._sdk_cache_read_tokens = value
+
+    @property
+    def sdk_cache_write_tokens(self) -> int:
+        """Thread-safe getter for cache write token count."""
+        with self._metrics_lock:
+            return self._sdk_cache_write_tokens
+
+    @sdk_cache_write_tokens.setter
+    def sdk_cache_write_tokens(self, value: int) -> None:
+        """Thread-safe setter for cache write token count."""
+        with self._metrics_lock:
+            self._sdk_cache_write_tokens = value
 
     # -- Helper methods ----------------------------------------------------
 
@@ -2353,6 +2383,13 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                         self.sdk_output_tokens = usage.get(
                             "outputTokens", self.sdk_output_tokens
                         )
+                        # Extract cache metrics
+                        self.sdk_cache_read_tokens = usage.get(
+                            "cacheReadInputTokens", self.sdk_cache_read_tokens
+                        )
+                        self.sdk_cache_write_tokens = usage.get(
+                            "cacheWriteInputTokens", self.sdk_cache_write_tokens
+                        )
             except Exception as e:
                 logger.debug(f"Could not get metrics from agent: {e}")
 
@@ -2364,6 +2401,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             "inputTokens": self.sdk_input_tokens,
             "outputTokens": self.sdk_output_tokens,
             "totalTokens": total_tokens,
+            # Cache metrics for prompt caching cost calculation
+            "cacheReadTokens": self.sdk_cache_read_tokens,
+            "cacheWriteTokens": self.sdk_cache_write_tokens,
             "duration": self._format_duration(time.time() - self.start_time),
             "memoryOps": self.memory_ops,
             "evidence": self.evidence_count,
@@ -2406,6 +2446,20 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         self.sdk_input_tokens = usage.get("inputTokens", 0)
         self.sdk_output_tokens = usage.get("outputTokens", 0)
 
+        # Update cache metrics for prompt caching validation
+        cache_read = usage.get("cacheReadInputTokens", 0)
+        cache_write = usage.get("cacheWriteInputTokens", 0)
+        self.sdk_cache_read_tokens = cache_read
+        self.sdk_cache_write_tokens = cache_write
+
+        # Log cache activity for validation (only when caching is active)
+        if cache_read > 0 or cache_write > 0:
+            logger.info(
+                "Prompt cache metrics - Read: %d tokens, Write: %d tokens",
+                cache_read,
+                cache_write,
+            )
+
         # Metrics emission is handled by the background thread
         # This method only updates the internal counters
 
@@ -2428,6 +2482,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                         "inputTokens": self.sdk_input_tokens,
                         "outputTokens": self.sdk_output_tokens,
                         "totalTokens": total_tokens,
+                        # Cache metrics for prompt caching cost calculation
+                        "cacheReadTokens": self.sdk_cache_read_tokens,
+                        "cacheWriteTokens": self.sdk_cache_write_tokens,
                         "memoryOps": self.memory_ops,
                         "evidence": self.evidence_count,
                     },
@@ -3429,6 +3486,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             "inputTokens": self.sdk_input_tokens,
             "outputTokens": self.sdk_output_tokens,
             "totalTokens": total_tokens,
+            # Cache metrics for prompt caching cost calculation
+            "cacheReadTokens": self.sdk_cache_read_tokens,
+            "cacheWriteTokens": self.sdk_cache_write_tokens,
         }
 
         return {
