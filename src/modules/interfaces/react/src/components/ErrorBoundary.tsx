@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <Box flexDirection="column" width="100%">
           {/* Always show header for visual continuity */}
           <Header
-            version="0.1.3"
+            version="0.1.4"
             terminalWidth={80}
             nightly={false}
           />

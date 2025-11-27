@@ -14,7 +14,7 @@
  * Event Flow: Docker Container → stdout → Event Parser → React Components
  * 
  * @author Cyber-AutoAgent Team
- * @since v0.1.3
+ * @since v0.1.4
  */
 
 import { EventEmitter } from 'events';

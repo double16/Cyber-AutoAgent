@@ -193,9 +193,9 @@ export const MainAppView: React.FC<MainAppViewProps> = ({
           <Static items={[`app-header-${staticKey}`]}>
             {(item) => (
               <Box key={item}>
-                <Header 
+                <Header
                   key={`app-header-${staticKey}`}
-                  version="0.1.3" 
+                  version="0.1.4"
                   terminalWidth={appState.terminalDisplayWidth}
                   nightly={false}
                   exitNotice={Boolean((appState as any).exitNotice)}
@@ -205,9 +205,9 @@ export const MainAppView: React.FC<MainAppViewProps> = ({
           </Static>
         ) : (
           <Box>
-            <Header 
+            <Header
               key={`app-header-${staticKey}`}
-              version="0.1.3" 
+              version="0.1.4"
               terminalWidth={appState.terminalDisplayWidth}
               nightly={false}
               exitNotice={Boolean((appState as any).exitNotice)}
