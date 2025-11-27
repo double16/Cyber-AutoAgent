@@ -7,6 +7,7 @@ import functools
 import json
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from http.cookies import SimpleCookie
@@ -718,7 +719,10 @@ class BrowserService(EventEmitter):
 
 
 _BROWSER: Optional[BrowserService] = None
-_BROWSER_LOCK = asyncio.Lock()
+# Use threading.Lock instead of asyncio.Lock to avoid "bound to different event loop" errors
+# when Strands executes tools concurrently across different thread pool executors.
+# See: https://github.com/strands-agents/sdk-python - ConcurrentToolExecutor
+_BROWSER_LOCK = threading.Lock()
 
 
 def initialize_browser(
@@ -767,8 +771,11 @@ async def get_browser():
     This function provides access to a shared browser instance. It ensures the
     browser has been initialized and acquires a lock to guarantee safe usage
     across asynchronous operations. It also ensures the browser initialization
-    is complete before yielding the instance. Locking is required because the
-    LLM ends up calling multiple tools in parallel sometimes.
+    is complete before yielding the instance.
+
+    Uses threading.Lock instead of asyncio.Lock to prevent "bound to different
+    event loop" errors when Strands ConcurrentToolExecutor runs tools across
+    different thread pool executors during long-running operations.
 
     Raises:
         ValueError: If the browser instance has not been initialized.
@@ -781,7 +788,7 @@ async def get_browser():
             "Browser not initialized. Please call initialize_browser first."
         )
 
-    async with _BROWSER_LOCK:
+    with _BROWSER_LOCK:
         await _BROWSER.ensure_init()
         yield _BROWSER
 
