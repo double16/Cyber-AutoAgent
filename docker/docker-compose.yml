@@ -4,6 +4,8 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      args:
+        APT_PROXY: ${APT_PROXY}
     container_name: cyber-autoagent
     # React terminal is now the default entrypoint
     # No command override needed - starts interactively

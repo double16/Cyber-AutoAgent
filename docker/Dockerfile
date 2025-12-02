@@ -1,6 +1,6 @@
 # Dockerfile for Cyber-AutoAgent (Kali Rolling base)
 
-ARG APT_PROXY=http://192.168.1.29:3142
+ARG APT_PROXY
 
 FROM --platform=$BUILDPLATFORM golang:1.25 AS gobuild
 ARG TARGETARCH

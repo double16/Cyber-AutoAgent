@@ -32,6 +32,7 @@ graph TB
     C --> F[AI Models]
     
     D --> G[shell]
+    D --> Q[MCP]
     D --> H[editor] 
     D --> I[swarm]
     D --> J[load_tool]
@@ -42,7 +43,7 @@ graph TB
     G --> N[Security Tools]
     N --> O[nmap, sqlmap, etc.]
     N --> P[self install package]
-    
+ 
     style B fill:#f3e5f5,stroke:#333,stroke-width:2px
     style C fill:#fff3e0,stroke:#333,stroke-width:2px
     style D fill:#e8f5e8,stroke:#333,stroke-width:2px
@@ -71,6 +72,10 @@ shell("nmap -sV 192.168.1.1")
 shell("sqlmap -u 'http://target.com?id=1' --batch")
 shell("nikto -h target.com")
 ```
+
+### MCP Tool Access
+
+MCP tools are accessed as direct tools. The purpose of the MCP tool can be a tailored security tool, CTF managements, etc.
 
 ## Execution Flow
 
@@ -184,12 +189,19 @@ graph LR
     F --> J[gobuster ✓]
     F --> K[metasploit ○]
     F --> L[iproute2 ○]
+
+    M[MCP Config] --> F
 ```
 
 Tools discovered via `which` command:
 - Available tools accessible via `shell`
 - Unavailable tools noted but not usable
 - Dynamic discovery adapts to environment
+
+MCP Tools pre-configured:
+- Python reads from `CYBER_MCP_CONNECTIONS` environment
+- React reads from `config.json`
+- MCP Server is assigned or one or more modules
 
 ## Memory Integration
 
