@@ -1,4 +1,5 @@
 # Dockerfile for Cyber-AutoAgent (Kali Rolling base)
+# syntax=docker/dockerfile:1.7
 
 ARG APT_PROXY
 
@@ -337,20 +338,26 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY uv.lock* ./
 COPY src/ ./src/
+
+# Validate expected tools are present in the PATH
 COPY docker/tools_check.sh /tmp
 RUN bash /tmp/tools_check.sh
 
 # Install Python dependencies into a local venv
-RUN uv sync --no-dev
+RUN --mount=type=cache,target=/root/.cache \
+    uv sync --no-dev
 
 # Install and build React terminal interface (default UI)
-RUN cd /app/src/modules/interfaces/react && \
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/root/.cache \
+    cd /app/src/modules/interfaces/react && \
     npm install && \
     npm run build && \
     chown -R cyberagent:cyberagent /app/src/modules/interfaces/react
 
 # Install chromium browser for playwright to use
-RUN env PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="debian13-$(dpkg --print-architecture | sed 's/amd/x/')" \
+RUN --mount=type=cache,target=/root/.cache \
+    env PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="debian13-$(dpkg --print-architecture | sed 's/amd/x/')" \
     PLAYWRIGHT_BROWSERS_PATH=/home/cyberagent/.cache/ms-playwright \
     uv run playwright install chromium --with-deps && \
     chown -R cyberagent:cyberagent /home/cyberagent/.cache && \
