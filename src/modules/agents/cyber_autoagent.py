@@ -226,6 +226,36 @@ def create_agent(
     except Exception:
         logger.debug("Unable to set overlay environment context", exc_info=True)
 
+    # Create agent with telemetry for token tracking
+    prompt_token_limit = _resolve_prompt_token_limit(
+        config.provider, server_config, config.model_id
+    )
+
+    # Tool router to prevent unknown-tool failures by routing to shell before execution
+    # Allow configurable truncation of large tool outputs via env var
+    computed_max_results_chars = min(ceil(prompt_token_limit * 0.10), 30000)
+    try:
+        max_result_chars = int(os.getenv("CYBER_TOOL_MAX_RESULT_CHARS", str(computed_max_results_chars)))
+    except Exception:
+        max_result_chars = computed_max_results_chars
+
+    if max_result_chars < 4000:
+        computed_artifact_threshold = max_result_chars
+    else:
+        computed_artifact_threshold = max(ceil(max_result_chars / 3), 2000)
+    try:
+        artifact_threshold = int(
+            os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", str(computed_artifact_threshold))
+        )
+    except Exception:
+        artifact_threshold = computed_artifact_threshold
+
+    if artifact_threshold > max_result_chars:
+        logger.warning("Artifact threshold %d > max tool result chars %d, tool result with size in [%d, %d] will be lost",
+                       artifact_threshold, max_result_chars, max_result_chars, artifact_threshold)
+    else:
+        logger.info("Artifact threshold %d, max tool result chars %d", artifact_threshold, max_result_chars)
+
     initialize_browser(
         provider=config.provider,
         model=config.model_id,
@@ -372,7 +402,7 @@ Command line tools available using the **shell** tool:
 """
 
     # Load MCP tools and prepare for injection
-    mcp_tools = discover_mcp_tools(config, server_config)
+    mcp_tools = discover_mcp_tools(config, server_config, artifact_threshold)
     if mcp_tools:
         tool_count += len(mcp_tools)
         mcp_tools_context = f"""
@@ -613,6 +643,8 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         logger.warning("Failed to create SystemContentBlock, falling back to plain text: %s", e)
         system_prompt_payload = system_prompt
 
+    logger.debug("system_prompt_payload %s", json.dumps(system_prompt_payload))
+
     # It works in both CLI and React modes
     from modules.handlers.react.react_bridge_handler import ReactBridgeHandler
 
@@ -682,36 +714,6 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     react_hooks = ReactHooks(
         emitter=callback_handler.emitter, operation_id=operation_id
     )
-
-    # Create agent with telemetry for token tracking
-    prompt_token_limit = _resolve_prompt_token_limit(
-        config.provider, server_config, config.model_id
-    )
-
-    # Tool router to prevent unknown-tool failures by routing to shell before execution
-    # Allow configurable truncation of large tool outputs via env var
-    computed_max_results_chars = min(ceil(prompt_token_limit * 0.10), 30000)
-    try:
-        max_result_chars = int(os.getenv("CYBER_TOOL_MAX_RESULT_CHARS", str(computed_max_results_chars)))
-    except Exception:
-        max_result_chars = computed_max_results_chars
-
-    if max_result_chars < 4000:
-        computed_artifact_threshold = max_result_chars
-    else:
-        computed_artifact_threshold = max(ceil(max_result_chars / 3), 2000)
-    try:
-        artifact_threshold = int(
-            os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", str(computed_artifact_threshold))
-        )
-    except Exception:
-        artifact_threshold = computed_artifact_threshold
-
-    if artifact_threshold > max_result_chars:
-        logger.warning("Artifact threshold %d > max tool result chars %d, tool result with size in [%d, %d] will be lost",
-                       artifact_threshold, max_result_chars, max_result_chars, artifact_threshold)
-    else:
-        logger.info("Artifact threshold %d, max tool result chars %d", artifact_threshold, max_result_chars)
 
     tool_router_hook = ToolRouterHook(
         shell,

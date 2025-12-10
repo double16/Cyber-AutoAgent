@@ -360,16 +360,46 @@ def resolve_env_vars_in_list(input_array: List[str], env: Dict[str, str]) -> Lis
     return resolved
 
 
+def shorten_description(text: str, max_len: int) -> str:
+    """
+    Shorten a string of English sentences to at most max_len characters.
+    Prefer to keep whole sentences; fall back to word boundary, then hard cut.
+    """
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+
+    # 1. Try to cut at a sentence boundary (., !, ?) before max_len
+    cut_pos = -1
+    for i, ch in enumerate(text):
+        if i >= max_len:
+            break
+        if ch in ".!?":
+            cut_pos = i
+
+    if cut_pos != -1:
+        return text[: cut_pos + 1].rstrip()
+
+    # 2. No sentence end: try to cut at the last space before max_len
+    last_space = text.rfind(" ", 0, max_len)
+    if last_space != -1:
+        return text[:last_space].rstrip()
+
+    # 3. No space either (single long word etc.): hard cut
+    return text[:max_len].rstrip()
+
+
 class FileWritingAgentToolAdapter(AgentTool):
     """
     Adapter that wraps an AgentTool and sends its streamed events through
     FileWritingToolGenerator to persist ToolResultEvent results to files.
     """
 
-    def __init__(self, inner: AgentTool, output_base_path: Path) -> None:
+    def __init__(self, inner: AgentTool, output_base_path: Path, artifact_threshold: int) -> None:
         super().__init__()
         self._inner = inner
         self._output_base_path = output_base_path
+        self._artifact_threshold = artifact_threshold
 
     @property
     def tool_name(self) -> str:
@@ -408,11 +438,7 @@ class FileWritingAgentToolAdapter(AgentTool):
                         tool_result = getattr(event, "tool_result", None)
                         output_paths, output_size = await asyncio.to_thread(self._write_result, tool_result)
 
-                        # Use same threshold as ToolRouter (10KB) for consistency
-                        # Only replace content for large outputs (>10KB)
-                        ARTIFACT_THRESHOLD = int(os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", "10000"))
-
-                        if output_size > ARTIFACT_THRESHOLD:
+                        if output_size > self._artifact_threshold:
                             # Large output: externalize and provide preview + path
                             summary = {"artifact_paths": output_paths, "has_more": True}
                             preview_text = ""
@@ -503,15 +529,15 @@ class FileWritingAgentToolAdapter(AgentTool):
             return False
 
 
-def with_result_file(tool: AgentTool, output_base_path: Path) -> AgentTool:
+def with_result_file(tool: AgentTool, output_base_path: Path, artifact_threshold: int) -> AgentTool:
     """
     Convenience helper to wrap an AgentTool so its streamed results
     are persisted via FileWritingToolGenerator.
     """
-    return FileWritingAgentToolAdapter(tool, output_base_path)
+    return FileWritingAgentToolAdapter(tool, output_base_path, artifact_threshold)
 
 
-def discover_mcp_tools(config: AgentConfig, server_config: ServerConfig) -> List[AgentTool]:
+def discover_mcp_tools(config: AgentConfig, server_config: ServerConfig, artifact_threshold: int) -> List[AgentTool]:
     """Discover and register MCP tools from configured connections."""
     tool_discovery_event = {
         "type": "tool_discovery_start",
@@ -581,15 +607,12 @@ def discover_mcp_tools(config: AgentConfig, server_config: ServerConfig) -> List
                                 sanitize_target_name(tool.tool_name),
                                 server_config.output.base_dir,
                             )
-                            tool = with_result_file(tool, Path(output_base_path))
+                            tool = with_result_file(tool, Path(output_base_path), artifact_threshold)
                             tool = ResilientMCPToolAdapter(tool, client)
                             mcp_tools.append(tool)
                             client_used = True
 
-                            tool_desc = re.sub(r"\s+", " ",
-                                               tool.tool_spec.get('description').replace(r"\n", " ").replace(r"\r",
-                                                                                                             " ")).strip()[
-                                :256]
+                            tool_desc = shorten_description(tool.tool_spec.get('description'), 256)
                             print_status(f"✓ {tool.tool_name:<12} - {tool_path}", "SUCCESS")
                             tool_event = {
                                 "type": "tool_available",
