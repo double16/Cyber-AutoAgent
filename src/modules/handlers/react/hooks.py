@@ -279,7 +279,7 @@ class ReactHooks(HookProvider):
         return True, str(result).strip()
 
     def _rewrite_swarm_args(self, event: BeforeToolCallEvent) -> None:
-        """Rewrite swarm args to not include model specifications so that it falls back to the parent agent"""
+        """Rewrite swarm args to not include model specifications because the tool uses ConfigManager"""
         if event.tool_use.get("name", "unknown") != "swarm":
             return
 
@@ -295,15 +295,15 @@ class ReactHooks(HookProvider):
         patched_agents = []
         for agent_cfg in agents:
             if isinstance(agent_cfg, dict):
-                cfg = dict(agent_cfg)  # shallow copy
-                if self.agent_config:
-                    cfg["model_provider"] = self.agent_config.provider
+                cfg = dict(agent_cfg)
+                cfg.pop("model_provider", "")
+                if "model_settings" in cfg:
                     model_settings = dict(cfg.get("model_settings", {}))
-                    model_settings["model_id"] = self.agent_config.model_id
-                    cfg["model_settings"] = model_settings
-                else:
-                    cfg.pop("model_provider", "")
-                    cfg.pop("model_settings", "")
+                    model_settings.pop("model_id", "")
+                    if model_settings:
+                        cfg["model_settings"] = model_settings
+                    else:
+                        cfg.pop("model_settings", "")
                 patched_agents.append(cfg)
             else:
                 patched_agents.append(agent_cfg)

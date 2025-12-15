@@ -53,6 +53,8 @@ RUN set -eux; \
     python3-pip \
     python-is-python3 \
     pipx \
+    python3-requests \
+    python3-pwntools \
     # Java runtime for ZAP/Burp
     openjdk-21-jre-headless \
     # Binary analysis tools
@@ -282,6 +284,8 @@ RUN pipx install --global coercer
 RUN pipx install --global ropgadget
 
 RUN pipx install --global ropper
+
+RUN pipx install --global semgrep
 
 RUN npm install --global @graphql-inspector/cli
 

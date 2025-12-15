@@ -256,6 +256,8 @@ class LargeToolResultMapper:
         self.max_tool_chars = max_tool_chars
         self.truncate_at = truncate_at
         self.sample_limit = sample_limit
+        logger.info("Created LargeToolResultMapper with max_tool_chars=%d, truncate_at=%d, sample_limit=%d",
+                    self.max_tool_chars, self.truncate_at, self.sample_limit)
 
     def __call__(
         self, message: Message, index: int, messages: list[Message]

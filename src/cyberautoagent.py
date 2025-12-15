@@ -742,7 +742,7 @@ def main():
                         if callback_handler
                         else args.iterations
                     )
-                    logger.warning(
+                    logger.info(
                         "Remaining steps check: iterations=%d, current_step=%d, remaining=%d",
                         args.iterations,
                         callback_handler.current_step if callback_handler else 0,

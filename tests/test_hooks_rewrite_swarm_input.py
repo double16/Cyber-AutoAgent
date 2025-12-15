@@ -73,7 +73,7 @@ class RewriteSwarmArgsTests(unittest.TestCase):
                         "name": "agent1",
                         "role": "helper",
                         "model_provider": "aws-bedrock",
-                        "model_settings": {"model_id": "foo"},
+                        "model_settings": {"model_id": "foo", "temperature": 0.7},
                     },
                     "string-agent",  # non-dict, should be preserved as-is
                     {
@@ -93,14 +93,11 @@ class RewriteSwarmArgsTests(unittest.TestCase):
             {
                 "name": "agent1",
                 "role": "helper",
-                "model_provider": "ollama",
-                "model_settings": {"model_id": "llama3.2"},
+                "model_settings": {"temperature": 0.7},
             },
             "string-agent",
             {
                 "name": "agent2",
-                "model_provider": "ollama",
-                "model_settings": {"model_id": "llama3.2"},
             },
         ]
         self.assertIn("input", event.tool_use)

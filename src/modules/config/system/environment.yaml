@@ -84,6 +84,8 @@ cyber_tools:
     description: "HTTP probing and technology detection (ProjectDiscovery)"
   katana:
     description: "Fast web crawler (ProjectDiscovery)"
+  semgrep:
+    description: "Static source code analysis"
 
   # DNS/Recon
   dnsrecon:

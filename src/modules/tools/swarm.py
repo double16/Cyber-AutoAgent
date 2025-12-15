@@ -10,7 +10,6 @@ Key Features:
    • User-defined agent specifications with individual system prompts
    • Per-agent tool configuration and model settings
    • Complete control over agent specializations and capabilities
-   • Support for diverse model providers across agents
 
 2. Autonomous Coordination:
    • Built on Strands SDK's native Swarm multi-agent pattern
@@ -19,7 +18,7 @@ Key Features:
    • Self-organizing collaboration without central control
 
 3. Advanced Configuration:
-   • Individual model providers and settings per agent
+   • Individual model settings per agent
    • Customizable tool access for each agent
    • Comprehensive timeout and safety mechanisms
    • Rich execution metrics and detailed status tracking
@@ -47,9 +46,7 @@ result = agent.tool.swarm(
                 "You are a market research specialist. Focus on market analysis, "
                 "customer insights, and competitive landscape."
             ),
-            "tools": ["retrieve", "calculator"],
-            "model_provider": "bedrock",
-            "model_settings": {"model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0"}
+            "tools": ["retrieve", "calculator"]
         },
         {
             "name": "product_strategist",
@@ -57,9 +54,7 @@ result = agent.tool.swarm(
                 "You are a product strategy specialist. Focus on positioning, "
                 "value propositions, and go-to-market planning."
             ),
-            "tools": ["file_write", "calculator"],
-            "model_provider": "anthropic",
-            "model_settings": {"model_id": "claude-sonnet-4-20250514"}
+            "tools": ["file_write", "calculator"]
         },
         {
             "name": "creative_director",
@@ -67,9 +62,7 @@ result = agent.tool.swarm(
                 "You are a creative marketing specialist. Focus on campaigns, "
                 "branding, messaging, and creative concepts."
             ),
-            "tools": ["generate_image", "file_write"],
-            "model_provider": "openai",
-            "model_settings": {"model_id": "o4-mini"}
+            "tools": ["generate_image", "file_write"]
         }
     ]
 )
@@ -88,6 +81,7 @@ from rich.console import Console
 from rich.panel import Panel
 from strands import Agent, tool
 from strands.multiagent import Swarm
+from strands.models.ollama import OllamaModel
 
 from strands_tools.utils import console_util
 
@@ -243,7 +237,7 @@ def swarm(
 
     This function leverages the Strands SDK's Swarm multi-agent pattern to create custom teams
     of specialized AI agents with individual configurations. Each agent can have its own system
-    prompt, tools, model provider, and settings, enabling precise control over team composition.
+    prompt, tools, and model settings, enabling precise control over team composition.
 
     How It Works:
     ------------
@@ -251,7 +245,7 @@ def swarm(
        • Each agent is created with individual specifications
        • Unique system prompts define each agent's role and expertise
        • Per-agent tool access controls what each agent can do
-       • Individual model providers and settings for optimization
+       • Individual model settings for optimization
 
     2. Autonomous Coordination:
        • Agents automatically receive coordination tools (handoff_to_agent, complete_swarm_task)
@@ -260,7 +254,6 @@ def swarm(
        • Self-organizing collaboration without central control
 
     3. Flexible Team Composition:
-       • Mix different model providers for diverse capabilities
        • Assign specialized tools to relevant agents only
        • Custom temperature and model settings per agent
        • Support for any number of agents with unique roles
@@ -277,7 +270,6 @@ def swarm(
             - name (str): Agent name/identifier (optional, auto-generated if not provided)
             - system_prompt (str): Agent's system prompt defining its role and expertise
             - tools (List[str]): List of tool names available to this agent (optional)
-            - model_provider (str): Model provider for this agent (optional, inherits from parent)
             - model_settings (Dict): Model configuration for this agent (optional)
             - inherit_parent_prompt (bool): Whether to append parent agent's system prompt (optional)
         max_handoffs: Maximum number of handoffs between agents (default: 20).
@@ -309,23 +301,17 @@ def swarm(
             {
                 "name": "researcher",
                 "system_prompt": "You are a renewable energy specialist. Focus on feasibility and impact.",
-                "tools": ["retrieve", "calculator"],
-                "model_provider": "bedrock",
-                "model_settings": {"model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0"}
+                "tools": ["retrieve", "calculator"]
             },
             {
                 "name": "engineer",
                 "system_prompt": "You are an engineering specialist. Focus on implementation and costs.",
-                "tools": ["calculator", "file_write"],
-                "model_provider": "anthropic",
-                "model_settings": {"model_id": "claude-sonnet-4-20250514"}
+                "tools": ["calculator", "file_write"]
             },
             {
                 "name": "community_expert",
                 "system_prompt": "You are a community specialist. Focus on social impact and adoption.",
-                "tools": ["retrieve", "file_write"],
-                "model_provider": "openai",
-                "model_settings": {"model_id": "o4-mini"}
+                "tools": ["retrieve", "file_write"]
             }
         ]
     )
@@ -409,6 +395,26 @@ def swarm(
             parent_agent=agent,
         )
 
+        # adjust minimum timeouts based on agent timeout
+        model_timeout = None
+        first_agent = swarm_agents[0]
+        if isinstance(first_agent.model, OllamaModel):
+            ollama_model = first_agent.model
+            if "timeout" in ollama_model.client_args:
+                model_timeout = float(ollama_model.client_args["timeout"])
+
+        # enforce minimum values to address bad LLM values
+        max_handoffs = max(max_handoffs,  20)
+        max_iterations = max(max_iterations, 20)
+        repetitive_handoff_detection_window = max(repetitive_handoff_detection_window, 8)
+        repetitive_handoff_min_unique_agents = max(repetitive_handoff_min_unique_agents, 3)
+        if model_timeout and model_timeout > 300.0:
+            execution_timeout = max(execution_timeout, model_timeout*3)
+            node_timeout = max(node_timeout, model_timeout)
+        else:
+            execution_timeout = max(execution_timeout, 900.0)
+            node_timeout = max(node_timeout, 300.0)
+
         # Create SDK Swarm with configuration
         sdk_swarm = Swarm(
             nodes=swarm_agents,
@@ -420,7 +426,8 @@ def swarm(
             repetitive_handoff_min_unique_agents=repetitive_handoff_min_unique_agents,
         )
 
-        logger.info(f"Starting swarm execution with task: {task[:1000]}...")
+        logger.info(f"Starting swarm execution with task: {task[:1000]}, execution_timeout=%d, node_timeout=%d, max_handoffs=%d, max_iterations=%d ...",
+                    execution_timeout, node_timeout, max_handoffs, max_iterations)
 
         # Execute the swarm
         result = sdk_swarm(task)
