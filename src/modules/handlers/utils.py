@@ -8,8 +8,13 @@ output formatting, and message analysis.
 
 import json
 import os
+import pathlib
 import re
 import shutil
+import sys
+import threading
+import tomllib
+import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -152,7 +157,7 @@ class Colors:
     # Docker allocates a pseudo-TTY when -t flag is used, which makes isatty() return True
     # We also respect FORCE_COLOR env var which is set in docker-compose.yml
     _force_color = os.environ.get("FORCE_COLOR", "").lower() in ("1", "true", "yes")
-    _is_tty = hasattr(os.sys.stdout, "isatty") and os.sys.stdout.isatty()
+    _is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
     _is_terminal = _is_tty or _force_color
 
     # Define colors only if outputting to terminal or colors are forced
@@ -171,7 +176,10 @@ def print_banner():
     """Display operation banner with neon cyberpunk gradient colors."""
     import os
 
-    if os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes"):
+    if (
+            os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes")
+            or os.getenv("CYBER_UI_MODE", "cli").lower() == "react"
+    ):
         return
 
     banner_lines = [
@@ -190,8 +198,13 @@ def print_banner():
         r"╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
     ]
 
+    try:
+        with open(pathlib.Path(os.path.dirname(os.path.realpath(__file__)), "..", "..", "..", "pyproject.toml"), "rb") as f:
+            version = tomllib.load(f).get("project", {}).get("version", "???")
+    except IOError:
+        version = "???"
+
     subtitle = "Full Spectrum Cyber Operations"
-    version = "v0.1.4"
 
     # Terminal Pro gradient colors (24-bit RGB ANSI codes)
     # Matrix green → Cyan → Apple blue (Gemini-inspired multi-color gradient)
@@ -242,7 +255,10 @@ def print_section(title, content, color=Colors.BLUE, emoji=""):
     """Print formatted section with optional emoji."""
     import os
 
-    if os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes"):
+    if (
+            os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes")
+            or os.getenv("CYBER_UI_MODE", "cli").lower() == "react"
+    ):
         return
 
     # Print section for CLI mode
@@ -256,7 +272,10 @@ def print_status(message, status="INFO"):
     """Print status message with color coding and emojis."""
     import os
 
-    if os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes"):
+    if (
+            os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes")
+            or os.getenv("CYBER_UI_MODE", "cli").lower() == "react"
+    ):
         return
 
     # Print status for CLI mode - professional symbols only
@@ -434,3 +453,21 @@ def emit_error(error: str) -> None:
 def emit_status(message: str, level: str = "info") -> None:
     """Emit a status message event."""
     emit_event("status", message, level=level)
+
+
+def dumpstacks(signal, frame):
+    id2name = dict([(th.ident, th.name) for th in threading.enumerate()])
+    trace = []
+    for threadId, stack in sys._current_frames().items():
+        trace.append("\n# Thread: %s(%d)" % (id2name.get(threadId, ""), threadId))
+        for filename, lineno, name, line in traceback.extract_stack(stack):
+            trace.append('File: "%s", line %d, in %s' % (filename, lineno, name))
+            if line:
+                trace.append("  %s" % (line.strip()))
+    print("\n".join(trace))
+    try:
+        from guppy import hpy
+        h = hpy()
+        print("\n".join(h.heap()[0:12]))
+    except ImportError:
+        pass

@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -11,8 +12,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from modules.prompts import get_system_prompt
+from modules.prompts import get_system_prompt, load_prompt_template
 
+real_load_prompt_template = load_prompt_template
 
 class TestGetSystemPrompt:
     """Test the get_system_prompt function"""
@@ -90,8 +92,18 @@ class TestGetSystemPrompt:
         assert "Starting fresh assessment with no previous context" in prompt
         assert "Do NOT check memory on fresh operations" in prompt
 
-    def test_get_system_prompt_with_tools_context(self):
+    @patch("modules.prompts.factory.load_prompt_template")
+    def test_get_system_prompt_with_tools_context(self, mock_load_prompt_template):
         """Test system prompt with tools context"""
+
+        def side_effect(name: str, *args, **kwargs):
+            real_template = real_load_prompt_template(name)
+            if name == "system_prompt.md":
+                real_template += " {{ environmental_context }} "
+            return real_template
+
+        mock_load_prompt_template.side_effect = side_effect
+
         tools_context = "## ENVIRONMENTAL CONTEXT\n\nTools: nmap, curl"
 
         prompt = get_system_prompt(

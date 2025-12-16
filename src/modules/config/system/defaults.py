@@ -49,7 +49,7 @@ def build_ollama_defaults() -> Dict[str, Any]:
             provider=ModelProvider.OLLAMA,
             model_id="llama3.2:3b",
             temperature=0.95,
-            max_tokens=65000,
+            max_tokens=8192,
         ),
         "embedding": EmbeddingConfig(
             provider=ModelProvider.OLLAMA,
@@ -73,7 +73,7 @@ def build_ollama_defaults() -> Dict[str, Any]:
             provider=ModelProvider.OLLAMA,
             model_id="llama3.2:3b",
             temperature=0.7,
-            max_tokens=4096,
+            max_tokens=8192,
         ),
         "host": None,  # Will be resolved dynamically
         "region": "ollama",

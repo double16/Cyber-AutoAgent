@@ -54,15 +54,15 @@ graph TB
 
 The `prompt_optimizer` tool supports 9 distinct actions:
 
-| Action | Purpose | Use Case |
-|--------|---------|----------|
-| `view` | Display current overlay | Check active directives |
-| `apply` | Apply JSON overlay payload | Programmatic overlay updates |
-| `update`/`rewrite` | Replace overlay with free-form text | Natural language optimization |
-| `add_context`/`append` | Extend existing overlay | Add new directives |
-| `reset` | Remove overlay completely | Clear all customizations |
-| `refresh` | Re-emit current overlay | Reload without changes |
-| `optimize_execution` | Rewrite execution_prompt_optimized.txt | Automatic optimization |
+| Action                 | Purpose                                | Use Case                      |
+|------------------------|----------------------------------------|-------------------------------|
+| `view`                 | Display current overlay                | Check active directives       |
+| `apply`                | Apply JSON overlay payload             | Programmatic overlay updates  |
+| `update`/`rewrite`     | Replace overlay with free-form text    | Natural language optimization |
+| `add_context`/`append` | Extend existing overlay                | Add new directives            |
+| `reset`                | Remove overlay completely              | Clear all customizations      |
+| `refresh`              | Re-emit current overlay                | Reload without changes        |
+| `optimize_execution`   | Rewrite execution_prompt_optimized.txt | Automatic optimization        |
 
 ### Tool Invocation Examples
 
@@ -334,12 +334,12 @@ The system processes raw memories without pattern extraction:
 
 ## Triggers and Timing
 
-| Trigger | When | Action | Configuration |
-|---------|------|--------|---------------|
-| **Interval** | Every N steps (default: 20) | Auto-optimize + context refresh | `rebuild_interval` |
-| **Phase Change** | Phase transition detected in plan | Rebuild with new phase context | Automatic |
-| **File Modified** | execution_prompt_optimized.txt changed | Reload from disk | Automatic |
-| **Manual** | Force rebuild flag set | Immediate optimization | `force_rebuild=True` |
+| Trigger           | When                                   | Action                          | Configuration        |
+|-------------------|----------------------------------------|---------------------------------|----------------------|
+| **Interval**      | Every N steps (default: 20)            | Auto-optimize + context refresh | `rebuild_interval`   |
+| **Phase Change**  | Phase transition detected in plan      | Rebuild with new phase context  | Automatic            |
+| **File Modified** | execution_prompt_optimized.txt changed | Reload from disk                | Automatic            |
+| **Manual**        | Force rebuild flag set                 | Immediate optimization          | `force_rebuild=True` |
 
 ### Trigger Implementation
 ```python
@@ -381,12 +381,12 @@ prompt_optimizer(
 ## Performance Metrics
 
 ### Token Efficiency
-| Stage | Tokens | Description |
-|-------|--------|-------------|
-| **Base System** | 4,047 | Static components |
-| **Initial Execution** | 1,000 | Generic guidance |
-| **After Optimization** | 800 | Focused guidance |
-| **Efficiency Gain** | 20% | Token reduction |
+| Stage                  | Tokens  | Description       |
+|------------------------|---------|-------------------|
+| **Base System**        | 4,047   | Static components |
+| **Initial Execution**  | 1,000   | Generic guidance  |
+| **After Optimization** | 800     | Focused guidance  |
+| **Efficiency Gain**    | 20%     | Token reduction   |
 
 ### Operational Improvements
 - **Solve Rate**: ~30% improvement on complex targets
@@ -422,13 +422,13 @@ src/modules/operation_plugins/<module>/
 
 ## Implementation Components
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| **Hook** | `handlers/prompt_rebuild_hook.py` | Triggers and orchestration |
-| **Optimizer** | `tools/prompt_optimizer.py` | LLM rewriting logic |
-| **Agent** | `agents/cyber_autoagent.py` | Hook integration |
-| **Config** | `config/manager.py` | Prompt copying |
-| **Factory** | `prompts/factory.py` | Prompt initialization |
+| Component     | File                              | Purpose                    |
+|---------------|-----------------------------------|----------------------------|
+| **Hook**      | `handlers/prompt_rebuild_hook.py` | Triggers and orchestration |
+| **Optimizer** | `tools/prompt_optimizer.py`       | LLM rewriting logic        |
+| **Agent**     | `agents/cyber_autoagent.py`       | Hook integration           |
+| **Config**    | `config/manager.py`               | Prompt copying             |
+| **Factory**   | `prompts/factory.py`              | Prompt initialization      |
 
 ## Code Metrics
 
@@ -452,7 +452,9 @@ src/modules/operation_plugins/<module>/
 # Prompt optimization control
 CYBER_PROMPT_REBUILD_INTERVAL=20           # Steps between automatic optimizations
 CYBER_ENABLE_PROMPT_OPTIMIZATION=true      # Enable/disable optimization
-CYBER_MEMORY_QUERY_LIMIT=30               # Number of recent memories to retrieve
+CYBER_MEMORY_QUERY_LIMIT=30                # Number of recent memories to retrieve
+
+CYBER_ENABLE_PROMPT_OPTIMIZER=true         # Enable/disable automatically optimizing execution prompt based on memory patterns
 
 # Operation root directory (set automatically)
 CYBER_OPERATION_ROOT=/path/to/outputs/<target>/OP_<id>

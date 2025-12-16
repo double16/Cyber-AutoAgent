@@ -99,14 +99,14 @@ The system automatically evaluates 6 core metrics after each operation to assess
 
 ### Core Metrics Overview
 
-| Metric | Type | What It Measures | Good Example | Poor Example |
-|--------|------|------------------|--------------|--------------|
-| **Tool Selection Accuracy** | 0.0-1.0 | Strategic tool choice and sequencing | `nmap -sV` → `nikto` → `sqlmap` | Using `nmap` for SQL injection |
-| **Evidence Quality** | 0.0-1.0 | Vulnerability documentation completeness | Full exploit chain with payloads/outputs | "Found SQL injection" (no details) |
-| **Goal Accuracy** | 0 or 1 | Binary - objective achieved | SQLi found when looking for SQLi | No findings despite thorough testing |
-| **Topic Adherence** | 0.0-1.0 | Security focus consistency | Consistent pentesting terminology | Drifting to non-security topics |
-| **Methodology Adherence** | 0.0-1.0 | Following penetration testing standards | PTES: recon→enum→exploit→report | Random testing without method |
-| **Penetration Test Quality** | 0.0-1.0 | Holistic assessment of entire operation | Critical findings with full evidence | No findings or poor methodology |
+| Metric                       | Type    | What It Measures                         | Good Example                             | Poor Example                         |
+|------------------------------|---------|------------------------------------------|------------------------------------------|--------------------------------------|
+| **Tool Selection Accuracy**  | 0.0-1.0 | Strategic tool choice and sequencing     | `nmap -sV` → `nikto` → `sqlmap`          | Using `nmap` for SQL injection       |
+| **Evidence Quality**         | 0.0-1.0 | Vulnerability documentation completeness | Full exploit chain with payloads/outputs | "Found SQL injection" (no details)   |
+| **Goal Accuracy**            | 0 or 1  | Binary - objective achieved              | SQLi found when looking for SQLi         | No findings despite thorough testing |
+| **Topic Adherence**          | 0.0-1.0 | Security focus consistency               | Consistent pentesting terminology        | Drifting to non-security topics      |
+| **Methodology Adherence**    | 0.0-1.0 | Following penetration testing standards  | PTES: recon→enum→exploit→report          | Random testing without method        |
+| **Penetration Test Quality** | 0.0-1.0 | Holistic assessment of entire operation  | Critical findings with full evidence     | No findings or poor methodology      |
 
 ### Key Metric Details
 
@@ -118,12 +118,12 @@ The system automatically evaluates 6 core metrics after each operation to assess
 
 ### Score Interpretation
 
-| Score Range | Assessment | Action Required |
-|-------------|------------|-----------------|
-| **0.9-1.0** | Excellent | None - exemplary performance |
-| **0.7-0.89** | Good | Minor improvements possible |
-| **0.5-0.69** | Fair | Review approach and tool selection |
-| **0.0-0.49** | Poor | Significant issues need addressing |
+| Score Range  | Assessment  | Action Required                    |
+|--------------|-------------|------------------------------------|
+| **0.9-1.0**  | Excellent   | None - exemplary performance       |
+| **0.7-0.89** | Good        | Minor improvements possible        |
+| **0.5-0.69** | Fair        | Review approach and tool selection |
+| **0.0-0.49** | Poor        | Significant issues need addressing |
 
 ### Common Score Patterns
 
@@ -148,16 +148,16 @@ export LANGFUSE_ADMIN_PASSWORD=$(openssl rand -base64 32)
 
 **Model Support:**
 - AWS Bedrock: `-e SERVER=remote` (default)
-- Ollama: `-e SERVER=local -e OLLAMA_HOST=http://localhost:11434`
+- Ollama: `-e SERVER=local -e OLLAMA_HOST=http://localhost:11434 -e OLLAMA_API_BASE=http://localhost:11434`
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| No traces | Check `LANGFUSE_HOST` and network connectivity |
-| No evaluation | Set `ENABLE_AUTO_EVALUATION=true` |
-| Auth errors | Verify PUBLIC_KEY and SECRET_KEY match |
-| Slow traces | Reduce `LANGFUSE_INGESTION_QUEUE_DELAY_MS` to 1000 |
+| Issue         | Fix                                                |
+|---------------|----------------------------------------------------|
+| No traces     | Check `LANGFUSE_HOST` and network connectivity     |
+| No evaluation | Set `ENABLE_AUTO_EVALUATION=true`                  |
+| Auth errors   | Verify PUBLIC_KEY and SECRET_KEY match             |
+| Slow traces   | Reduce `LANGFUSE_INGESTION_QUEUE_DELAY_MS` to 1000 |
 
 ```bash
 # Debug commands

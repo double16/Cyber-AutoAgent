@@ -512,6 +512,7 @@ export class ContainerManager extends EventEmitter {
           if (args[0] === 'build' && args[1] === 'cyber-autoagent') {
             const pollInterval = setInterval(async () => {
               try {
+                // TODO: config.dockerImage
                 const { stdout } = await execAsync('docker images -q cyber-autoagent:latest');
                 if (stdout.trim()) {
                   clearInterval(pollInterval);
@@ -537,6 +538,7 @@ export class ContainerManager extends EventEmitter {
       // Check if cyber-autoagent image exists locally first
       let needsBuild = false;
       try {
+        // TODO: config.dockerImage
         const { stdout } = await execAsync('docker images -q cyber-autoagent:latest');
         needsBuild = !stdout.trim();
       } catch {
@@ -559,6 +561,7 @@ export class ContainerManager extends EventEmitter {
             // Build process may hang but image could still be created
             // Check if image exists before failing
             try {
+              // TODO: config.dockerImage
               const { stdout } = await execAsync('docker images -q cyber-autoagent:latest');
               if (stdout.trim()) {
                 this.logger.info('Build process hung but image exists, continuing');

@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "caa"
-version = "0.1.4"
+version = "0.1.5"
 description = "Cyber-AutoAgent: Autonomous AI agent for ethical security assessments"
 readme = "README.md"
 authors = [
-    {name = "Cyber-AutoAgent Team", email = "aaron.weston.brown@gmail.com"}
+    {name = "Patrick Double", email = "pat@patdouble.com"},
+    {name = "Aaron Brown"}
 ]
 license = {text = "MIT"}
 keywords = ["cybersecurity", "penetration-testing", "autonomous", "ai-agent", "security-assessment"]
@@ -19,26 +20,25 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10", 
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
     "Environment :: Console"
 ]
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-    "strands-agents[ollama,otel,litellm]>=1.16.0",
-    "strands-agents-tools>=0.2.14",
-    "mem0ai>=0.1.116",
-    "google-genai>=0.3.0",
+    "strands-agents[ollama,otel,litellm]>=1.19.0",
+    "strands-agents-tools>=0.2.17",
+    "mem0ai>=1.0.1",
+    "google-genai>=1.49.0",
     "litellm==1.80.0",
     "azure-identity>=1.15.0",
-    "boto3>=1.39.10",
-    "botocore>=1.39.10",
+    "boto3>=1.42.4",
+    "botocore>=1.42.4",
     "faiss-cpu",
-    "ollama>=0.1.0",
+    "ollama>=0.6.1",
     "requests>=2.25.0",
     "opensearch-py",
     "opentelemetry-api",
@@ -49,7 +49,8 @@ dependencies = [
     "langfuse>=2.0.0",
     "langchain-aws>=0.2.0",
     "langchain-ollama>=0.2.0",
-    "stagehand>=0.5.0",
+    "langchain-litellm>=0.3.5",
+    "stagehand>=0.5.7",
     "pymitter>=1.1.3",
     "tldextract>=5.3.0",
     "pwntools>=4.13.0",
@@ -57,6 +58,9 @@ dependencies = [
     "sympy>=1.13.0",
     "angr>=9.2.0",
     "r2pipe>=1.9.0",
+    "sentence-transformers>=5.1.2",
+    "standard-distutils>=3.11.9",
+    "guppy3~=3.1.5",
 ]
 
 [project.optional-dependencies]
@@ -71,10 +75,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/cyber-autoagent/cyber-autoagent"
-Repository = "https://github.com/cyber-autoagent/cyber-autoagent"
-Documentation = "https://github.com/cyber-autoagent/cyber-autoagent#readme"
-"Bug Tracker" = "https://github.com/cyber-autoagent/cyber-autoagent/issues"
+Homepage = "https://github.com/double16/cyber-autoagent"
+Repository = "https://github.com/double16/cyber-autoagent"
+Documentation = "https://github.com/double16/cyber-autoagent#readme"
+"Bug Tracker" = "https://github.com/double16/cyber-autoagent/issues"
 
 [project.scripts]
 caa = "cyberautoagent:main"

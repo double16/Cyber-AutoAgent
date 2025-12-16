@@ -278,9 +278,9 @@ const runAutoAssessment = async () => {
       // Merge in priority order: defaults → saved config → CLI overrides
       const finalConfig = { ...defaultConfig, ...savedConfig, ...configOverrides } as Config;
 
-      loggingService.info(`⚙️  Config: ${finalConfig.iterations} iterations, ${finalConfig.modelProvider}/${finalConfig.modelId}`);
+      loggingService.info(`⚙️ Config: ${finalConfig.iterations} iterations, ${finalConfig.modelProvider}/${finalConfig.modelId}`);
       loggingService.info(`🔭 Observability: ${finalConfig.observability ? 'enabled' : 'disabled'}`);
-      loggingService.info(`🏗️  Deployment Mode: ${finalConfig.deploymentMode || 'local-cli'}`);
+      loggingService.info(`🏗️ Deployment Mode: ${finalConfig.deploymentMode || 'local-cli'}`);
 
       // Import and use ExecutionServiceFactory to select proper service
       const { ExecutionServiceFactory } = await import('./services/ExecutionServiceFactory.js');
@@ -346,7 +346,7 @@ const runAutoAssessment = async () => {
 function renderReactApp() {
   // Check for non-interactive mode without autoRun or headless
   if (!isRawModeSupported && !cli.flags.headless && !cli.flags.autoRun) {
-    loggingService.info('⚠️  Running in non-interactive mode. Use --headless flag for scripting.');
+    loggingService.info('⚠️ Running in non-interactive mode. Use --headless flag for scripting.');
     loggingService.info('💡 For interactive mode, run directly in a terminal.');
     loggingService.info('\nUsage: cyber-react --target <target> --auto-run');
     process.exit(1);

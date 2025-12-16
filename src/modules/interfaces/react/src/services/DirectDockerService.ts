@@ -317,6 +317,10 @@ export class DirectDockerService extends EventEmitter {
       // Ollama configuration
       if (config.ollamaHost) {
         env.push(`OLLAMA_HOST=${config.ollamaHost}`);
+        env.push(`OLLAMA_API_BASE=${config.ollamaHost}`);
+      }
+      if (config.ollamaTimeout) {
+        env.push(`OLLAMA_TIMEOUT=${config.ollamaTimeout}`);
       }
 
       // LiteLLM configuration
@@ -548,7 +552,7 @@ export class DirectDockerService extends EventEmitter {
       }
 
       // Create a new ad-hoc container for the assessment
-      const dockerImage = process.env.CYBER_DOCKER_IMAGE || 'cyber-autoagent:latest';
+      const dockerImage = process.env.CYBER_DOCKER_IMAGE || config.dockerImage || 'cyber-autoagent:latest';
       let dockerNetwork = process.env.CYBER_DOCKER_NETWORK || 'bridge';
 
       // If running in full-stack mode, attempt to infer compose network from a stack container
@@ -862,6 +866,14 @@ export class DirectDockerService extends EventEmitter {
           this.toolOutputBuffer = '';
           this.sawBackendToolOutput = false;
           try { this._currentToolName = eventData.tool_name || eventData.toolName || eventData.tool || undefined; } catch {}
+
+          if (eventData.type === 'tool_start') {
+            this.emit('event', {
+              type: 'output',
+              content: `◆ ${eventData.tool_name} ${JSON.stringify(eventData.tool_input)}`,
+              timestamp: Date.now()
+            });
+          }
         } else if (
           eventData.type === 'tool_invocation_end' ||
           eventData.type === 'tool_result' ||
@@ -878,6 +890,20 @@ export class DirectDockerService extends EventEmitter {
           this.inToolExecution = false;
           this.sawBackendToolOutput = false;
           try { this._currentToolName = undefined; } catch {}
+
+          if (eventData.type === 'tool_end') {
+            var content : string;
+            if (eventData.success) {
+              content = `✓ ${eventData.tool_name}`;
+            } else {
+              content = `○ ${eventData.tool_name}`;
+            }
+            this.emit('event', {
+              type: 'output',
+              content: content,
+              timestamp: Date.now()
+            });
+          }
         }
 
         // Handle tool discovery events with improved formatting
@@ -896,7 +922,7 @@ export class DirectDockerService extends EventEmitter {
         } else if (event.type === 'tool_unavailable') {
           this.emit('event', {
             type: 'output',
-            content: `  ○ ${eventData.tool_name} (${eventData.description}) - unavailable`,
+            content: `  ○ ${eventData.tool_name} (${eventData.description || ''}) - unavailable`,
             timestamp: Date.now()
           });
         } else if (event.type === 'environment_ready') {
@@ -905,7 +931,7 @@ export class DirectDockerService extends EventEmitter {
             content: `◆ Environment ready - ${eventData.tool_count} cybersecurity tools loaded`,
             timestamp: Date.now()
           });
-          
+
           setTimeout(() => {
             this.emit('event', {
               type: 'output',
@@ -913,7 +939,7 @@ export class DirectDockerService extends EventEmitter {
               timestamp: Date.now()
             });
           }, 300);
-          
+
           setTimeout(() => {
             this.emit('event', {
               type: 'output',

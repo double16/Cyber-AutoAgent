@@ -290,6 +290,7 @@ class TestAfterToolCallEventSDKContract:
             await hook._truncate_large_results_async(event)
 
             # Result should be unchanged
+            assert len(event.result["content"]) == 1
             result_text = event.result["content"][0]["text"]
             assert result_text == original_text, (
                 "Small results should pass through unchanged"
@@ -554,6 +555,85 @@ class TestArtifactExternalization:
             assert "chars" in result_text.lower(), (
                 "Should indicate character count"
             )
+
+        asyncio.run(_test())
+
+    def test_image_creates_artifact_file(self, tmp_path):
+        """Verify large outputs are saved to artifact files."""
+        async def _test():
+            hook = ToolRouterHook(
+                shell_tool=object(),
+                max_result_chars=10000,
+                artifacts_dir=tmp_path,
+                artifact_threshold=10000,
+            )
+
+            image_data = b'\x47\x49\x46\x38\x39\x61'
+            result = {
+                "status": "success",
+                "toolUseId": "test_id",
+                "content": [{"image": {
+                    "format": "gif",
+                    "source": {"bytes": image_data}
+                }}],
+            }
+            event = MockAfterToolCallEvent(result, {"name": "test_tool"})
+
+            await hook._truncate_large_results_async(event)
+
+            # Check artifact was created
+            artifacts = list(tmp_path.glob("*.artifact.gif"))
+            assert len(artifacts) == 1, f"Expected 1 artifact, got {len(artifacts)}"
+
+            # Verify artifact contains full content
+            artifact_content = artifacts[0].read_bytes()
+            assert artifact_content == image_data, "Artifact should contain full output"
+
+        asyncio.run(_test())
+
+    def test_document_and_image_creates_artifact_files(self, tmp_path):
+        """Verify large outputs are saved to artifact files."""
+        async def _test():
+            hook = ToolRouterHook(
+                shell_tool=object(),
+                max_result_chars=10000,
+                artifacts_dir=tmp_path,
+                artifact_threshold=10000,
+            )
+
+            image_data = b'\x47\x49\x46\x38\x39\x61'
+            pdf_data = b'PDF'
+            result = {
+                "status": "success",
+                "toolUseId": "test_id",
+                "content": [{"image": {
+                    "format": "gif",
+                    "source": {"bytes": image_data}
+                }},
+                    {"document": {
+                        "format": "pdf",
+                        "source": {"bytes": pdf_data}
+                    }}],
+            }
+            event = MockAfterToolCallEvent(result, {"name": "test_tool"})
+
+            await hook._truncate_large_results_async(event)
+
+            # Check artifact was created
+            image_artifacts = list(tmp_path.glob("*.artifact.gif"))
+            assert len(image_artifacts) == 1, f"Expected 1 image artifact, got {len(image_artifacts)}"
+
+            # Verify artifact contains full content
+            artifact_content = image_artifacts[0].read_bytes()
+            assert artifact_content == image_data, "Image artifact should contain full output"
+
+            # Check artifact was created
+            pdf_artifacts = list(tmp_path.glob("*.artifact.pdf"))
+            assert len(pdf_artifacts) == 1, f"Expected 1 document artifact, got {len(pdf_artifacts)}"
+
+            # Verify artifact contains full content
+            artifact_content = pdf_artifacts[0].read_bytes()
+            assert artifact_content == pdf_data, "Document artifact should contain full output"
 
         asyncio.run(_test())
 

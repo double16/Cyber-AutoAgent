@@ -263,13 +263,13 @@ if loader.validate_module("custom_module"):
 
 ## Available Modules
 
-| Module | Cognitive Level | Domain | Key Capabilities | Tools | Status |
-|--------|-----------------|--------|------------------|-------|--------|
-| **ctf** | 4 | CTF challenges and competitions | Flag extraction, vulnerability exploitation, success-state detection | None | Production |
-| **general** | 3 | Web application security assessment | Advanced reconnaissance, payload coordination, authentication analysis | 3 specialized tools | Production |
-| **threat_emulation** | 4 | APT simulation and threat actor emulation | MITRE ATT&CK execution, IoC generation, detection engineering | None | **Experimental** |
-| **context_navigator** | 3 | Post-access environment discovery | Layered enumeration, topology mapping, business context | None | **Experimental** |
-| **code_security** | 4 | Static code security analysis | Vulnerability detection, dependency scanning, chain analysis | None | **Experimental** |
+| Module                | Cognitive Level  | Domain                                    | Key Capabilities                                                       | Tools               | Status           |
+|-----------------------|------------------|-------------------------------------------|------------------------------------------------------------------------|---------------------|------------------|
+| **ctf**               | 4                | CTF challenges and competitions           | Flag extraction, vulnerability exploitation, success-state detection   | None                | Production       |
+| **general**           | 3                | Web application security assessment       | Advanced reconnaissance, payload coordination, authentication analysis | 3 specialized tools | Production       |
+| **threat_emulation**  | 4                | APT simulation and threat actor emulation | MITRE ATT&CK execution, IoC generation, detection engineering          | None                | **Experimental** |
+| **context_navigator** | 3                | Post-access environment discovery         | Layered enumeration, topology mapping, business context                | None                | **Experimental** |
+| **code_security**     | 4                | Static code security analysis             | Vulnerability detection, dependency scanning, chain analysis           | None                | **Experimental** |
 
 ### CTF Module
 

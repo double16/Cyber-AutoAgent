@@ -1,31 +1,33 @@
 #!/usr/bin/env python3
 """Agent creation and management for Cyber-AutoAgent."""
 
-import atexit
 import json
 import logging
 import os
-import signal
 import warnings
 from datetime import datetime
+from math import ceil
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from strands import Agent
+from strands import tool
 from strands.types.tools import AgentTool
 from strands.tools.executors import ConcurrentToolExecutor
-from strands_tools.editor import editor
-from strands_tools.http_request import http_request
-from strands_tools.load_tool import load_tool
-from strands_tools.python_repl import python_repl
-from strands_tools.shell import shell
-from strands_tools.stop import stop
-from strands_tools.swarm import swarm
-from mcp import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamablehttp_client
-from mcp.client.sse import sse_client
 
-from modules import prompts
+# These tools have the @tool decorator, the function is to be imported
+from strands_tools.editor import editor
+from strands_tools.load_tool import load_tool
+from strands_tools.shell import shell
+
+# These tools are modules, not functions, the following imports MUST import the module
+from strands_tools import (
+    http_request,
+    python_repl,
+    stop,
+)
+
+from modules import prompts, __version__
 from modules.config import (
     AgentConfig,
     align_mem0_config,
@@ -33,17 +35,10 @@ from modules.config import (
     configure_sdk_logging,
     get_config_manager,
 )
-from modules.config.types import MCPConnection, ServerConfig
 from modules.config.system.logger import get_logger
 from modules.config.models.factory import (
-    create_bedrock_model,
-    create_ollama_model,
-    create_litellm_model,
-    create_gemini_model,
-    _handle_model_creation_error,
-    _resolve_prompt_token_limit,
+    _resolve_prompt_token_limit, create_strands_model,
 )
-from modules.handlers import ReasoningHandler
 from modules.handlers.conversation_budget import (
     MappingConversationManager,
     PromptBudgetHook,
@@ -52,20 +47,18 @@ from modules.handlers.conversation_budget import (
     _ensure_prompt_within_budget,
     PRESERVE_LAST_DEFAULT,
     PRESERVE_FIRST_DEFAULT,
+    TOOL_COMPRESS_THRESHOLD,
+    TOOL_COMPRESS_TRUNCATE,
 )
+from modules.handlers.react import ReactBridgeHandler
 from modules.handlers.tool_router import ToolRouterHook
 from modules.config.models.capabilities import get_capabilities
-from modules.handlers.utils import print_status, sanitize_target_name, get_output_path
-from strands.tools.mcp.mcp_client import MCPClient
+from modules.handlers.utils import print_status, sanitize_target_name
+from modules.tools import swarm
 
 from modules.tools.mcp import (
-    ResilientMCPToolAdapter,
-    list_mcp_tools_wrapper,
-    mcp_tools_input_schema_to_function_call,
-    resolve_env_vars_in_dict,
-    resolve_env_vars_in_list,
-    start_managed_mcp_client,
-    with_result_file,
+    discover_mcp_tools,
+    mcp_tool_catalog,
 )
 from modules.tools.memory import (
     get_memory_client,
@@ -91,89 +84,25 @@ logger = get_logger("Agents.CyberAutoAgent")
 # Backward compatibility: expose get_system_prompt from modules.prompts for legacy imports/tests
 get_system_prompt = prompts.get_system_prompt
 
-# Model creation logic has been extracted to modules.config.models.factory
-# for better separation of concerns. See imports above for available functions.
 
+def tool_catalog_wrapper(full_tools_context: str, mcp_tools: List[AgentTool]):
+    @tool(name="tool_catalog")
+    def tool_catalog() -> str:
+        """
+        List the full catalog of available tools.
+        """
+        if mcp_tools:
+            return full_tools_context + "\n\n" + mcp_tool_catalog(mcp_tools)
+        return full_tools_context
 
-def _discover_mcp_tools(config: AgentConfig, server_config: ServerConfig) -> List[AgentTool]:
-    """Discover and register MCP tools from configured connections."""
-    mcp_tools = []
-    environ = os.environ.copy()
-    for mcp_conn in (config.mcp_connections or []):
-        if '*' in mcp_conn.plugins or config.module in mcp_conn.plugins:
-            logger.debug("Discover MCP tools from: %s", mcp_conn)
-            try:
-                headers = resolve_env_vars_in_dict(mcp_conn.headers, environ)
-                match mcp_conn.transport:
-                    case "stdio":
-                        if not mcp_conn.command:
-                            raise ValueError(f"{mcp_conn.transport} requires command")
-                        command_list: List[str] = resolve_env_vars_in_list(mcp_conn.command, environ)
-                        transport = lambda: stdio_client(StdioServerParameters(
-                            command = command_list[0], args=command_list[1:],
-                            env=environ,
-                        ))
-                    case "streamable-http":
-                        transport = lambda: streamablehttp_client(
-                            url=mcp_conn.server_url,
-                            headers=headers,
-                            timeout=mcp_conn.timeoutSeconds if mcp_conn.timeoutSeconds else 30,
-                        )
-                    case "sse":
-                        transport = lambda: sse_client(
-                            url=mcp_conn.server_url,
-                            headers=headers,
-                            timeout=mcp_conn.timeoutSeconds if mcp_conn.timeoutSeconds else 30,
-                        )
-                    case _:
-                        raise ValueError(f"Unsupported MCP transport {mcp_conn.transport}")
-                client = MCPClient(transport, prefix=mcp_conn.id)
-                prefix_idx = len(mcp_conn.id) + 1
-                cleanup_fn: Callable[[], None] | None = None
-                cleanup_fn = start_managed_mcp_client(client)
-                client_used = False
-                page_token = None
-                while len(tools := client.list_tools_sync(page_token)) > 0:
-                    page_token = tools.pagination_token
-                    for tool in tools:
-                        logger.debug(f"Considering tool: {tool.tool_name}")
-                        if '*' in mcp_conn.allowed_tools or tool.tool_name[prefix_idx:] in mcp_conn.allowed_tools:
-                            logger.debug(f"Allowed tool: {tool.tool_name}")
-                            # Wrap output and save into output path
-                            output_base_path = get_output_path(
-                                sanitize_target_name(config.target),
-                                config.op_id,
-                                sanitize_target_name(tool.tool_name),
-                                server_config.output.base_dir,
-                            )
-                            tool = with_result_file(tool, Path(output_base_path))
-                            tool = ResilientMCPToolAdapter(tool, client)
-                            mcp_tools.append(tool)
-                            client_used = True
-                    if not page_token:
-                        break
-                def client_stop(*_):
-                    if cleanup_fn:
-                        cleanup_fn()
-                    else:
-                        client.stop(exc_type=None, exc_val=None, exc_tb=None)
-                if client_used:
-                    atexit.register(client_stop)
-                    signal.signal(signal.SIGTERM, client_stop)
-                else:
-                    client_stop()
-            except Exception as e:
-                logger.error(f"Communicating with MCP: {repr(mcp_conn)}", exc_info=e)
-                raise e
-
-    return mcp_tools
+    return tool_catalog
 
 
 def create_agent(
     target: str,
     objective: str,
     config: Optional[AgentConfig] = None,
-) -> Tuple[Agent, ReasoningHandler]:
+) -> Tuple[Agent, ReactBridgeHandler]:
     """Create autonomous agent"""
 
     # Enable comprehensive SDK logging for debugging
@@ -294,6 +223,40 @@ def create_agent(
     except Exception:
         logger.debug("Unable to set overlay environment context", exc_info=True)
 
+    # Create agent with telemetry for token tracking
+    prompt_token_limit = _resolve_prompt_token_limit(
+        config.provider, server_config, config.model_id
+    )
+
+    # Tool router to prevent unknown-tool failures by routing to shell before execution
+    # Allow configurable truncation of large tool outputs via env var
+    computed_max_results_chars = min(ceil(prompt_token_limit * 0.10), 30000)
+    try:
+        max_result_chars = int(os.getenv("CYBER_TOOL_MAX_RESULT_CHARS", str(computed_max_results_chars)))
+    except Exception:
+        max_result_chars = computed_max_results_chars
+
+    if max_result_chars < 4000:
+        computed_artifact_threshold = max_result_chars
+    else:
+        computed_artifact_threshold = max(ceil(max_result_chars / 3), 2000)
+    try:
+        artifact_threshold = int(
+            os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", str(computed_artifact_threshold))
+        )
+    except Exception:
+        artifact_threshold = computed_artifact_threshold
+
+    if artifact_threshold > max_result_chars:
+        logger.warning("Artifact threshold %d > max tool result chars %d, tool result with size in [%d, %d] will be lost",
+                       artifact_threshold, max_result_chars, max_result_chars, artifact_threshold)
+    else:
+        logger.info("Artifact threshold %d, max tool result chars %d", artifact_threshold, max_result_chars)
+
+    global TOOL_COMPRESS_THRESHOLD, TOOL_COMPRESS_TRUNCATE
+    TOOL_COMPRESS_THRESHOLD = ceil(artifact_threshold/2)
+    TOOL_COMPRESS_TRUNCATE = ceil(max_result_chars/2)
+
     initialize_browser(
         provider=config.provider,
         model=config.model_id,
@@ -317,6 +280,8 @@ def create_agent(
             agent_logger.debug(
                 "Could not get memory overview for system prompt: %s", str(e)
             )
+
+    tool_count = 0
 
     # Load module-specific tools and prepare for injection
     module_tools_context = ""
@@ -410,8 +375,9 @@ def create_agent(
                             f"# load_tool path resolution failed for {tool_name}"
                         )
 
+            tool_count += len(tool_names)
             module_tools_context = f"""
-## MODULE-SPECIFIC TOOLS
+### MODULE-SPECIFIC TOOLS
 
 Available {config.module} module tools:
 {", ".join(tool_names)}
@@ -428,24 +394,25 @@ Available {config.module} module tools:
 
     tools_context = ""
     if config.available_tools:
+        tool_count += len(config.available_tools)
         tools_context = f"""
-## ENVIRONMENTAL CONTEXT
+### COMMAND LINE TOOLS
 
-Cyber Tools available in this environment:
+Command line tools available using the **shell** tool:
 {", ".join(config.available_tools)}
-
-Guidance and tool names in prompts are illustrative, not prescriptive. Always check availability and prefer tools present in this list. If a capability is missing, follow Ask-Enable-Retry for minimal, non-interactive enablement, or choose an equivalent available tool.
 """
 
     # Load MCP tools and prepare for injection
-    mcp_tools = _discover_mcp_tools(config, server_config)
+    mcp_tools = discover_mcp_tools(config)
     if mcp_tools:
+        tool_count += len(mcp_tools)
         mcp_tools_context = f"""
-## MCP TOOLS
+### MCP TOOLS
 
 Available {config.module} MCP tools:
-- list_mcp_tools()  # full MCP tool catalog including input schema, output schema, description
-{chr(10).join(f"- {mcp_tools_input_schema_to_function_call(mcp_tool.tool_spec.get('inputSchema'), mcp_tool.tool_name)}" for mcp_tool in mcp_tools)}
+{chr(10).join(f"- {mcp_tool.tool_name}" for mcp_tool in mcp_tools)}
+
+Prefer MCP tools over command line tools that offer similar capabilities.
 """
     else:
         mcp_tools_context = ""
@@ -453,13 +420,19 @@ Available {config.module} MCP tools:
     # Combine environmental and module tools context
     # Prefer to include both environment-detected tools and module-specific tools
     full_tools_context = ""
-    if tools_context:
-        full_tools_context += str(tools_context)
-    for tools_ctx in [module_tools_context, mcp_tools_context]:
+    for tools_ctx in [tools_context, module_tools_context, mcp_tools_context]:
         if tools_ctx:
             if full_tools_context:
                 full_tools_context += "\n\n"
             full_tools_context += str(tools_ctx)
+    if full_tools_context:
+        full_tools_context = f"""
+## TOOLS
+
+Guidance and tool names in prompts are illustrative, not prescriptive. Always check availability and prefer tools present in the following lists. If a capability is missing, follow Ask-Enable-Retry for minimal, non-interactive enablement, or choose an equivalent available tool.
+
+""" + full_tools_context
+
 
     # Load module-specific execution prompt
     module_execution_prompt = None
@@ -673,6 +646,8 @@ Available {config.module} MCP tools:
         logger.warning("Failed to create SystemContentBlock, falling back to plain text: %s", e)
         system_prompt_payload = system_prompt
 
+    logger.debug("system_prompt_payload %s", json.dumps(system_prompt_payload))
+
     # It works in both CLI and React modes
     from modules.handlers.react.react_bridge_handler import ReactBridgeHandler
 
@@ -702,9 +677,7 @@ Available {config.module} MCP tools:
             "provider": config.provider,
             "model": config.model_id,
             "region": config.region_name,
-            "tools_available": len(config.available_tools)
-            if config.available_tools
-            else 0,
+            "tools_available": tool_count,
             "memory": {
                 "mode": config.memory_mode,
                 "path": config.memory_path or None,
@@ -742,21 +715,9 @@ Available {config.module} MCP tools:
 
     # Use the same emitter as the callback handler for consistency
     react_hooks = ReactHooks(
-        emitter=callback_handler.emitter, operation_id=operation_id
+        emitter=callback_handler.emitter, operation_id=operation_id, agent_config=config
     )
 
-    # Tool router to prevent unknown-tool failures by routing to shell before execution
-    # Allow configurable truncation of large tool outputs via env var
-    try:
-        max_result_chars = int(os.getenv("CYBER_TOOL_MAX_RESULT_CHARS", "30000"))
-    except Exception:
-        max_result_chars = 30000
-    try:
-        artifact_threshold = int(
-            os.getenv("CYBER_TOOL_RESULT_ARTIFACT_THRESHOLD", "10000")
-        )
-    except Exception:
-        artifact_threshold = 10000
     tool_router_hook = ToolRouterHook(
         shell,
         max_result_chars=max_result_chars,
@@ -769,6 +730,7 @@ Available {config.module} MCP tools:
 
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
     hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
+    swarm_hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
     agent_logger.info(
         "HOOK REGISTRATION: Created PromptBudgetHook, will register %d hooks total",
         len(hooks),
@@ -792,39 +754,7 @@ Available {config.module} MCP tools:
         )
         hooks.append(prompt_rebuild_hook)
 
-    # Create model based on provider type
-    try:
-        if config.provider == "ollama":
-            agent_logger.debug("Configuring OllamaModel")
-            model = create_ollama_model(config.model_id, config.provider)
-            print_status(f"Ollama model initialized: {config.model_id}", "SUCCESS")
-        elif config.provider == "bedrock":
-            agent_logger.debug("Configuring BedrockModel")
-            # Check for effort configuration (Opus 4.5 feature)
-            effort = os.getenv("BEDROCK_EFFORT")
-            model = create_bedrock_model(
-                config.model_id, config.region_name, config.provider, effort=effort
-            )
-            print_status(f"Bedrock model initialized: {config.model_id}", "SUCCESS")
-        elif config.provider == "litellm":
-            agent_logger.debug("Configuring LiteLLMModel")
-            model = create_litellm_model(
-                config.model_id, config.region_name, config.provider
-            )
-            print_status(f"LiteLLM model initialized: {config.model_id}", "SUCCESS")
-        elif config.provider == "gemini":
-            agent_logger.debug("Configuring native GeminiModel")
-            model = create_gemini_model(
-                config.model_id, config.region_name, config.provider
-            )
-            print_status(f"Native Gemini model initialized: {config.model_id}", "SUCCESS")
-        else:
-            raise ValueError(f"Unsupported provider: {config.provider}")
-
-    except Exception as e:
-        _handle_model_creation_error(config.provider, e)
-        # Re-raise to satisfy tests expecting exception propagation after logging
-        raise
+    model = create_strands_model(config.provider, config.model_id)
 
     # Always use original tools - event emission is handled by callback
     tools_list = [
@@ -868,9 +798,13 @@ Available {config.module} MCP tools:
 
     # Inject MCP tools if available
     if "mcp_tools" in locals() and mcp_tools:
-        tools_list.append(list_mcp_tools_wrapper(mcp_tools))
         tools_list.extend(mcp_tools)
-        agent_logger.info("Injected %d MCP tools into agent", len(mcp_tools))
+        agent_logger.info(
+            "Injected %d MCP tools into agent", len(mcp_tools)
+        )
+        tools_list.append(tool_catalog_wrapper(full_tools_context, mcp_tools or []))
+    else:
+        tools_list.append(tool_catalog_wrapper(full_tools_context, []))
 
     agent_logger.debug("Creating autonomous agent")
 
@@ -893,7 +827,7 @@ Available {config.module} MCP tools:
         summary_ratio=0.3,
         preserve_recent_messages=PRESERVE_LAST_DEFAULT,  # Env default: 5 (reduced from 12)
         preserve_first_messages=PRESERVE_FIRST_DEFAULT,  # Env default: 1 (scripts often use 3)
-        tool_result_mapper=LargeToolResultMapper(),
+        tool_result_mapper=LargeToolResultMapper(max_tool_chars=ceil(artifact_threshold/2), truncate_at=ceil(max_result_chars/2)),
     )
     register_conversation_manager(conversation_manager)
     agent_logger.info(
@@ -903,13 +837,15 @@ Available {config.module} MCP tools:
         PRESERVE_LAST_DEFAULT,
     )
 
-    # Create agent with telemetry for token tracking
-    prompt_token_limit = _resolve_prompt_token_limit(
-        config.provider, server_config, config.model_id
-    )
-
     # Initialize concurrent tool executor for parallel execution
     tool_executor = ConcurrentToolExecutor()
+
+    trace_attributes_tool_names = []
+    for tool in tools_list:
+        try:
+            trace_attributes_tool_names.append(tool.tool_name)
+        except AttributeError:
+            trace_attributes_tool_names.append(tool.__name__)
 
     agent_kwargs = {
         "model": model,
@@ -944,7 +880,7 @@ Available {config.module} MCP tools:
             "user.id": f"cyber-agent-{config.target}",
             # Agent identification
             "agent.name": "Cyber-AutoAgent",
-            "agent.version": "1.0.0",
+            "agent.version": __version__,
             "gen_ai.agent.name": "Cyber-AutoAgent",
             "gen_ai.system": "Cyber-AutoAgent",
             # Operation metadata
@@ -963,30 +899,19 @@ Available {config.module} MCP tools:
             else "local",
             "gen_ai.request.model": config.model_id,
             # Tool configuration
-            "tools.available": len(tools_list),
-            "tools.names": [
-                "swarm",
-                "shell",
-                "editor",
-                "load_tool",
-                "mem0_memory",
-                "stop",
-                "http_request",
-                "python_repl",
-                "browser_set_headers",
-                "browser_goto_url",
-                "browser_get_page_html",
-                "browser_perform_action",
-                "browser_observe_page",
-                "browser_evaluate_js",
-                "browser_get_cookies",
-            ],
+            "tools.available": len(trace_attributes_tool_names),
+            "tools.names": trace_attributes_tool_names,
             "tools.parallel_limit": 8,
             # Memory configuration
             "memory.enabled": True,
             "memory.path": config.memory_path if config.memory_path else "ephemeral",
         },
     }
+
+    os.environ["STRANDS_PROVIDER"] = config.provider
+    os.environ["STRANDS_MODEL_ID"] = config.model_id
+    os.environ["STRANDS_MAX_TOKENS"] = str(server_config.llm.max_tokens)
+    os.environ["STRANDS_TEMPERATURE"] = str(server_config.llm.temperature)
 
     # Create agent (telemetry is handled globally by Strands SDK)
     agent = Agent(**agent_kwargs)
@@ -1003,6 +928,10 @@ Available {config.module} MCP tools:
         setattr(agent, "system_prompt", system_prompt)
     except Exception:
         pass
+    try:
+        setattr(agent, "swarm_hooks", swarm_hooks)
+    except Exception as e:
+        logger.error("Could not set swarm_hooks on agent, swarm agents may not behave as intended", exc_info=e)
 
     agent_logger.debug("Agent initialized successfully")
     return agent, callback_handler

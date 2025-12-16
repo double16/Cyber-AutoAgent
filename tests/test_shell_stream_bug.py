@@ -81,7 +81,7 @@ def test_all_tools_work_with_correct_import():
     from strands_tools.python_repl import python_repl
     from strands_tools.shell import shell
     from strands_tools.stop import stop
-    from strands_tools.swarm import swarm
+    from modules.tools.swarm import swarm
 
     correct_tools = {
         "editor": editor,
@@ -110,7 +110,7 @@ def test_tools_with_stream_attribute():
     from strands_tools.editor import editor
     from strands_tools.load_tool import load_tool
     from strands_tools.shell import shell
-    from strands_tools.swarm import swarm
+    from modules.tools.swarm import swarm
 
     # Tools that HAVE .stream attribute
     tools_with_stream = {

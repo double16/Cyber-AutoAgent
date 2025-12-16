@@ -1848,7 +1848,7 @@ def mem0_memory(
 
     CATEGORY DECISION TREE (CRITICAL - wrong category = empty report):
         Q: Did you EXPLOIT something or extract sensitive data?
-           YES → category="finding" (SQLi data dump, auth bypass, flag, RCE, creds)
+           YES → category="finding" (SQLi data dump, auth bypass, flag, RCE, credentials)
            NO  → Q: Did you CONFIRM a vulnerability exists?
                     YES → category="finding" (XSS fires, IDOR returns other user data)
                     NO  → category="observation" (recon, tech stack, failed attempts)

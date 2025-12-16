@@ -451,10 +451,10 @@ The memory system automatically validates and corrects inconsistent status field
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MEMORY_ISOLATION` | `operation` | `operation` for isolated stores, `shared` for single store |
-| `CYBER_OPERATION_ID` | Auto-generated | Operation identifier for scoping |
-| `MEM0_LIST_LIMIT` | `100` | Default limit for list/retrieve operations |
+| Variable             | Default        | Description                                                |
+|----------------------|----------------|------------------------------------------------------------|
+| `MEMORY_ISOLATION`   | `operation`    | `operation` for isolated stores, `shared` for single store |
+| `CYBER_OPERATION_ID` | Auto-generated | Operation identifier for scoping                           |
+| `MEM0_LIST_LIMIT`    | `100`          | Default limit for list/retrieve operations                 |
 
 Memory isolation ensures target-specific knowledge remains separated while enabling explicit cross-operation learning when needed via the `cross_operation` parameter.

@@ -473,6 +473,7 @@ pylint src/ && black src/ && mypy src/
 AWS_REGION=us-east-1
 AWS_BEARER_TOKEN_BEDROCK=<token>
 OLLAMA_HOST=http://localhost:11434
+OLLAMA_API_BASE=http://localhost:11434
 LANGFUSE_HOST=http://localhost:3000
 CYBER_THEME=retro
 ```

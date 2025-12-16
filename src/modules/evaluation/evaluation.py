@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_aws import BedrockEmbeddings, ChatBedrock
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.chat_models import ChatLiteLLM  # type: ignore
+from langchain_litellm import ChatLiteLLM
 from langfuse import Langfuse
 from ragas.dataset_schema import MultiTurnSample, SingleTurnSample
 from ragas.embeddings import LangchainEmbeddingsWrapper
@@ -79,7 +79,7 @@ class CyberAgentEvaluator:
     def setup_models(self):
         """Configure evaluation models based on server type."""
         config_manager = get_config_manager()
-        server_type = config_manager.getenv("PROVIDER", "bedrock").lower()
+        server_type = config_manager.get_provider()
 
         # Get configuration from ConfigManager
         server_config = config_manager.get_server_config(server_type)
@@ -87,6 +87,7 @@ class CyberAgentEvaluator:
         if server_type == "ollama":
             # Local mode using Ollama
             ollama_host = config_manager.getenv("OLLAMA_HOST", "http://localhost:11434")
+            # Should we configure timeout from OLLAMA_TIMEOUT ?
             langchain_chat = ChatOllama(
                 model=config_manager.getenv(
                     "RAGAS_EVALUATOR_MODEL", server_config.evaluation.llm.model_id
@@ -258,7 +259,7 @@ class CyberAgentEvaluator:
         # Find all traces for this operation with bounded retry from config manager
         config_manager = get_config_manager()
         eval_cfg = config_manager.get_server_config(
-            config_manager.getenv("PROVIDER", "bedrock")
+            config_manager.get_provider()
         ).evaluation
         max_wait = getattr(eval_cfg, "max_wait_secs", 30)
         poll_interval = getattr(eval_cfg, "poll_interval_secs", 5)
@@ -708,7 +709,7 @@ class CyberAgentEvaluator:
         try:
             config_manager = get_config_manager()
             eval_cfg = config_manager.get_server_config(
-                config_manager.getenv("PROVIDER", "bedrock")
+                config_manager.get_provider()
             ).evaluation
             min_tools = getattr(eval_cfg, "min_tool_calls", 3)
             min_evidence = getattr(eval_cfg, "min_evidence", 1)
@@ -961,7 +962,7 @@ class CyberAgentEvaluator:
         try:
             config_manager = get_config_manager()
             config_manager.get_server_config(
-                config_manager.getenv("PROVIDER", "bedrock")
+                config_manager.get_provider()
             ).evaluation
         except Exception:
             return {}
@@ -1060,7 +1061,7 @@ class CyberAgentEvaluator:
         try:
             config_manager = get_config_manager()
             eval_cfg = config_manager.get_server_config(
-                config_manager.getenv("PROVIDER", "bedrock")
+                config_manager.get_provider()
             ).evaluation
         except Exception:
             return {}
@@ -1287,7 +1288,7 @@ class CyberAgentEvaluator:
         try:
             config_manager = get_config_manager()
             eval_cfg = config_manager.get_server_config(
-                config_manager.getenv("PROVIDER", "bedrock")
+                config_manager.get_provider()
             ).evaluation
             max_chars = int(getattr(eval_cfg, "summary_max_chars", 8000))
         except Exception:

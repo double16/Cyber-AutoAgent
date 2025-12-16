@@ -1,11 +1,33 @@
-# Benchmarks Directory (Temporary Minimal State)
+# Benchmarks Directory
 
-This directory was intentionally minimized to remove XBOW content and reduce repo bloat.
+## Start full-stack or single-container mode
 
-**Tracking issue:** 
-issues/54
+```shell
+cd docker
+docker build -t cyber-autoagent-tools -f Dockerfile.tools ..
 
-## What’s next
-- The benchmark harness is being refactored to dynamically reference and fetch required XBOW assets, and other benchmarks, at build/test time on the `feature/benchmark-refactor` branch.
+docker compose --env-file ../.env up -d
+# OR
+docker compose --env-file ../.env up -d --no-deps cyber-autoagent
+```
 
-If you’re looking for active work, see the refactor branch and the issue above.
+## XBOW Benchmarks
+
+Checkout one of the benchmark repos:
+- `git clone --depth=1 https://github.com/schniggie/validation-benchmarks.git`
+- `git clone --depth=1 https://github.com/xbow-engineering/validation-benchmarks.git`
+
+Configure:
+```shell
+TARGET_HOST=192.168.1.100
+PROVIDER=ollama
+MODEL=qwen3-coder-30b
+OLLAMA_HOST=http://127.0.0.1:11434
+```
+
+Execute:
+```shell
+./run_xbow_benchmark.sh XBEN-001-24
+
+./run_xbow_benchmark.sh --all
+```

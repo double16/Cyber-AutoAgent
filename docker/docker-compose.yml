@@ -1,9 +1,12 @@
 services:
   cyber-autoagent:
-    image: caa:0.1.4
+    image: cyber-autoagent:latest
     build:
+      # requires tools image to be built: `docker build -t cyber-autoagent-tools -f Dockerfile.tools ..`
       context: ../
       dockerfile: docker/Dockerfile
+      args:
+        APT_PROXY: ${APT_PROXY}
     container_name: cyber-autoagent
     # React terminal is now the default entrypoint
     # No command override needed - starts interactively
@@ -16,6 +19,10 @@ services:
       # Provider Configuration
       - CYBER_AGENT_PROVIDER=${CYBER_AGENT_PROVIDER:-bedrock}
       - CYBER_AGENT_LLM_MODEL=${CYBER_AGENT_LLM_MODEL}
+      - CYBER_AGENT_EMBEDDING_MODEL=${CYBER_AGENT_EMBEDDING_MODEL}
+      - MAX_TOKENS=${MAX_TOKENS}
+      - MAX_COMPLETION_TOKENS=${MAX_COMPLETION_TOKENS}
+      - CYBER_CONTEXT_LIMIT=${CYBER_CONTEXT_LIMIT}
 
       # AWS Configuration
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -26,6 +33,8 @@ services:
 
       # Ollama Configuration (Ollama Provider)
       - OLLAMA_HOST=${OLLAMA_HOST}
+      - OLLAMA_API_BASE=${OLLAMA_HOST}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT}
 
       # LiteLLM Provider API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -33,6 +42,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - XAI_API_KEY=${XAI_API_KEY}
       - COHERE_API_KEY=${COHERE_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 
       # Azure OpenAI Configuration (LiteLLM Provider)
       - AZURE_API_KEY=${AZURE_API_KEY}
@@ -50,6 +60,7 @@ services:
       - DEV=true
       - FORCE_COLOR=1
       - CONTAINER=docker  # Mark as Docker environment for React terminal detection
+      - TOKENIZERS_PARALLELISM=true
 
       # Observability configuration (auto-detected by default, forced true in compose mode)
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
@@ -64,20 +75,24 @@ services:
       
       # Evaluation configuration 
       - ENABLE_AUTO_EVALUATION=${ENABLE_AUTO_EVALUATION:-true}
-      - RAGAS_EVALUATOR_MODEL=${RAGAS_EVALUATOR_MODEL:-us.anthropic.claude-3-5-sonnet-20241022-v2:0}
+      - RAGAS_EVALUATOR_MODEL=${RAGAS_EVALUATOR_MODEL}
       - EVALUATION_BATCH_SIZE=${EVALUATION_BATCH_SIZE:-5}
       - MIN_TOOL_ACCURACY_SCORE=${MIN_TOOL_ACCURACY_SCORE:-0.8}
       - MIN_EVIDENCE_QUALITY_SCORE=${MIN_EVIDENCE_QUALITY_SCORE:-0.7}
       - MIN_ANSWER_RELEVANCY_SCORE=${MIN_ANSWER_RELEVANCY_SCORE:-0.7}
       - MIN_CONTEXT_PRECISION_SCORE=${MIN_CONTEXT_PRECISION_SCORE:-0.8}
-    
+
+      # HackTheBox MCP Tokens
+      - HTB_API_TOKEN=${HTB_API_TOKEN}
+      - HTB_CTF_TOKEN=${HTB_CTF_TOKEN}
+
     volumes:
       # Unified output structure persistence
       # Use :delegated for Docker Desktop on macOS to fix permission issues
       - ../outputs:/app/outputs:delegated
       - ../tools:/app/tools:delegated
-      
-    
+      - root_cache:/root/.cache
+
     # Network configuration
     networks:
       - default                    # Langfuse observability stack
@@ -354,6 +369,8 @@ volumes:
   langfuse_minio_data:
     driver: local
   langfuse_keys:
+    driver: local
+  root_cache:
     driver: local
 
 networks:

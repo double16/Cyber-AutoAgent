@@ -12,16 +12,6 @@
 ![GitHub stars](https://img.shields.io/github/stars/westonbrown/Cyber-AutoAgent?style=flat-square)
 ![GitHub forks](https://img.shields.io/github/forks/westonbrown/Cyber-AutoAgent?style=flat-square)
 
-
-# ⚠️ PROJECT ARCHIVED
-
-Cyber-AutoAgent started as an experimental side project to explore autonomous offensive security agents and black box pentesting. After achieving 85% on the XBOW valdiation benchmark and building an engaged community, it became clear this work requires dedicated full-time focus to reach production-grade maturity.
-
-Due to time constraints with other commitments, I've made the decision to archive this repository rather than let it stagnate with sporadic updates.
-
-Thanks to everyone who contributed, tested, and supported this experiment. Keep pushing the boundaries of what's possible with agentic AI in cybersecurity. 
-
-
 **[!] EXPERIMENTAL SOFTWARE - USE ONLY IN AUTHORIZED, SAFE, SANDBOXED ENVIRONMENTS [!]**
 
 <p>
@@ -29,7 +19,7 @@ Thanks to everyone who contributed, tested, and supported this experiment. Keep 
 </p>
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker&style=for-the-badge)](https://hub.docker.com/r/cyberautoagent/cyber-autoagent)
-[![Python](https://img.shields.io/badge/Python-3.10+-yellow?logo=python&style=for-the-badge)](https://www.python.org)
+[![Python](https://img.shields.io/badge/Python-3.11+-yellow?logo=python&style=for-the-badge)](https://www.python.org)
 [![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange?logo=amazon-aws&style=for-the-badge)](https://aws.amazon.com/bedrock/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_AI-green?style=for-the-badge)](https://ollama.ai)
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/WNHhsnkTc3)
@@ -54,7 +44,7 @@ Thanks to everyone who contributed, tested, and supported this experiment. Keep 
 - [Features](#features)
 - [Architecture](#architecture)
 - [Model Providers](#model-providers)
-- [Observability](#observability)
+- [Observability](#observability--evaluation)
 - [Installation & Deployment](#installation--deployment)
 - [Configuration](#configuration)
 - [Development & Testing](#development--testing)
@@ -66,12 +56,12 @@ Thanks to everyone who contributed, tested, and supported this experiment. Keep 
 
 **THIS TOOL IS FOR EDUCATIONAL AND AUTHORIZED SECURITY TESTING PURPOSES ONLY.**
 
-| Requirement | Description |
-|-------------|-------------|
-| Authorization | Use only on systems you own or have explicit written permission to test |
-| Legal Compliance | Ensure compliance with all applicable laws and regulations |
-| Sandboxed Environment | Deploy in safe, sandboxed environments isolated from production systems |
-| Responsibility | Never use on unauthorized systems or networks - users are fully responsible for legal and ethical use |
+| Requirement           | Description                                                                                           |
+|-----------------------|-------------------------------------------------------------------------------------------------------|
+| Authorization         | Use only on systems you own or have explicit written permission to test                               |
+| Legal Compliance      | Ensure compliance with all applicable laws and regulations                                            |
+| Sandboxed Environment | Deploy in safe, sandboxed environments isolated from production systems                               |
+| Responsibility        | Never use on unauthorized systems or networks - users are fully responsible for legal and ethical use |
 
 ## Quick Start
 
@@ -92,7 +82,7 @@ caa --target "http://example.com" --objective "Security assessment"
 
 ```bash
 # Clone and setup
-git clone https://github.com/westonbrown/Cyber-AutoAgent.git
+git clone https://github.com/double16/Cyber-AutoAgent.git
 cd Cyber-AutoAgent
 
 # Install in editable mode
@@ -405,13 +395,13 @@ Cyber-AutoAgent supports multiple model providers for maximum flexibility:
 
 ### Comparison
 
-| Feature | Bedrock | Ollama | LiteLLM |
-|---------|---------|--------|----------|
-| Cost | Pay per call | Free | Varies by provider |
-| Performance | High | Hardware dependent | Provider dependent |
-| Offline Use | No | Yes | No |
-| Setup | Easy | Higher | Medium |
-| Model Selection | 100+ models | Limited | 100+ models |
+| Feature         | Bedrock      | Ollama             | LiteLLM            |
+|-----------------|--------------|--------------------|--------------------|
+| Cost            | Pay per call | Free               | Varies by provider |
+| Performance     | High         | Hardware dependent | Provider dependent |
+| Offline Use     | No           | Yes                | No                 |
+| Setup           | Easy         | Higher             | Medium             |
+| Model Selection | 100+ models  | Limited            | 100+ models        |
 
 ## Observability & Evaluation
 
@@ -455,12 +445,12 @@ export ENABLE_AUTO_EVALUATION=true
 
 **Essential Environment Variables**:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ENABLE_OBSERVABILITY` | `true` | Enable/disable Langfuse tracing |
-| `ENABLE_AUTO_EVALUATION` | `false` | Enable automatic Ragas evaluation |
-| `LANGFUSE_HOST` | `http://langfuse-web:3000` | Langfuse server URL |
-| `CYBER_AGENT_EVALUATION_MODEL` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Model for evaluation |
+| Variable                       | Default                                        | Description                       |
+|--------------------------------|------------------------------------------------|-----------------------------------|
+| `ENABLE_OBSERVABILITY`         | `true`                                         | Enable/disable Langfuse tracing   |
+| `ENABLE_AUTO_EVALUATION`       | `false`                                        | Enable automatic Ragas evaluation |
+| `LANGFUSE_HOST`                | `http://langfuse-web:3000`                     | Langfuse server URL               |
+| `CYBER_AGENT_EVALUATION_MODEL` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Model for evaluation              |
 
 ### Evaluation Metrics
 
@@ -489,7 +479,7 @@ LANGFUSE_ADMIN_PASSWORD=strong-password-here
 
 **System Requirements**
 - **Node.js**: Version 20+ required for React CLI interface
-- **Python**: Version 3.10+ for local installation
+- **Python**: Version 3.11+ for local installation
 - **Docker**: For containerized deployments
 - **macOS Users**: Xcode Command Line Tools required
 
@@ -565,14 +555,29 @@ ollama pull qwen3-coder:30b-a3b-q4_K_M
 ollama pull mxbai-embed-large
 ```
 
+Most models ship with a context window size of 4096, some with 8192. Neither are large enough for quality results. The model
+may advertise a higher context window, but it needs to be set using a derived model.
+
+```bash
+cat > Modelfile <<EOF
+FROM qwen3-coder:30b-a3b-q8_0
+PARAMETER num_ctx 32768
+EOF
+
+ollama create qwen3-coder-30b:32k -f Modelfile
+```
+
+Configure the system to use model `qwen3-coder-30b:32k`. Other models can have the context window extended in this way.
+
 ### Docker Deployment (Recommended)
 
 ```bash
 # Clone repository
-git clone https://github.com/cyber-autoagent/cyber-autoagent.git
+git clone https://github.com/double16/cyber-autoagent.git
 cd cyber-autoagent
 
 # Build image
+docker build -f docker/Dockerfile.tools -t cyber-autoagent-tools .
 docker build -f docker/Dockerfile -t cyber-autoagent .
 
 # Using environment variables
@@ -593,7 +598,7 @@ docker run --rm \
 
 ```bash
 # Clone repository
-git clone https://github.com/cyber-autoagent/cyber-autoagent.git
+git clone https://github.com/double16/cyber-autoagent.git
 cd cyber-autoagent
 
 # Create virtual environment
@@ -625,14 +630,15 @@ python src/cyberautoagent.py \
 ### Data Storage
 
 **Unified Output Structure** (default, enabled by `CYBER_AGENT_ENABLE_UNIFIED_OUTPUT=true`):
-| Data Type | Location |
-|-----------|----------|
-| Evidence  | `./outputs/<target>/OP_<id>/` |
-| Logs      | `./outputs/<target>/OP_<id>/logs/` |
-| Reports   | `./outputs/<target>/OP_<id>/` |
-| Tools     | `./tools/` |
-| Utils     | `./outputs/<target>/OP_<id>/utils/` |
-| Memory    | `./outputs/<target>/memory/` |
+
+| Data Type  | Location                            |
+|------------|-------------------------------------|
+| Evidence   | `./outputs/<target>/OP_<id>/`       |
+| Logs       | `./outputs/<target>/OP_<id>/logs/`  |
+| Reports    | `./outputs/<target>/OP_<id>/`       |
+| Tools      | `./tools/`                          |
+| Utils      | `./outputs/<target>/OP_<id>/utils/` |
+| Memory     | `./outputs/<target>/memory/`        |
 
 The unified structure organizes all artifacts under operation-specific directories with unique IDs (`OP_YYYYMMDD_HHMMSS`), making it easy to track and manage results from multiple assessment runs. All directories are created automatically.
 
@@ -735,7 +741,7 @@ cp .env.example .env
 The `.env.example` file contains detailed configuration options with inline comments for all supported features including model providers, memory systems, and observability settings. Key environment variables include:
 
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION` for remote mode (AWS Bedrock)
-- `OLLAMA_HOST` for local mode (Ollama)
+- `OLLAMA_HOST`,`OLLAMA_API_BASE` for local mode (Ollama)
 - `CYBER_AGENT_OUTPUT_DIR`, `CYBER_AGENT_ENABLE_UNIFIED_OUTPUT` for output management
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` for observability
 - `MEM0_API_KEY` or `OPENSEARCH_HOST` for memory backends
@@ -818,20 +824,20 @@ cyber-autoagent/
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/cyberautoagent.py` | CLI entry point, observability setup |
-| `src/modules/agents/cyber_autoagent.py` | Strands agent creation, model configuration |
-| `src/modules/agents/report_agent.py` | Report generation agent |
-| `src/modules/config/manager.py` | Centralized configuration system |
-| `src/modules/tools/memory.py` | Unified Mem0 tool (FAISS/OpenSearch/Platform) |
-| `src/modules/evaluation/evaluation.py` | Ragas evaluation system |
-| `src/modules/prompts/system.py` | AI prompts and configurations |
-| `src/modules/prompts/manager.py` | Langfuse prompt management |
-| `.env.example` | Environment configuration template |
-| `docker/docker-compose.yml` | Complete observability stack |
-| `docker/Dockerfile` | Agent container build |
-| `docs/architecture.md` | Technical architecture deep dive |
+| File                                    | Purpose                                       |
+|-----------------------------------------|-----------------------------------------------|
+| `src/cyberautoagent.py`                 | CLI entry point, observability setup          |
+| `src/modules/agents/cyber_autoagent.py` | Strands agent creation, model configuration   |
+| `src/modules/agents/report_agent.py`    | Report generation agent                       |
+| `src/modules/config/manager.py`         | Centralized configuration system              |
+| `src/modules/tools/memory.py`           | Unified Mem0 tool (FAISS/OpenSearch/Platform) |
+| `src/modules/evaluation/evaluation.py`  | Ragas evaluation system                       |
+| `src/modules/prompts/system.py`         | AI prompts and configurations                 |
+| `src/modules/prompts/manager.py`        | Langfuse prompt management                    |
+| `.env.example`                          | Environment configuration template            |
+| `docker/docker-compose.yml`             | Complete observability stack                  |
+| `docker/Dockerfile`                     | Agent container build                         |
+| `docs/architecture.md`                  | Technical architecture deep dive              |
 
 ## Troubleshooting
 

@@ -456,6 +456,12 @@ class TestConfigManager:
         host = self.config_manager.get_ollama_host()
         assert host == "http://custom:11434"
 
+    @patch.dict(os.environ, {"OLLAMA_HOST": "http://custom:11434", "OLLAMA_TIMEOUT": "3600.2" })
+    def test_get_ollama_timeout_environment_override(self):
+        """Test that OLLAMA_TIMEOUT environment variable overrides defaults."""
+        timeout = self.config_manager.get_ollama_timeout()
+        assert timeout == 3600.2
+
     @patch("modules.config.system.validation.requests.get")
     def test_validate_ollama_requirements_success(self, mock_get):
         """Test successful Ollama requirements validation."""
@@ -1080,13 +1086,13 @@ class TestEnvironmentIntegration:
             "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "us-east-1", "bedrock"
         )
         assert standard_config["temperature"] == 0.95
-        assert standard_config["max_tokens"] == 32000
+        assert standard_config["max_tokens"] == 64000
         # top_p is now optional (not included for Anthropic models to avoid conflicts)
 
         # Test local model configuration
         local_config = config_manager.get_local_model_config("llama3.2:3b", "ollama")
         assert local_config["temperature"] == 0.95
-        assert local_config["max_tokens"] == 65000
+        assert local_config["max_tokens"] == 8192
         assert "host" in local_config
         assert local_config["host"].startswith("http://")
 

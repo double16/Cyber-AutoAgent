@@ -239,6 +239,7 @@ debug-*.sh
 
 .vscode/
 .idea/
+*.iml
 *.swp
 *.swo
 
@@ -269,3 +270,4 @@ yarn-error.log*
 # Package files
 package-lock.json
 *.tar.gz
+/benchmark_harness/validation-benchmarks/

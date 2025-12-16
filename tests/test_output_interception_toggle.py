@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 def _minimal_server_config():
     return SimpleNamespace(
-        llm=SimpleNamespace(model_id="claude-3-sonnet"),
+        llm=SimpleNamespace(model_id="claude-3-sonnet", max_tokens=256000, temperature=0.95),
         output=SimpleNamespace(base_dir="./outputs"),
         swarm=SimpleNamespace(llm=SimpleNamespace(model_id="claude-3-sonnet")),
         sdk=SimpleNamespace(conversation_window_size=64),
@@ -15,7 +15,7 @@ def _minimal_server_config():
 
 @patch("modules.handlers.output_interceptor.setup_output_interception")
 @patch("modules.agents.cyber_autoagent.get_config_manager")
-@patch("modules.agents.cyber_autoagent.create_bedrock_model")
+@patch("modules.config.models.factory.create_bedrock_model")
 @patch("modules.handlers.react.hooks.ReactHooks")
 @patch("modules.handlers.react.react_bridge_handler.ReactBridgeHandler")
 @patch("modules.agents.cyber_autoagent.initialize_memory_system")

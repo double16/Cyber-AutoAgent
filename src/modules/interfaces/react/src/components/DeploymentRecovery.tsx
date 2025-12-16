@@ -114,7 +114,7 @@ export const DeploymentRecovery: React.FC<DeploymentRecoveryProps> = ({
         const dockerCmd = `docker run -d --name cyber-autoagent ` +
           `-v ${outputsPath}:/app/outputs ` +
           `-v ${toolsPath}:/app/tools ` +
-          `cyber-autoagent:latest --service-mode`;
+          `cyber-autoagent:latest --service-mode`; // TODO: config.dockerImage
 
         await execAsync(dockerCmd);
       }

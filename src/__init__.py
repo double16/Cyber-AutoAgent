@@ -2,6 +2,7 @@
 Cyber-AutoAgent - Autonomous Cybersecurity Assessment Tool
 """
 
-__version__ = "0.1.4"
-__author__ = "Aaron Brown"
+__version__ = "0.1.5"
+__author__ = "Patrick Double"
+__credits__ = ["Aaron Brown (original author)"]
 __license__ = "MIT"

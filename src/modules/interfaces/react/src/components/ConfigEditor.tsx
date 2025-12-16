@@ -105,6 +105,7 @@ const CONFIG_FIELDS: ConfigField[] = [
     description: 'Override runtime URL for private/VPC SageMaker endpoints.'
   },
   { key: 'ollamaHost', label: 'Ollama Host', type: 'text', section: 'Models' },
+  { key: 'ollamaTimeout', label: 'Ollama Timeout', type: 'number', section: 'Models' },
   { key: 'openaiApiKey', label: 'OpenAI API Key', type: 'password', section: 'Models' },
   { key: 'anthropicApiKey', label: 'Anthropic API Key', type: 'password', section: 'Models' },
   { key: 'geminiApiKey', label: 'Gemini API Key', type: 'password', section: 'Models' },
@@ -658,7 +659,7 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
       { key: 'mcp.conn.transport', label: 'Transport', type: 'select', options: MCP_TRANSPORT_OPTIONS as any, section: 'MCP', required: true },
       { key: 'mcp.conn.server_url', label: 'Server URL', type: 'text', section: 'MCP', description: 'Required for sse/streamable-http' },
       { key: 'mcp.conn.command', label: 'Command (JSON array)', type: 'text', section: 'MCP', description: 'Example: ["python","-m","shyhurricane.server"]' },
-      { key: 'mcp.conn.headers', label: 'Headers (JSON)', type: 'text', section: 'MCP', description: 'Example: {"Authorization":"Bearer ${HTB_TOKEN}"}' },
+      { key: 'mcp.conn.headers', label: 'Headers (JSON)', type: 'text', section: 'MCP', description: 'Example: {"Authorization":"Bearer ${API_TOKEN}"}' },
       { key: 'mcp.conn.plugins', label: 'Plugins', type: 'multiselect', section: 'MCP', options: MCP_PLUGIN_OPTIONS as any, description: "Select one or more. If '*' is selected it will be the only selection." },
       { key: 'mcp.conn.allowedTools', label: 'Allowed Tools', type: 'multiselect', section: 'MCP', description: "Free-form list of tool names allowed for this connection. '*' allows all tools." },
       { key: 'mcp.conn.timeoutSeconds', label: 'Timeout (seconds)', type: 'number', section: 'MCP' },
@@ -737,7 +738,7 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
           ];
           return bedrockFields.includes(f.key);
         } else if (config.modelProvider === 'ollama') {
-          return ['ollamaHost', 'temperature', 'maxTokens'].includes(f.key);
+          return ['ollamaHost', 'ollamaTimeout', 'temperature', 'maxTokens'].includes(f.key);
         } else if (config.modelProvider === 'litellm') {
           const litellmFields = [
             'openaiApiKey', 'anthropicApiKey', 'geminiApiKey', 'xaiApiKey', 'cohereApiKey',

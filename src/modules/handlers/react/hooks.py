@@ -19,6 +19,7 @@ from strands.hooks import (
 
 from ..events import EventEmitter, get_emitter
 from modules.config.system.logger import get_logger
+from ...config import AgentConfig
 
 logger = get_logger("Handlers.ReactHooks")
 
@@ -33,7 +34,8 @@ class ReactHooks(HookProvider):
     """
 
     def __init__(
-        self, emitter: Optional[EventEmitter] = None, operation_id: Optional[str] = None
+            self, emitter: Optional[EventEmitter] = None, operation_id: Optional[str] = None,
+            agent_config: Optional[AgentConfig] = None
     ):
         """
         Initialize the React hooks provider.
@@ -45,6 +47,7 @@ class ReactHooks(HookProvider):
         """
         self.emitter = emitter or get_emitter(operation_id=operation_id)
         self.tool_start_times: Dict[str, float] = {}
+        self.agent_config = agent_config
 
     def register_hooks(self, registry: HookRegistry) -> None:
         """
@@ -73,10 +76,12 @@ class ReactHooks(HookProvider):
         try:
             tool_use = event.tool_use
             tool_name = tool_use.get("name", "unknown")
-            tool_id = tool_use.get("toolUseId", tool_use.get("id"))
+            tool_id = tool_use.get("toolUseId", tool_use.get("id", "unknown"))
 
             # Enhanced logging for swarm debugging
             if tool_name == "swarm":
+                self._rewrite_swarm_args(event)
+                tool_use = event.tool_use
                 logger.debug("=== SWARM TOOL INVOCATION START ===")
                 logger.debug(f"Tool use structure: {tool_use}")
             elif tool_name == "handoff_to_agent":
@@ -272,3 +277,36 @@ class ReactHooks(HookProvider):
 
         # Fallback for non-dict results
         return True, str(result).strip()
+
+    def _rewrite_swarm_args(self, event: BeforeToolCallEvent) -> None:
+        """Rewrite swarm args to not include model specifications because the tool uses ConfigManager"""
+        if event.tool_use.get("name", "unknown") != "swarm":
+            return
+
+        tool_input = self._parse_tool_input(event.tool_use.get("input", {}))
+        if "raw" in tool_input:
+            # not parseable
+            return
+
+        agents = tool_input.get("agents", None)
+        if not isinstance(agents, list):
+            return
+
+        patched_agents = []
+        for agent_cfg in agents:
+            if isinstance(agent_cfg, dict):
+                cfg = dict(agent_cfg)
+                cfg.pop("model_provider", "")
+                if "model_settings" in cfg:
+                    model_settings = dict(cfg.get("model_settings", {}))
+                    model_settings.pop("model_id", "")
+                    if model_settings:
+                        cfg["model_settings"] = model_settings
+                    else:
+                        cfg.pop("model_settings", "")
+                patched_agents.append(cfg)
+            else:
+                patched_agents.append(agent_cfg)
+
+        tool_input["agents"] = patched_agents
+        event.tool_use["input"] = tool_input

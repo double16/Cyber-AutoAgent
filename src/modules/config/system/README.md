@@ -24,7 +24,7 @@ env = EnvironmentReader()
 # Type-safe reading
 api_key = env.get("AZURE_API_KEY", "")
 debug = env.get_bool("CYBER_DEBUG", False)
-max_tokens = env.get_int("CYBER_LLM_MAX_TOKENS", 4096)
+max_tokens = env.get_int("MAX_TOKENS", 4096)
 temperature = env.get_float("CYBER_LLM_TEMPERATURE", 0.95)
 
 # Change detection (MD5-based)

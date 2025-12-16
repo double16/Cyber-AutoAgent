@@ -133,7 +133,7 @@ def mock_strands_components():
     with (
         patch("modules.agents.cyber_autoagent.Agent") as mock_agent,
         patch("modules.agents.cyber_autoagent.BedrockModel") as mock_bedrock,
-        patch("modules.agents.cyber_autoagent.ReasoningHandler") as mock_handler,
+        patch("modules.handlers.react.ReactBridgeHandler") as mock_handler,
         patch("modules.agents.cyber_autoagent.Memory.from_config") as mock_memory,
         patch("modules.agents.cyber_autoagent.get_system_prompt") as mock_prompt,
     ):

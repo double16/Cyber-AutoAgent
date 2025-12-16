@@ -63,7 +63,7 @@ export class PythonExecutionServiceAdapter extends EventEmitter implements Execu
       supportsParallel: false, // Python service creates new instances
       maxConcurrent: 1,
       requirements: [
-        'Python 3.10+',
+        'Python 3.11+',
         'Virtual environment support',
         'Pip package manager',
         'Network access for model API calls'
@@ -120,8 +120,8 @@ export class PythonExecutionServiceAdapter extends EventEmitter implements Execu
           issues.push({
             type: 'python',
             severity: 'error',
-            message: pythonCheck.error || 'Python 3.10+ is required',
-            suggestion: 'Install Python 3.10 or higher from https://python.org'
+            message: pythonCheck.error || 'Python 3.11+ is required',
+            suggestion: 'Install Python 3.11 or higher from https://python.org'
           });
         }
 

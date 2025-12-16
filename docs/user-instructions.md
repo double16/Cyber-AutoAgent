@@ -4,12 +4,12 @@ Cyber-AutoAgent is an autonomous security assessment tool with a React-based ter
 
 ## Prerequisites
 
-| Requirement | Purpose |
-|-------------|---------|
-| Node.js 20+ | React interface runtime |
-| Docker Desktop | Containerized agent execution |
-| AWS credentials or Ollama | Model provider access |
-| Authorization | Written permission to test targets |
+| Requirement               | Purpose                            |
+|---------------------------|------------------------------------|
+| Node.js 20+               | React interface runtime            |
+| Docker Desktop            | Containerized agent execution      |
+| AWS credentials or Ollama | Model provider access              |
+| Authorization             | Written permission to test targets |
 
 **Legal Notice:** Only test systems you own or have explicit written permission to assess. Unauthorized testing is illegal. Users assume full responsibility for legal and ethical use.
 
@@ -26,11 +26,11 @@ First launch guides you through Docker setup, deployment mode selection, and pro
 
 ## Deployment Modes
 
-| Mode | Execution | Observability | Use Case |
-|------|-----------|---------------|----------|
-| Local CLI | Direct Python | None | Development |
-| Single Container | Docker isolated | None | Basic assessments |
-| Full Stack | Docker Compose | Langfuse included | Production |
+| Mode             | Execution       | Observability     | Use Case          |
+|------------------|-----------------|-------------------|-------------------|
+| Local CLI        | Direct Python   | None              | Development       |
+| Single Container | Docker isolated | None              | Basic assessments |
+| Full Stack       | Docker Compose  | Langfuse included | Production        |
 
 Select during setup or change via `/setup` command.
 
@@ -143,13 +143,13 @@ Advanced users can directly edit `~/.cyber-autoagent/config.json`:
 
 ### Configuration Commands
 
-| Command | Function |
-|---------|----------|
-| `/config` | View current settings |
-| `/config edit` | Interactive editor |
-| `/provider` | Change model provider |
-| `/setup` | Re-run initial setup |
-| `/health` | System status check |
+| Command        | Function              |
+|----------------|-----------------------|
+| `/config`      | View current settings |
+| `/config edit` | Interactive editor    |
+| `/provider`    | Change model provider |
+| `/setup`       | Re-run initial setup  |
+| `/health`      | System status check   |
 
 ## Running Assessments
 
@@ -221,20 +221,20 @@ cyber-react \
 
 ## Operation Modules
 
-| Module | Purpose | Key Features |
-|--------|---------|--------------|
-| **general** | Web application security | Advanced recon, payload testing, auth analysis |
-| **ctf** | CTF challenges | Flag recognition, exploit chains, success detection |
+| Module      | Purpose                  | Key Features                                        |
+|-------------|--------------------------|-----------------------------------------------------|
+| **general** | Web application security | Advanced recon, payload testing, auth analysis      |
+| **ctf**     | CTF challenges           | Flag recognition, exploit chains, success detection |
 
 ## Monitoring
 
 ### Interface Display
 
-| Section | Information |
-|---------|-------------|
-| Header | Operation ID, target, module, deployment mode |
-| Main | Agent reasoning, tool executions, outputs, findings |
-| Footer | Step progress, tokens, costs, memory ops, time |
+| Section  | Information                                         |
+|----------|-----------------------------------------------------|
+| Header   | Operation ID, target, module, deployment mode       |
+| Main     | Agent reasoning, tool executions, outputs, findings |
+| Footer   | Step progress, tokens, costs, memory ops, time      |
 
 ### Observability (Full Stack)
 
@@ -258,10 +258,10 @@ outputs/
 
 ## Memory System
 
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| **auto** | Loads existing memory, stores new findings | Iterative testing |
-| **fresh** | Empty memory, no historical context | Baseline assessments |
+| Mode      | Behavior                                   | Use Case             |
+|-----------|--------------------------------------------|----------------------|
+| **auto**  | Loads existing memory, stores new findings | Iterative testing    |
+| **fresh** | Empty memory, no historical context        | Baseline assessments |
 
 Control via `/config edit` or `--memory-mode` flag.
 
@@ -309,7 +309,7 @@ Examples:
 This is an example configuration for the HackTheBox CTF MCP server. Export your API key before running.
 
 ```shell
-export HTB_TOKEN=xxx.yyy.zzz
+export HTB_MCP_TOKEN=xxx.yyy.zzz
 ```
 
 ```json
@@ -322,7 +322,7 @@ export HTB_TOKEN=xxx.yyy.zzz
             "transport": "sse",
             "server_url": "https://mcp.ai.hackthebox.com/v1/ctf/sse",
             "plugins": ["ctf"],
-            "headers": {"Authorization": "Bearer ${HTB_TOKEN}"}
+            "headers": {"Authorization": "Bearer ${HTB_MCP_TOKEN}"}
          }
       ]
    }
@@ -381,12 +381,13 @@ python src/cyberautoagent.py \
   --iterations 50
 ```
 
-Requirements: Python 3.10+, dependencies installed
+Requirements: Python 3.11+, dependencies installed
 
 ### Docker Standalone
 
 ```bash
-docker build -t cyber-autoagent .
+docker build -t cyber-autoagent-tools -f Dockerfile.tools ..
+docker build -t cyber-autoagent ..
 
 docker run --rm \
   -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
@@ -401,29 +402,29 @@ docker run --rm \
 
 ### Application Issues
 
-| Problem | Solution |
-|---------|----------|
+| Problem               | Solution                                              |
+|-----------------------|-------------------------------------------------------|
 | React app won't start | `rm -rf node_modules && npm install && npm run build` |
-| Configuration errors | `rm ~/.cyber-autoagent/config.json && cyber-react` |
-| Docker connectivity | `docker info` to verify daemon running |
-| Node version issues | Verify Node.js 20+ with `node --version` |
+| Configuration errors  | `rm ~/.cyber-autoagent/config.json && cyber-react`    |
+| Docker connectivity   | `docker info` to verify daemon running                |
+| Node version issues   | Verify Node.js 20+ with `node --version`              |
 
 ### Provider Issues
 
-| Provider | Verification Command |
-|----------|---------------------|
-| Bedrock | `aws sts get-caller-identity` |
-| Ollama | `curl http://localhost:11434/api/version` |
-| LiteLLM | `echo $OPENAI_API_KEY` |
+| Provider  | Verification Command                      |
+|-----------|-------------------------------------------|
+| Bedrock   | `aws sts get-caller-identity`             |
+| Ollama    | `curl http://localhost:11434/api/version` |
+| LiteLLM   | `echo $OPENAI_API_KEY`                    |
 
 ### Operation Issues
 
-| Issue | Resolution |
-|-------|------------|
+| Issue                   | Resolution                                                      |
+|-------------------------|-----------------------------------------------------------------|
 | Assessment not starting | Check provider credentials, Docker status, target accessibility |
-| Assessment stuck | Review step in footer, check tool outputs for errors |
-| Out of memory | Reduce iterations, use fresh memory mode, clear old outputs |
-| Port conflicts | Change ports in docker-compose.yml or stop conflicting services |
+| Assessment stuck        | Review step in footer, check tool outputs for errors            |
+| Out of memory           | Reduce iterations, use fresh memory mode, clear old outputs     |
+| Port conflicts          | Change ports in docker-compose.yml or stop conflicting services |
 
 ## Examples
 
@@ -473,54 +474,54 @@ cyber-react \
 
 ### Assessment Workflow
 
-| Phase | Actions |
-|-------|---------|
+| Phase      | Actions                                                                                                     |
+|------------|-------------------------------------------------------------------------------------------------------------|
 | **Before** | Obtain written authorization, verify Docker running, check provider connectivity, test target accessibility |
-| **During** | Monitor real-time outputs, review tool effectiveness, track token usage, check finding severity |
-| **After** | Review complete report, verify findings accuracy, document methodology, archive outputs |
+| **During** | Monitor real-time outputs, review tool effectiveness, track token usage, check finding severity             |
+| **After**  | Review complete report, verify findings accuracy, document methodology, archive outputs                     |
 
 ### Configuration Guidelines
 
-| Setting | Recommendation |
-|---------|---------------|
-| Iterations | Start with 25-50, increase to 100-200 for comprehensive testing |
-| Module | Use general for web apps, ctf for competitions |
-| Auto-approve | Only for trusted environments |
-| Observability | Enable for production assessments |
-| Memory mode | Auto for iterative testing, fresh for baselines |
+| Setting       | Recommendation                                                  |
+|---------------|-----------------------------------------------------------------|
+| Iterations    | Start with 25-50, increase to 100-200 for comprehensive testing |
+| Module        | Use general for web apps, ctf for competitions                  |
+| Auto-approve  | Only for trusted environments                                   |
+| Observability | Enable for production assessments                               |
+| Memory mode   | Auto for iterative testing, fresh for baselines                 |
 
 ## Legal and Ethical Use
 
 ### Required Before Use
 
-| Requirement | Description |
-|-------------|-------------|
-| Written authorization | Explicit permission to test target systems |
-| Legal compliance | Understanding of applicable laws and regulations |
-| Impact assessment | Ensure testing won't affect production services |
-| Scope documentation | Clearly defined testing boundaries |
-| Disclosure practices | Responsible vulnerability reporting procedures |
+| Requirement           | Description                                      |
+|-----------------------|--------------------------------------------------|
+| Written authorization | Explicit permission to test target systems       |
+| Legal compliance      | Understanding of applicable laws and regulations |
+| Impact assessment     | Ensure testing won't affect production services  |
+| Scope documentation   | Clearly defined testing boundaries               |
+| Disclosure practices  | Responsible vulnerability reporting procedures   |
 
 ### Responsible Disclosure
 
 If vulnerabilities are discovered during authorized testing:
 
-| Step | Action |
-|------|--------|
-| 1 | Report to system owner promptly with clear reproduction steps |
-| 2 | Allow reasonable remediation time (typically 90 days) |
-| 3 | Do not publicly disclose until patched |
-| 4 | Follow coordinated disclosure practices |
+| Step  | Action                                                        |
+|-------|---------------------------------------------------------------|
+| 1     | Report to system owner promptly with clear reproduction steps |
+| 2     | Allow reasonable remediation time (typically 90 days)         |
+| 3     | Do not publicly disclose until patched                        |
+| 4     | Follow coordinated disclosure practices                       |
 
 **Open Source Notice:** This software is provided "as is" without warranty. Contributors and maintainers assume no liability for misuse or damages.
 
 ## Additional Resources
 
-| Resource | Location |
-|----------|----------|
-| Architecture Guide | [architecture.md](architecture.md) |
-| Memory System | [memory.md](memory.md) |
-| Deployment Guide | [deployment.md](deployment.md) |
-| Module Development | [../src/modules/operation_plugins/README.md](../src/modules/operation_plugins/README.md) |
-| Terminal Architecture | [terminal-frontend.md](terminal-frontend.md) |
-| GitHub Issues | Report bugs and request features |
+| Resource              | Location                                                                                 |
+|-----------------------|------------------------------------------------------------------------------------------|
+| Architecture Guide    | [architecture.md](architecture.md)                                                       |
+| Memory System         | [memory.md](memory.md)                                                                   |
+| Deployment Guide      | [deployment.md](deployment.md)                                                           |
+| Module Development    | [../src/modules/operation_plugins/README.md](../src/modules/operation_plugins/README.md) |
+| Terminal Architecture | [terminal-frontend.md](terminal-frontend.md)                                             |
+| GitHub Issues         | Report bugs and request features                                                         |

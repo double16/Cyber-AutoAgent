@@ -16,6 +16,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from modules.agents.report_agent import ReportGenerator
+from modules.config import get_config_manager
 from modules.config.system.logger import get_logger
 from modules.tools.memory import get_memory_client
 
@@ -56,6 +57,7 @@ def generate_security_report(
     try:
         # Log the report generation request
         logger.info("Generating security report for operation: %s", operation_id)
+        config_manager = get_config_manager()
 
         # Parse config data
         config_params = {}
@@ -70,7 +72,7 @@ def generate_security_report(
         steps_executed = config_params.get("steps_executed", 0)
         tools_used = config_params.get("tools_used", [])
         evidence = config_params.get("evidence")
-        provider = config_params.get("provider", "bedrock")
+        provider = config_params.get("provider", config_manager.get_provider())
         model_id = config_params.get("model_id")
         module = config_params.get("module")
 

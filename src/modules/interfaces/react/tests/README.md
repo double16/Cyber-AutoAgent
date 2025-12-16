@@ -31,13 +31,13 @@ node integration/operation-stream-simulation.js
 
 ### Core Test Types
 
-| Test Type | Status | Coverage | Purpose |
-|-----------|---------|----------|---------|
-| **Unit Tests** | Working | Component logic | Jest-based component validation |
-| **Interactive Tests** | Infrastructure Ready | User interactions | PTY-based terminal testing |
-| **Journey Tests** | Infrastructure Ready | End-to-end flows | Complete user workflow validation |  
-| **Visual Regression** | Infrastructure Ready | UI consistency | Screen capture comparison |
-| **Performance Tests** | Working | Startup & responsiveness | Performance benchmarks |
+| Test Type             | Status               | Coverage                 | Purpose                           |
+|-----------------------|----------------------|--------------------------|-----------------------------------|
+| **Unit Tests**        | Working              | Component logic          | Jest-based component validation   |
+| **Interactive Tests** | Infrastructure Ready | User interactions        | PTY-based terminal testing        |
+| **Journey Tests**     | Infrastructure Ready | End-to-end flows         | Complete user workflow validation |  
+| **Visual Regression** | Infrastructure Ready | UI consistency           | Screen capture comparison         |
+| **Performance Tests** | Working              | Startup & responsiveness | Performance benchmarks            |
 
 ### Working Test Files
 
@@ -171,16 +171,16 @@ tests/
 
 ## TEST-VALIDATION-SPECIFICATION.md Alignment
 
-| Specification Section | Test Implementation | Status |
-|----------------------|---------------------|---------|
-| **2.1 First Launch Experience** | `journey-validation-tests.js` | Infrastructure Ready |
-| **2.2 Configuration Management** | `ConfigEditor-simple.test.tsx` | Validated |
-| **2.3 Security Assessment Execution** | `automated-test-suite.js` | Infrastructure Ready |
-| **2.4 Operation Control** | `interactive-component-tests.js` | Infrastructure Ready |
-| **3.0 UI Component Validation** | All component tests | Validated |
-| **4.0 Error State Handling** | Component error tests | Validated |
-| **5.0 Security Authorization** | `SafetyWarning-simple.test.tsx` | Validated |
-| **6.0 Performance Requirements** | Performance test suite | Validated |
+| Specification Section                 | Test Implementation              | Status               |
+|---------------------------------------|----------------------------------|----------------------|
+| **2.1 First Launch Experience**       | `journey-validation-tests.js`    | Infrastructure Ready |
+| **2.2 Configuration Management**      | `ConfigEditor-simple.test.tsx`   | Validated            |
+| **2.3 Security Assessment Execution** | `automated-test-suite.js`        | Infrastructure Ready |
+| **2.4 Operation Control**             | `interactive-component-tests.js` | Infrastructure Ready |
+| **3.0 UI Component Validation**       | All component tests              | Validated            |
+| **4.0 Error State Handling**          | Component error tests            | Validated            |
+| **5.0 Security Authorization**        | `SafetyWarning-simple.test.tsx`  | Validated            |
+| **6.0 Performance Requirements**      | Performance test suite           | Validated            |
 
 ## Running Tests
 

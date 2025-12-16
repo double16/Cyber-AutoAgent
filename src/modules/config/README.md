@@ -82,6 +82,7 @@ export CYBER_AGENT_LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ### Ollama (Local)
 ```bash
 export OLLAMA_HOST=http://localhost:11434
+export OLLAMA_API_BASE=http://localhost:11434
 export CYBER_AGENT_LLM_MODEL=qwen3-coder:30b-a3b-q4_K_M
 ```
 
@@ -128,8 +129,8 @@ Provider requirement validation:
 - `REASONING_EFFORT` - Reasoning configuration (low/medium/high)
 
 ### Model Limits
-- `CYBER_LLM_MAX_TOKENS` - Override LLM max tokens
-- `CYBER_SWARM_MAX_TOKENS` - Override swarm specialist max tokens
+- `MAX_TOKENS` - Override LLM max (output) tokens
+- `CYBER_AGENT_SWARM_MAX_TOKENS` - Override swarm specialist max tokens
 - `CYBER_CONTEXT_WINDOW_FALLBACKS` - Model fallback mappings (JSON)
 
 ### Memory Configuration

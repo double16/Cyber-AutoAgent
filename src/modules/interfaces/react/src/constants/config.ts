@@ -9,6 +9,7 @@ export const NETWORK_DEFAULTS = {
   OLLAMA_HOST: 'http://localhost:11434',
   LANGFUSE_PORT: 3000,
   OLLAMA_PORT: 11434,
+  OLLAMA_TIMEOUT: 120,
 } as const;
 
 // Timeouts (in milliseconds)

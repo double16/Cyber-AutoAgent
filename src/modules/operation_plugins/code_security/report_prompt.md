@@ -20,13 +20,13 @@ Generate a comprehensive static analysis report documenting security vulnerabili
 
 ### Vulnerability Summary
 
-| Severity | Count | Top Types |
-|----------|-------|-----------|
-| Critical | X | SQL Injection, RCE, Auth Bypass |
-| High | X | XSS, Hardcoded Secrets, Path Traversal |
-| Medium | X | Weak Crypto, IDOR, Information Disclosure |
-| Low | X | Code Quality, Minor Configuration Issues |
-| Info | X | Observations, Recommendations |
+| Severity  | Count  | Top Types                                 |
+|-----------|--------|-------------------------------------------|
+| Critical  | X      | SQL Injection, RCE, Auth Bypass           |
+| High      | X      | XSS, Hardcoded Secrets, Path Traversal    |
+| Medium    | X      | Weak Crypto, IDOR, Information Disclosure |
+| Low       | X      | Code Quality, Minor Configuration Issues  |
+| Info      | X      | Observations, Recommendations             |
 
 ### Critical Findings (Immediate Action Required)
 
@@ -79,10 +79,11 @@ cursor.execute(query, (request.args.get('id'),))
 ### Dependency Vulnerabilities
 
 **Critical Dependencies**:
-| Package | Version | CVE | Severity | Fixed In | Impact |
-|---------|---------|-----|----------|----------|--------|
-| django | 2.2.10 | CVE-2021-35042 | High | 2.2.24 | SQL Injection |
-| lodash | 4.17.15 | CVE-2020-8203 | High | 4.17.19 | Prototype Pollution |
+
+| Package  | Version  | CVE            | Severity  | Fixed In  | Impact              |
+|----------|----------|----------------|-----------|-----------|---------------------|
+| django   | 2.2.10   | CVE-2021-35042 | High      | 2.2.24    | SQL Injection       |
+| lodash   | 4.17.15  | CVE-2020-8203  | High      | 4.17.19   | Prototype Pollution |
 
 **Outdated Packages** (No Known CVEs):
 - [package]: Current [1.2.3] → Latest [2.0.0]

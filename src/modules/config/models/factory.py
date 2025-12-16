@@ -6,25 +6,36 @@ This module contains all model instantiation logic for Bedrock, Ollama, and Lite
 Model creation is a configuration concern because it involves reading configuration,
 applying provider-specific settings, and managing credentials.
 """
-
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from strands.models import BedrockModel
+import ollama
+
+from strands.models import BedrockModel, Model
 from strands.models.litellm import LiteLLMModel
 from strands.models.ollama import OllamaModel
 from strands.models.gemini import GeminiModel
 
+from modules.config.providers import get_ollama_host
+from modules.config.providers.ollama_config import get_ollama_timeout
+from modules.config.system import EnvironmentReader
 from modules.config.system.logger import get_logger
 from modules.config.models.capabilities import (
     get_model_input_limit,
     get_provider_default_limit,
 )
-PROMPT_TOKEN_FALLBACK_LIMIT = 200000
 from modules.handlers.utils import print_status
+
+from google.genai import types
 
 logger = get_logger("Config.ModelFactory")
 
+PROMPT_TOKEN_FALLBACK_LIMIT = 0
+try:
+    PROMPT_TOKEN_FALLBACK_LIMIT = int(os.getenv("CYBER_CONTEXT_LIMIT", "0"))
+except ValueError:
+    pass
 
 def _get_config_manager():
     """Lazy import to avoid circular dependency."""
@@ -157,7 +168,7 @@ def _resolve_prompt_token_limit(
     5. Provider defaults - Conservative last resort
 
     Args:
-        provider: Provider name ("bedrock", "ollama", "litellm")
+        provider: Provider name ("bedrock", "ollama", "litellm", "gemini")
         server_config: Server configuration object
         model_id: Model identifier
 
@@ -185,7 +196,27 @@ def _resolve_prompt_token_limit(
         )
         return limit
 
-    # Priority 3: LiteLLM automatic detection (check max_input_tokens)
+    # Priority 3: Ollama metadata
+    if provider == "ollama" and model_id:
+        env_reader = EnvironmentReader()
+        ollama_client = ollama.Client(host=get_ollama_host(env_reader), timeout=get_ollama_timeout(env_reader))
+
+        try:
+            show_response = ollama_client.show(model=model_id)
+            if show_response.parameters:
+                ollama_parameters = dict()
+                for line in show_response.parameters.splitlines(keepends=False):
+                    k, v = line.split(sep=None, maxsplit=1)
+                    ollama_parameters[k] = v
+                if "num_ctx" in ollama_parameters:
+                    return int(ollama_parameters["num_ctx"])
+
+        except Exception as e:
+            logger.warning(
+                f"OllamaError: Error getting model info for {model_id}."
+            )
+
+    # Priority 4: LiteLLM automatic detection (check max_input_tokens)
     if provider == "litellm" and model_id:
         limit = _get_prompt_limit_from_model(model_id)
         if limit:
@@ -194,7 +225,7 @@ def _resolve_prompt_token_limit(
             )
             return limit
 
-    # Priority 4: CYBER_CONTEXT_LIMIT (explicit context limit config)
+    # Priority 5: CYBER_CONTEXT_LIMIT (explicit context limit config)
     if PROMPT_TOKEN_FALLBACK_LIMIT > 0:
         logger.info(
             "Using CYBER_CONTEXT_LIMIT=%d as fallback for model %s",
@@ -203,7 +234,7 @@ def _resolve_prompt_token_limit(
         )
         return PROMPT_TOKEN_FALLBACK_LIMIT
 
-    # Priority 5: Provider-specific conservative defaults
+    # Priority 6: Provider-specific conservative defaults
     provider_default = get_provider_default_limit(provider)
     if provider_default:
         logger.warning(
@@ -301,17 +332,22 @@ def _handle_model_creation_error(provider: str, error: Exception) -> None:
             "Ensure Ollama is installed: https://ollama.ai",
             "Start Ollama: ollama serve",
             "Pull required models (see config.py file)",
+            "Set OLLAMA_HOST=http://<IP>:11434",
         ],
         "bedrock": [
             "Check AWS credentials and region settings",
             "Verify AWS_ACCESS_KEY_ID or AWS_BEARER_TOKEN_BEDROCK",
             "Ensure Bedrock access is enabled in your AWS account",
         ],
+        "gemini": [
+            "Verify GEMINI_API_KEY or GOOGLE_API_KEY",
+        ],
         "litellm": [
             "Check environment variables for your model provider",
             "For Bedrock: AWS_ACCESS_KEY_ID (bearer tokens not supported)",
             "For OpenAI: OPENAI_API_KEY",
             "For Anthropic: ANTHROPIC_API_KEY",
+            "For OpenRouter: OPENROUTER_API_KEY",
         ],
     }
 
@@ -554,6 +590,9 @@ def create_ollama_model(
         model_id=config["model_id"],
         temperature=llm_temp,
         max_tokens=llm_max,
+        ollama_client_args={
+            "timeout": config["timeout"],
+        },
     )
 
 
@@ -768,7 +807,7 @@ def create_gemini_model(
     clean_model_id = model_id.replace("gemini/", "")
 
     # Get API key from environment
-    api_key = config_manager.getenv("GEMINI_API_KEY")
+    api_key = config_manager.getenv("GEMINI_API_KEY") or config_manager.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise ValueError(
             "GEMINI_API_KEY environment variable must be set for native Gemini provider. "
@@ -776,7 +815,7 @@ def create_gemini_model(
         )
 
     # Prepare client args
-    client_args = {
+    client_args: dict[str, Any] = {
         "api_key": api_key,
     }
 
@@ -802,8 +841,61 @@ def create_gemini_model(
         llm_max,
     )
 
+    client_args["http_options"] = types.HttpOptions(
+        retry_options=types.HttpRetryOptions(
+            attempts=10,
+            exp_base=4.0,
+        )
+    )
+
     return GeminiModel(
         client_args=client_args,
         model_id=clean_model_id,
         params=params,
     )
+
+
+def create_strands_model(provider: Optional[str] = None, model_id: Optional[str] = None) -> Model:
+    """ Create model based on provider type """
+    agent_logger = logging.getLogger("CyberAutoAgent")
+
+    config_manager = _get_config_manager()
+    if not provider:
+        provider = config_manager.get_provider()
+    if not model_id:
+        model_id = config_manager.get_llm_config(provider).model_id
+
+    try:
+        if provider == "ollama":
+            agent_logger.debug("Configuring OllamaModel")
+            model = create_ollama_model(model_id, provider)
+            print_status(f"Ollama model initialized: {model_id}", "SUCCESS")
+        elif provider == "bedrock":
+            agent_logger.debug("Configuring BedrockModel")
+            # Check for effort configuration (Opus 4.5 feature)
+            effort = os.getenv("BEDROCK_EFFORT")
+            model = create_bedrock_model(
+                model_id, config_manager.get_default_region(), provider, effort=effort
+            )
+            print_status(f"Bedrock model initialized: {model_id}", "SUCCESS")
+        elif provider == "litellm":
+            agent_logger.debug("Configuring LiteLLMModel")
+            model = create_litellm_model(
+                model_id, config_manager.get_default_region(), provider
+            )
+            print_status(f"LiteLLM model initialized: {model_id}", "SUCCESS")
+        elif provider == "gemini":
+            agent_logger.debug("Configuring native GeminiModel")
+            model = create_gemini_model(
+                model_id, config_manager.get_default_region(), provider
+            )
+            print_status(f"Native Gemini model initialized: {model_id}", "SUCCESS")
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")
+
+        return model
+
+    except Exception as e:
+        _handle_model_creation_error(provider, e)
+        # Re-raise to satisfy tests expecting exception propagation after logging
+        raise

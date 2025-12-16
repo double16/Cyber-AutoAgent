@@ -268,7 +268,7 @@ export class PythonExecutionService extends EventEmitter {
       return { installed: true, version: best.versionStr };
     }
 
-    return { installed: false, error: 'Python 3.10+ is required but not found' };
+    return { installed: false, error: 'Python 3.11+ is required but not found' };
   }
   
   /**
@@ -460,7 +460,7 @@ export class PythonExecutionService extends EventEmitter {
     const status = await this.checkEnvironmentStatus();
 
     if (!status.pythonInstalled) {
-      say('[ERR] Python 3.10+ not found');
+      say('[ERR] Python 3.11+ not found');
       ok = false;
     } else {
       say(`[OK] Python detected: ${status.pythonVersion}`);
@@ -513,7 +513,7 @@ export class PythonExecutionService extends EventEmitter {
       const status = await this.checkEnvironmentStatus();
       
       if (!status.pythonInstalled) {
-        throw new Error('Python 3.10+ is required but not found. Please install Python first.');
+        throw new Error('Python 3.11+ is required but not found. Please install Python first.');
       }
       
       progress(`[OK] Python ${status.pythonVersion} found`);
@@ -538,8 +538,8 @@ export class PythonExecutionService extends EventEmitter {
           if (m) {
             const vMaj = parseInt(m[1]);
             const vMin = parseInt(m[2]);
-            if (!(vMaj > 3 || (vMaj === 3 && vMin >= 10))) {
-              progress('[INFO] Recreating virtual environment with Python 3.10+...');
+            if (!(vMaj > 3 || (vMaj === 3 && vMin >= 11))) {
+              progress('[INFO] Recreating virtual environment with Python 3.11+...');
               await execAsync(`rm -rf "${this.venvPath}"`);
               await execAsync(`${this.pythonCommand} -m venv "${this.venvPath}"`);
               progress('[OK] Virtual environment recreated with compatible Python');
@@ -690,6 +690,7 @@ export class PythonExecutionService extends EventEmitter {
         ...(config.sagemakerBaseUrl ? { SAGEMAKER_BASE_URL: config.sagemakerBaseUrl } : {}),
         // Ollama Configuration
         ...(config.ollamaHost ? { OLLAMA_HOST: config.ollamaHost } : {}),
+        ...(config.ollamaTimeout ? { OLLAMA_TIMEOUT: String(config.ollamaTimeout) } : {}),
         // LiteLLM Configuration (only set if provided)
         ...(config.openaiApiKey ? { OPENAI_API_KEY: config.openaiApiKey } : {}),
         ...(config.anthropicApiKey ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {}),

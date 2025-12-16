@@ -67,16 +67,16 @@ This directory contains comprehensive technical documentation for Cyber-AutoAgen
 
 ## Quick Navigation
 
-| Documentation Need | Recommended Document |
-|-------------------|---------------------|
-| Understanding agent design | [architecture.md](architecture.md) |
-| Running assessments | [user-instructions.md](user-instructions.md) |
-| Configuring memory | [memory.md](memory.md) |
-| Creating custom modules | [prompt_management.md](prompt_management.md) |
-| Monitoring operations | [observability-evaluation.md](observability-evaluation.md) |
-| Production deployment | [deployment.md](deployment.md) |
-| Understanding UI architecture | [terminal-frontend.md](terminal-frontend.md) |
-| Optimizing prompts | [prompt_optimizer.md](prompt_optimizer.md) |
+| Documentation Need            | Recommended Document                                       |
+|-------------------------------|------------------------------------------------------------|
+| Understanding agent design    | [architecture.md](architecture.md)                         |
+| Running assessments           | [user-instructions.md](user-instructions.md)               |
+| Configuring memory            | [memory.md](memory.md)                                     |
+| Creating custom modules       | [prompt_management.md](prompt_management.md)               |
+| Monitoring operations         | [observability-evaluation.md](observability-evaluation.md) |
+| Production deployment         | [deployment.md](deployment.md)                             |
+| Understanding UI architecture | [terminal-frontend.md](terminal-frontend.md)               |
+| Optimizing prompts            | [prompt_optimizer.md](prompt_optimizer.md)                 |
 
 ## Getting Started
 

@@ -81,6 +81,8 @@ export interface Config {
   sagemakerBaseUrl?: string;
   /** Ollama server host URL for local model serving */
   ollamaHost?: string;
+  /** Ollama server timeout */
+  ollamaTimeout?: number;
 
   // Model Pricing Configuration (per 1K tokens)
   /** Custom model pricing configuration - overrides defaults */
@@ -347,6 +349,7 @@ export const defaultConfig: Config = {
   awsExternalId: process.env.AWS_EXTERNAL_ID,
   sagemakerBaseUrl: process.env.SAGEMAKER_BASE_URL,
   ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
+  ollamaTimeout: parseFloat(process.env.OLLAMA_TIMEOUT) || 120,
 
   // Model Pricing (per 1K tokens)
   // AWS Bedrock: Real AWS CLI pricing from us-east-1

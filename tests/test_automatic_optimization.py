@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for automatic prompt optimization in PromptRebuildHook."""
-
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -77,6 +77,7 @@ def setup_operation_folder(tmp_path, mock_config):
     return operation_folder
 
 
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})
 def test_auto_optimization_triggers_at_step_20(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):
@@ -114,6 +115,45 @@ def test_auto_optimization_triggers_at_step_20(
             mock_optimize.assert_called_once()
 
 
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "false"})
+def test_auto_optimization_forced_disabled(
+        mock_callback_handler, mock_memory, mock_config, setup_operation_folder
+):
+    """Test that auto-optimization honors CYBER_ENABLE_PROMPT_OPTIMIZER == false."""
+    hook = PromptRebuildHook(
+        callback_handler=mock_callback_handler,
+        memory_instance=mock_memory,
+        config=mock_config,
+        target="test-target",
+        objective="test objective",
+        operation_id="OP_TEST123",
+        max_steps=100,
+        module="general",
+        rebuild_interval=20,
+    )
+
+    # Set current step to 20
+    mock_callback_handler.current_step = 20
+
+    # Create mock event
+    mock_event = MagicMock()
+    mock_agent = MagicMock()
+    mock_agent.system_prompt = "original prompt"
+    mock_event.agent = mock_agent
+
+    # Mock the optimization methods
+    with patch.object(hook, "_auto_optimize_execution_prompt") as mock_optimize:
+        with patch("modules.prompts.get_system_prompt") as mock_get_prompt:
+            mock_get_prompt.return_value = "rebuilt prompt"
+
+            # Call check_if_rebuild_needed
+            hook.check_if_rebuild_needed(mock_event)
+
+            # Verify auto-optimization was called
+            mock_optimize.assert_not_called()
+
+
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})
 def test_auto_optimization_retrieves_memories(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):
@@ -151,6 +191,7 @@ def test_auto_optimization_retrieves_memories(
     assert len(overview["sample"]) == 3
 
 
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})
 def test_auto_optimization_rewrites_prompt(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):
@@ -209,6 +250,7 @@ def test_auto_optimization_rewrites_prompt(
         assert "Avoid (Dead Ends)" in optimized_content
 
 
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})
 def test_auto_optimization_handles_no_patterns_gracefully(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):
@@ -234,6 +276,7 @@ def test_auto_optimization_handles_no_patterns_gracefully(
     assert "Test Execution Prompt" in original_content
 
 
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})
 def test_auto_optimization_at_multiple_intervals(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):
@@ -276,6 +319,7 @@ def test_auto_optimization_at_multiple_intervals(
             assert mock_optimize.call_count == 3
 
 
+@patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})
 def test_auto_optimization_error_handling(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):

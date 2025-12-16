@@ -52,3 +52,26 @@ def get_ollama_host(env_reader: EnvironmentReader) -> str:
         return "http://host.docker.internal:11434"
     # Native execution - use localhost
     return "http://localhost:11434"
+
+def get_ollama_timeout(env_reader: EnvironmentReader) -> float:
+    """Determine appropriate Ollama timeout based on environment.
+
+    Tries the following in order:
+    1. OLLAMA_TIMEOUT environment variable
+    2. Default to 120
+
+    Args:
+        env_reader: Environment variable reader
+
+    Returns:
+        Ollama timeout in seconds (120)
+    """
+    env_timeout = env_reader.get("OLLAMA_TIMEOUT")
+    if env_timeout:
+        try:
+            return float(env_timeout)
+        except ValueError:
+            logger.warning(
+                "Ollama timeout not a float, falling back to 120"
+            )
+    return 120

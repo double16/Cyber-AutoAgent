@@ -49,6 +49,7 @@ from modules.config.system.validation import validate_provider
 from modules.config.providers.bedrock_config import get_default_region
 from modules.config.providers.ollama_config import (
     get_ollama_host as _get_ollama_host_from_env,
+    get_ollama_timeout as _get_ollama_timeout_from_env,
 )
 from modules.config.providers.litellm_config import (
     align_litellm_defaults,
@@ -111,6 +112,10 @@ class ConfigManager:
     def getenv_float(self, key: str, default: float = 0.0) -> float:
         """Get environment variable as float."""
         return self.env.get_float(key, default)
+
+    def get_provider(self) -> str:
+        provider = self.getenv("CYBER_AGENT_PROVIDER", "bedrock")
+        return provider
 
     def get_default_region(self) -> str:
         """Get the default AWS region with environment override support."""
@@ -226,6 +231,7 @@ class ConfigManager:
         return {
             "model_id": model_id,
             "host": self.get_ollama_host(),
+            "timeout": self.get_ollama_timeout(),
             "temperature": llm_config.temperature,
             "max_tokens": llm_config.max_tokens,
         }
@@ -452,9 +458,7 @@ class ConfigManager:
             if swarm_llm is unavailable for the provider.
         """
         try:
-            provider = (
-                server or self.getenv("CYBER_AGENT_PROVIDER", "bedrock")
-            ).lower()
+            provider = self.get_provider()
             server_config = self.get_server_config(provider, **overrides)
             # Prefer explicit swarm config when available
             if (
@@ -773,6 +777,10 @@ class ConfigManager:
     def get_ollama_host(self) -> str:
         """Determine appropriate Ollama host based on environment."""
         return _get_ollama_host_from_env(self.env)
+
+    def get_ollama_timeout(self) -> float:
+        """Get Ollama timeout."""
+        return _get_ollama_timeout_from_env(self.env)
 
     def set_environment_variables(self, server: str) -> None:
         """Set environment variables for backward compatibility."""

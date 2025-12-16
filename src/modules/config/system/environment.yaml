@@ -1,0 +1,257 @@
+cyber_tools:
+  # Core scanners and recon
+  nmap:
+    description: "Network discovery and security auditing"
+  nikto:
+    description: "Web server scanner"
+  sqlmap:
+    description: "SQL injection detection and exploitation"
+  gobuster:
+    description: "Directory/file brute-forcer"
+  whatweb:
+    description: "Web technology fingerprinting"
+  wafw00f:
+    description: "WAF fingerprinting"
+
+  # Web app scanners (GUI/CLI)
+  zaproxy:
+    description: "OWASP ZAP web scanner (CLI/API)"
+  burpsuite:
+    description: "Burp Suite (Community) web scanner"
+
+  # GraphQL-specific tools
+  clairvoyance:
+    description: "GraphQL schema enumeration and introspection"
+  graphql-inspector:
+    description: "GraphQL schema analysis and validation"
+
+  # JWT manipulation tools
+  jwt-tool:
+    description: "JWT analysis and manipulation toolkit"
+
+  # Template injection tools
+  tplmap:
+    description: "Server-Side Template Injection scanner"
+
+  # Cookie/Session manipulation
+  cookiecutter:
+    description: "Cookie template generation tool"
+
+  # ProjectDiscovery ecosystem
+  nuclei:
+    description: "Templated vulnerability scanner"
+  naabu:
+    description: "Fast TCP port scanner (SYN/CONNECT)"
+  amass:
+    description: "In-depth DNS enumeration and attack surface mapping"
+  subfinder:
+    description: "Passive subdomain discovery"
+
+  # Web fuzzing & dirs
+  ffuf:
+    description: "Fast web fuzzer"
+  feroxbuster:
+    description: "Fast recursive content discovery"
+  dirb:
+    description: "HTTP(S) web content scanner"
+  arjun:
+    description: "HTTP parameter discovery suite"
+  wapiti:
+    description: "Web vulnerability scanner"
+  wfuzz:
+    description: "Web application bruteforcer"
+  wpscan:
+    description: "WordPress security scanner"
+  corsy:
+    description: "Scan websites for Cross-Origin Resource Sharing (CORS) misconfigurations"
+  paramspider:
+    description: "Mining URLs from dark corners of Web Archives for bug hunting/fuzzing/further probing"
+  qsreplace:
+    description: "Replace all query string values with a user-supplied value"
+
+  # Web recon helpers
+  gospider:
+    description: "Web spider for finding URLs and endpoints"
+  httprobe:
+    description: "Probes for working HTTP and HTTPS servers"
+  subjack:
+    description: "Subdomain takeover tool"
+  knockpy:
+    description: "DNS subdomain scanner"
+  assetfinder:
+    description: "Subdomain discovery (tomnomnom)"
+  httpx:
+    description: "HTTP probing and technology detection (ProjectDiscovery)"
+  katana:
+    description: "Fast web crawler (ProjectDiscovery)"
+  semgrep:
+    description: "Static source code analysis"
+
+  # DNS/Recon
+  dnsrecon:
+    description: "DNS reconnaissance"
+  dnsenum:
+    description: "DNS enumeration"
+  theharvester:
+    description: "Emails, subdomains, IPs and URLs OSINT"
+
+  # Network scanning
+  masscan:
+    description: "Very fast port scanner"
+
+  # SMB/NetBIOS
+  smbclient:
+    description: "Samba SMB/CIFS client"
+  smbmap:
+    description: "Enumerate Samba share drives across domains"
+  nbtscan:
+    description: "NetBIOS name network scanner"
+
+  # SNMP/Discovery
+  arp-scan:
+    description: "ARP scanning and fingerprinting"
+  ike-scan:
+    description: "VPN IKE scanner"
+  onesixtyone:
+    description: "Fast SNMP scanner"
+  snmpcheck:
+    description: "SNMP enumerator"
+    command: "snmp-check"
+  netdiscover:
+    description: "Active/passive ARP reconnaissance"
+
+  # Utilities
+  hping3:
+    description: "TCP/IP packet assembler/analyzer"
+  socat:
+    description: "Multipurpose relay (SOcket CAT)"
+  proxychains4:
+    description: "Force any TCP connection through proxy"
+  sslscan:
+    description: "SSL/TLS scanner"
+
+  # Frameworks and cracking
+  metasploit:
+    description: "Penetration testing framework"
+    command: "msfconsole"
+  msfvenom:
+    description: "Payload generator for Metasploit"
+  john:
+    description: "John the Ripper password cracker"
+
+  # Networking suites
+  iproute2:
+    description: "Provides modern networking tools (ip, ss, tc, etc.)"
+    command: "ip"
+  net-tools:
+    description: "Provides classic networking utilities (netstat, ifconfig, route, etc.)"
+    command: "netstat"
+
+  # Basics
+  netcat:
+    description: "Network utility for reading/writing data"
+  curl:
+    description: "HTTP client for web requests"
+  tcpdump:
+    description: "Network packet capture"
+
+  # Binary Exploitation & Reversing
+  gdb:
+    description: "GNU Debugger"
+  ltrace:
+    description: "Library call tracer"
+  strace:
+    description: "System call tracer"
+  radare2:
+    description: "Reverse engineering framework"
+  ROPgadget:
+    description: "ROP gadget finder"
+    command: "ROPgadget"
+  ropper:
+    description: "ROP gadget finder and binary information"
+
+  # Steganography & Forensics
+  steghide:
+    description: "Steganography tool"
+  binwalk:
+    description: "Firmware analysis tool"
+  foremost:
+    description: "File carving tool"
+  zsteg:
+    description: "PNG/BMP steganography"
+
+  # Deserialization
+  ysoserial:
+    description: "Java deserialization payload generator"
+  phpggc:
+    description: "PHP generic gadget chains"
+
+  # SSRF
+  gopherus:
+    description: "SSRF payload generator"
+
+  # Tunneling & OOB
+  interactsh-client:
+    description: "OOB interaction client"
+  ligolo-proxy:
+    description: "Advanced tunneling tool (Ligolo-ng)"
+    command: "proxy"
+  chisel:
+    description: "Fast TCP/UDP tunnel over HTTP"
+
+  # Password Cracking
+  hashcat:
+    description: "Advanced password recovery"
+  kerbrute:
+    description: "Kerberos pre-auth brute-forcing"
+
+  # Windows/AD
+  enum4linux:
+    description: "SMB enumeration tool"
+  netexec:
+    description: "Network service exploitation (SMB/WinRM/etc)"
+    command: "nxc"
+  evil-winrm:
+    description: "WinRM shell access"
+
+  # XSS Advanced
+  xsstrike:
+    description: "Advanced XSS detection suite"
+  dalfox:
+    description: "Parameter analysis and XSS scanning"
+
+  # Privilege Escalation
+  linpeas:
+    description: "Linux Privilege Escalation Awesome Script"
+  pwncat-cs:
+    description: "Advanced reverse shell handler"
+
+  # C2 & Post-Exploitation
+  sliver:
+    description: "Command and Control framework"
+    command: "sliver-client"
+
+  # Active Directory Advanced
+  bloodhound-python:
+    description: "AD ingestor for BloodHound"
+  certipy:
+    description: "Active Directory Certificate Services abuse"
+  coercer:
+    description: "Active Directory coercion attacks"
+  responder:
+    description: "LLMNR/NBT-NS poisoner"
+
+  # Secrets & Git
+  trufflehog:
+    description: "Find leaked credentials"
+  gitdumper:
+    description: "Dump git repositories from websites"
+
+  # Cryptography & Forensics
+#  rsactftool:
+#    # requires python 3.9
+#    description: "RSA attack tool"
+  volatility:
+    description: "Memory forensics framework"
+    command: "vol"
+

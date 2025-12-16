@@ -331,6 +331,7 @@ export class HealthMonitor {
         if (service.name === 'cyber-autoagent') {
           try {
             const { stdout: containerId } = await execAsync(
+              // TODO: config.dockerImage
               `docker ps --filter "ancestor=cyber-autoagent:latest" --format "{{.ID}}" | head -1`
             );
             if (containerId.trim()) {

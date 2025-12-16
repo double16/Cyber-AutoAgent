@@ -4,7 +4,7 @@ import json
 import logging
 
 from strands import Agent, tool
-from modules.config.manager import ConfigManager
+from modules.config.models.factory import create_strands_model
 
 logger = logging.getLogger(__name__)
 
@@ -100,26 +100,14 @@ Return JSON only:
 
 def _create_specialist_model():
     """Create model for specialist - reuse main LLM/provider when swarm override is unavailable."""
-    import os
-    from modules.config.models.factory import create_bedrock_model, create_ollama_model, create_litellm_model
     from modules.config.manager import ConfigManager
 
-    provider = os.getenv("CYBER_AGENT_PROVIDER", "bedrock")
     config_manager = ConfigManager()
+    provider = config_manager.get_provider()
     swarm_model_id = config_manager.get_swarm_model_id()
-    region = os.getenv("AWS_REGION", config_manager.getenv("AWS_REGION", "us-east-1"))
-
-    def _build(model_id: str):
-        if provider == "bedrock":
-            return create_bedrock_model(model_id, region, provider)
-        if provider == "ollama":
-            return create_ollama_model(model_id, provider)
-        if provider == "litellm":
-            return create_litellm_model(model_id, region, provider)
-        raise ValueError(f"Unknown provider: {provider}")
 
     try:
-        return _build(swarm_model_id)
+        return create_strands_model(provider, swarm_model_id)
     except Exception as exc:  # fall back to main LLM if swarm override is misconfigured
         primary_model = config_manager.get_llm_config(provider).model_id
         logger.warning(
@@ -129,7 +117,7 @@ def _create_specialist_model():
             exc,
             primary_model,
         )
-        return _build(primary_model)
+        return create_strands_model(provider, primary_model)
 
 
 

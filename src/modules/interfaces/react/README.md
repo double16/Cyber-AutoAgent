@@ -165,12 +165,12 @@ npm run typecheck
 
 Environment variables passed to Python container:
 
-| Variable | Purpose |
-|----------|---------|
-| `AWS_REGION` | Bedrock provider region |
-| `PYTHONUNBUFFERED=1` | Immediate stdout flush |
-| `FORCE_COLOR=1` | ANSI color preservation |
-| `LANGFUSE_HOST` | Observability endpoint |
+| Variable             | Purpose                 |
+|----------------------|-------------------------|
+| `AWS_REGION`         | Bedrock provider region |
+| `PYTHONUNBUFFERED=1` | Immediate stdout flush  |
+| `FORCE_COLOR=1`      | ANSI color preservation |
+| `LANGFUSE_HOST`      | Observability endpoint  |
 
 ## Troubleshooting
 

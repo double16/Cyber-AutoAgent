@@ -12,7 +12,8 @@ evidence collection capabilities.
 For educational and authorized security testing purposes only.
 Ensure you have explicit permission before testing any targets.
 
-Author: Aaron Brown
+Author: Patrick Double
+Original Author: Aaron Brown
 License: MIT
 """
 
@@ -59,7 +60,9 @@ from modules.handlers.utils import (
     print_section,
     print_status,
     sanitize_target_name,
+    dumpstacks,
 )
+from modules.tools import browser
 
 load_dotenv()
 
@@ -272,6 +275,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTSTP, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGUSR1, dumpstacks)
 
     # Check for service mode before normal argument parsing to avoid validation issues
     is_service_mode = "--service-mode" in sys.argv
@@ -318,7 +322,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        help="Model ID to use (defaults configured in config.py)",
+        help="Model ID to use (defaults configured in defaults.py)",
     )
     parser.add_argument(
         "--region",
@@ -460,9 +464,6 @@ def main():
     # Toggle rubric evaluation via CLI flag
     if args.eval_rubric:
         os.environ["EVAL_RUBRIC_ENABLED"] = "true"
-
-    # Ensure PROVIDER env reflects CLI for downstream modules (evaluator)
-    os.environ["PROVIDER"] = args.provider
 
     server_config = config_manager.get_server_config(args.provider, **config_overrides)
 
@@ -629,7 +630,7 @@ def main():
 
     try:
         # Create agent
-        logger.warning("Creating agent with iterations=%d", args.iterations)
+        logger.info("Creating agent with iterations=%d", args.iterations)
         config = AgentConfig(
             target=args.target,
             objective=args.objective,
@@ -702,7 +703,7 @@ def main():
                                 metrics_obj = MetricsObject(
                                     result.metrics.accumulated_usage
                                 )
-                                callback_handler._process_metrics(metrics_obj)
+                                callback_handler.process_metrics(metrics_obj)
 
                     # Check if we should continue
                     if callback_handler and callback_handler.should_stop():
@@ -738,7 +739,7 @@ def main():
                         if callback_handler
                         else args.iterations
                     )
-                    logger.warning(
+                    logger.info(
                         "Remaining steps check: iterations=%d, current_step=%d, remaining=%d",
                         args.iterations,
                         callback_handler.current_step if callback_handler else 0,
@@ -790,7 +791,8 @@ def main():
                                 ),
                             }
                             # Use handler's emitter directly
-                            callback_handler._emit_ui_event(termination_event)  # noqa: SLF001 (internal method okay for UI)
+                            callback_handler.emit_ui_event(
+                                termination_event)  # noqa: SLF001 (internal method okay for UI)
                             # Generate the report immediately
                             callback_handler.ensure_report_generated(
                                 agent, args.target, args.objective, args.module
@@ -823,7 +825,7 @@ def main():
                                     callback_handler, "max_steps", args.iterations
                                 ),
                             }
-                            callback_handler._emit_ui_event(termination_event)  # noqa: SLF001
+                            callback_handler.emit_ui_event(termination_event)  # noqa: SLF001
                             callback_handler.ensure_report_generated(
                                 agent, args.target, args.objective, args.module
                             )
@@ -854,7 +856,7 @@ def main():
                                         callback_handler, "max_steps", args.iterations
                                     ),
                                 }
-                                callback_handler._emit_ui_event(termination_event)  # noqa: SLF001
+                                callback_handler.emit_ui_event(termination_event)  # noqa: SLF001
                                 callback_handler.ensure_report_generated(
                                     agent, args.target, args.objective, args.module
                                 )
@@ -1016,18 +1018,17 @@ def main():
             try:
                 if callback_handler:
                     # Idempotent termination helper emits thinking_end, a final TERMINATED header, and the reason
-                    callback_handler._emit_termination(
+                    callback_handler.emit_termination(
                         "user_abort", "Operation cancelled by user"
                     )  # noqa: SLF001
             except Exception:
                 pass
-            # Exit gracefully to allow event flushing and frontend to handle "stopped" state
-            # Use 130 (SIGINT) to indicate an intentional interrupt
-            sys.exit(130)
         else:
             print_status("\nOperation cancelled by user", "WARNING")
-            # Skip cleanup on interrupt for faster exit
-            os._exit(1)
+
+        # Exit gracefully to allow event flushing and frontend to handle "stopped" state
+        # Use 130 (SIGINT) to indicate an intentional interrupt
+        sys.exit(130)
 
     except Exception as e:
         print_status(f"\nOperation failed: {str(e)}", "ERROR")
@@ -1035,6 +1036,8 @@ def main():
         sys.exit(1)
 
     finally:
+        browser.close_browser()
+
         # Ensure log files are properly closed before exit
         def close_log_outputs():
             if hasattr(sys.stdout, "close") and hasattr(sys.stdout, "log"):

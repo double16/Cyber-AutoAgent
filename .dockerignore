@@ -20,8 +20,10 @@ pip-delete-this-directory.txt
 nosetests.xml
 coverage.xml
 *.cover
-*.log
 .pytest_cache/
+tests/
+.github/
+repl_state/
 
 # IDE
 .vscode/
@@ -43,6 +45,8 @@ evidence_*/
 logs/
 *.log
 cyber_operations.log
+outputs/
+benchmark_harness/
 
 # Build artifacts
 build/
@@ -51,7 +55,6 @@ dist/
 .eggs/
 
 # OS generated files
-.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
@@ -66,4 +69,4 @@ Thumbs.db
 
 # Local development files
 .env
-.env.local
+.env.*

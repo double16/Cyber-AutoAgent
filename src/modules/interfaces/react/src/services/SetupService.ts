@@ -119,14 +119,14 @@ export class SetupService extends EventEmitter {
       stepName: 'environment'
     });
 
-    this.logger.info('Verifying Python 3.10+ is installed');
+    this.logger.info('Verifying Python 3.11+ is installed');
     const { PythonExecutionService } = await import('./PythonExecutionService.js');
     const pythonService = new PythonExecutionService();
     
     const pythonCheck = await pythonService.checkPythonVersion();
     if (!pythonCheck.installed) {
-      this.logger.error('Python 3.10+ not found');
-      throw new Error(pythonCheck.error || 'Python 3.10+ is required');
+      this.logger.error('Python 3.11+ not found');
+      throw new Error(pythonCheck.error || 'Python 3.11+ is required');
     }
     
     onProgress?.({

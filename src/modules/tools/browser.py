@@ -86,6 +86,23 @@ def extract_domain(url_or_fqdn: str) -> str:
     return f"{domain_extract.domain}.{domain_extract.suffix}"
 
 
+class InteractionCollector:
+    def __init__(self, browser: "BrowserService"):
+        self.browser = browser
+        self.requests: list[Request] = []
+        self.downloads: list[str] = []
+        self.logs: list[dict[str, Any]] = []
+        self.dialogs: list[dict[str, Any]] = []
+
+    async def summarize(self) -> str:
+        return await self.browser.simplify_metadata_for_llm(
+            requests=self.requests,
+            downloads=self.downloads,
+            dialogs=self.dialogs,
+            logs=self.logs
+        )
+
+
 class BrowserService(EventEmitter):
     _initialized = False
 
@@ -97,11 +114,11 @@ class BrowserService(EventEmitter):
     model: str
 
     def __init__(
-        self,
-        provider: str,
-        model: str,
-        artifacts_dir: Optional[str] = None,
-        extra_http_headers: Optional[dict[str, str]] = None,
+            self,
+            provider: str,
+            model: str,
+            artifacts_dir: Optional[str] = None,
+            extra_http_headers: Optional[dict[str, str]] = None,
     ):
         super().__init__()
         api_key = None
@@ -155,7 +172,32 @@ class BrowserService(EventEmitter):
             verbose=0,  # errors only. keep output minimal
             use_rich_logging=False,  # ensure ansi does not pollute outputs
         )
+
+        # Dedicated event loop running in its own thread via ThreadPoolExecutor
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_ready = threading.Event()
+
+        def _loop_runner() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+            self._loop_ready.set()
+            loop.run_forever()
+            loop.close()
+
+        self._loop_thread = threading.Thread(target=_loop_runner, name="BrowserService", daemon=True)
+        self._loop_thread.start()
+        self._loop_ready.wait()
+
+        # Stagehand instance will be used exclusively from the dedicated event loop
         self.stagehand = Stagehand(self.stagehand_config)
+
+    async def run_in_browser_loop(self, coro_factory):
+        """Run the coroutine produced by coro_factory on the dedicated browser event loop."""
+        if self._loop is None:
+            raise RuntimeError("BrowserService event loop not initialized")
+        cfut = asyncio.run_coroutine_threadsafe(coro_factory(), self._loop)
+        return await asyncio.wrap_future(cfut)
 
     @asynccontextmanager
     async def timeout(self):
@@ -206,66 +248,74 @@ class BrowserService(EventEmitter):
 
     async def ensure_init(self):
         """Lazy init stagehand when needed"""
-        if self._initialized:
-            return
 
-        logger.info("Initializing browser")
-        await self.stagehand.init()
-        self._initialized = True
+        async def _inner():
+            if self._initialized:
+                return
 
-        self.context.set_default_timeout(self.default_timeout)
-        self.context.set_default_navigation_timeout(self.default_timeout)
+            logger.info("Initializing browser")
+            await self.stagehand.init()
+            self._initialized = True
 
-        self.page.set_default_timeout(self.default_timeout)
-        self.page.set_default_navigation_timeout(self.default_timeout)
+            self.context.set_default_timeout(self.default_timeout)
+            self.context.set_default_navigation_timeout(self.default_timeout)
 
-        async def handle_dialog(dialog: Dialog):
-            """Auto accept all dialogs"""
-            await dialog.accept()
-            await self.emit_async("dialog", dialog)
+            self.page.set_default_timeout(self.default_timeout)
+            self.page.set_default_navigation_timeout(self.default_timeout)
 
-        async def handle_download(download: Download):
-            """Auto-save downloads to artifacts_dir"""
-            download_path = os.path.join(
-                self.artifacts_dir,
-                f"download_{time.time_ns()}_{download.suggested_filename}",
-            )
-            await download.save_as(download_path)
-            await self.emit_async("download", download_path)
+            async def handle_dialog(dialog: Dialog):
+                """Auto accept all dialogs"""
+                await dialog.accept()
+                await self.emit_async("dialog", dialog)
 
-        self.page.on("dialog", handle_dialog)
-        self.page.on("download", handle_download)
+            async def handle_download(download: Download):
+                """Auto-save downloads to artifacts_dir"""
+                download_path = os.path.join(
+                    self.artifacts_dir,
+                    f"download_{time.time_ns()}_{download.suggested_filename}",
+                )
+                await download.save_as(download_path)
+                await self.emit_async("download", download_path)
 
-        for event_name in (
-            "request",
-            "response",
-            "requestfailed",
-            "requestfinished",
-            "console",
-        ):  # type: Any
-            self.page.on(
-                event_name,
-                functools.partial(
-                    lambda event, payload: self.emit_async(event, payload), event_name
-                ),
-            )
+            self.page.on("dialog", handle_dialog)
+            self.page.on("download", handle_download)
+
+            for event_name in (
+                    "request",
+                    "response",
+                    "requestfailed",
+                    "requestfinished",
+                    "console",
+            ):  # type: Any
+                self.page.on(
+                    event_name,
+                    functools.partial(
+                        lambda event, payload: self.emit_async(event, payload),
+                        event_name,
+                    ),
+                )
+
+        await self.run_in_browser_loop(_inner)
 
     async def reset(self):
         """Reset the Stagehand session if the browser context becomes invalid."""
-        if self._initialized:
-            try:
-                await self.stagehand.close()
-            except Exception as exc:
-                logger.warning("Browser reset encountered error while closing: %s", exc)
-        self._initialized = False
-        await self.ensure_init()
+
+        async def _inner_close():
+            if self._initialized:
+                try:
+                    await self.stagehand.close()
+                except Exception as exc:
+                    logger.warning("Browser reset encountered error while closing: %s", exc)
+                self._initialized = False
+
+        await self.run_in_browser_loop(_inner_close)
 
     async def simplify_metadata_for_llm(
-        self,
-        requests: list[Request],
-        downloads: list[str],
-        logs: list[dict[str, Any]],
-        dialogs: list[dict[str, Any]],
+            self,
+            requests: list[Request],
+            downloads: list[str],
+            logs: list[dict[str, Any]],
+            dialogs: list[dict[str, Any]],
     ) -> str:
         """
         Processes logs, dialogs, downloads, and requests to generate summarized metadata formatted
@@ -301,8 +351,8 @@ class BrowserService(EventEmitter):
             rows = []
             for idx, log in enumerate(logs[:_TOON_PREVIEW_LIMIT], start=1):
                 args_preview = (
-                    " ".join(json.dumps(arg, ensure_ascii=False) for arg in log["args"])
-                    or "-"
+                        " ".join(json.dumps(arg, ensure_ascii=False) for arg in log["args"])
+                        or "-"
                 )
                 if len(args_preview) > 160:
                     args_preview = args_preview[:157] + "..."
@@ -399,7 +449,7 @@ class BrowserService(EventEmitter):
                         -1
                         if pw_timings["domainLookupEnd"] == -1
                         else pw_timings["domainLookupEnd"]
-                        - pw_timings["domainLookupStart"]
+                             - pw_timings["domainLookupStart"]
                     ),
                     "connect": (
                         -1
@@ -421,7 +471,7 @@ class BrowserService(EventEmitter):
                         -1
                         if pw_timings["secureConnectionStart"] == -1
                         else pw_timings["requestStart"]
-                        - pw_timings["secureConnectionStart"]
+                             - pw_timings["secureConnectionStart"]
                     ),
                 }
 
@@ -461,9 +511,9 @@ class BrowserService(EventEmitter):
 
                 if cookie_header := all_request_headers.get("cookie"):
                     parsed_cookie = SimpleCookie(cookie_header)
-                    for cookie in parsed_cookie.items():  # type: tuple[str, Morsel]
+                    for name, value in parsed_cookie.items():  # type: tuple[str, Morsel]
                         har_entry["request"]["cookies"].append(
-                            {"name": cookie[0], "value": cookie[1].value}
+                            {"name": name, "value": value}
                         )
 
                 simplified_request = [
@@ -491,7 +541,7 @@ class BrowserService(EventEmitter):
 
                 with suppress(asyncio.TimeoutError):
                     async with asyncio.timeout(
-                        60
+                            60
                     ):  # Wait for up to 60 seconds for the response object to be available (Status/headers first).
                         response = await request.response()
 
@@ -523,7 +573,7 @@ class BrowserService(EventEmitter):
 
                     with suppress(asyncio.TimeoutError):
                         async with asyncio.timeout(
-                            60
+                                60
                         ):  # Wait for up to 60 seconds for the response body to be available
                             content = await response.body()
                             har_entry_response["bodySize"] = len(content)
@@ -536,7 +586,7 @@ class BrowserService(EventEmitter):
                         f"Status Code: `{response.status}`",
                     ]
                     if formatted_response_headers := format_headers(
-                        all_response_headers
+                            all_response_headers
                     ):
                         simplified_response.extend(
                             ["Response Headers:", formatted_response_headers],
@@ -600,7 +650,7 @@ class BrowserService(EventEmitter):
 
     @asynccontextmanager
     async def interaction_context_capture(
-        self, only_domains: Optional[list[str]] = None
+            self, only_domains: Optional[list[str]] = None
     ):
         """
         An asynchronous context manager for capturing various web interactions including network requests, downloads,
@@ -618,10 +668,8 @@ class BrowserService(EventEmitter):
             - On context entry, sets up event listeners to capture specified web  interactions.
             - On context exit, removes the event listeners to prevent further interception of events.
         """
-        requests: list[Request] = []
-        downloads: list[str] = []
-        logs: list[dict[str, Any]] = []
-        dialogs: list[dict[str, Any]] = []
+
+        collector = InteractionCollector(self)
 
         def capture_request(request_or_response: Request | Response):
             """
@@ -643,20 +691,20 @@ class BrowserService(EventEmitter):
                 if isinstance(request_or_response, Response)
                 else request_or_response
             )
-            if request.method == "OPTIONS" or request in requests:
+            if request.method == "OPTIONS" or request in collector.requests:
                 return
 
             request_url_hostname: Optional[str] = urlparse(request.url).hostname
             if only_domains:
                 for filter_domain in only_domains:
                     if (
-                        request_url_hostname is not None
-                        and request_url_hostname.endswith(filter_domain)
+                            request_url_hostname is not None
+                            and request_url_hostname.endswith(filter_domain)
                     ):
-                        requests.append(request)
+                        collector.requests.append(request)
                         return
             else:
-                requests.append(request)
+                collector.requests.append(request)
 
         async def capture_log(msg: ConsoleMessage):
             """
@@ -678,7 +726,7 @@ class BrowserService(EventEmitter):
             args: list[Any] = []
             for arg in msg.args:
                 args.append(await arg.json_value())
-            logs.append(
+            collector.logs.append(
                 {
                     "type": msg.type,
                     "args": args,
@@ -686,10 +734,10 @@ class BrowserService(EventEmitter):
             )
 
         def capture_download(file_path: str):
-            downloads.append(file_path)
+            collector.downloads.append(file_path)
 
         def capture_dialog(dialog: Dialog):
-            dialogs.append(
+            collector.dialogs.append(
                 {
                     "type": dialog.type,
                     "message": dialog.message,
@@ -705,9 +753,7 @@ class BrowserService(EventEmitter):
         self.on("download", capture_download)
         self.on("dialog", capture_dialog)
         try:
-            yield await self.simplify_metadata_for_llm(
-                requests, downloads, dialogs, logs
-            )
+            yield collector
         finally:
             self.off("request", capture_request)
             self.off("requestfinished", capture_request)
@@ -726,10 +772,10 @@ _BROWSER_LOCK = threading.Lock()
 
 
 def initialize_browser(
-    provider: str,
-    model: str,
-    artifacts_dir: Optional[str] = None,
-    extra_http_headers: Optional[dict[str, str]] = None,
+        provider: str,
+        model: str,
+        artifacts_dir: Optional[str] = None,
+        extra_http_headers: Optional[dict[str, str]] = None,
 ):
     """Initialize the shared browser instance.
 
@@ -790,7 +836,23 @@ async def get_browser():
 
     with _BROWSER_LOCK:
         await _BROWSER.ensure_init()
-        yield _BROWSER
+    yield _BROWSER
+
+
+def close_browser():
+    """Closes the browser if it has been initialized. If never initialized, this method returns without error."""
+    global _BROWSER
+    if _BROWSER:
+        logger.debug("Closing BrowserService")
+        with _BROWSER_LOCK:
+            try:
+                asyncio.run_coroutine_threadsafe(_BROWSER.stagehand.close(), _BROWSER._loop).result(10)
+            except Exception:
+                logger.exception("Closing BrowserService")
+            logger.debug("Stopping BrowserService event loop")
+            _BROWSER._loop.stop()
+        logger.debug("BrowserService stopped")
+        _BROWSER = None
 
 
 def format_headers(headers: dict[str, str]) -> str:
@@ -874,7 +936,12 @@ async def browser_set_headers(headers: Optional[dict[str, str]] = None):
     async with get_browser() as browser:
         if not headers:
             return "No headers provided. Please call browser_set_headers with a non-empty map, e.g. {'user-agent': '...'}"
-        await browser.context.set_extra_http_headers(headers)
+
+        async def _impl():
+            await browser.context.set_extra_http_headers(headers)
+
+        await browser.run_in_browser_loop(_impl)
+        log_heap_stats()
         return f"Applied {len(headers)} extra HTTP header(s) to the browser context"
 
 
@@ -894,145 +961,159 @@ async def browser_goto_url(url: str):
         - Observations of the current page state after the navigation.
         - If navigation fails due to timeouts/blocks, an HTTP fallback summary (headers and key files) is returned.
     """
-    logger.info("[BROWSER] entered goto url")
+    logger.info("[BROWSER] entered goto url %s", url)
     async with get_browser() as browser:
         reset_notice: Optional[str] = None
 
         async def _http_fallback(reason: str) -> str:
-            parsed = urlparse(url)
-            origin = (
-                f"{parsed.scheme}://{parsed.netloc}"
-                if parsed.scheme and parsed.netloc
-                else url
-            )
-            targets = [url]
-            # Try common reconnaissance files
-            if parsed.scheme and parsed.netloc:
-                targets += [
-                    f"{origin}/robots.txt",
-                    f"{origin}/.well-known/security.txt",
-                ]
+            async def _impl() -> str:
+                parsed = urlparse(url)
+                origin = (
+                    f"{parsed.scheme}://{parsed.netloc}"
+                    if parsed.scheme and parsed.netloc
+                    else url
+                )
+                targets = [url]
+                # Try common reconnaissance files
+                if parsed.scheme and parsed.netloc:
+                    targets += [
+                        f"{origin}/robots.txt",
+                        f"{origin}/.well-known/security.txt",
+                    ]
 
-            rows = []
-            artifacts = []
-            waf_detected = False
-            for idx, t in enumerate(targets, start=1):
-                try:
-                    # Provide generic desktop headers to reduce basic bot blocking
-                    req_headers = {
-                        "user-agent": (
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                        ),
-                        "accept-language": "en-US,en;q=0.9",
-                    }
-                    async with browser.timeout():
-                        resp = await browser.context.request.get(
-                            t, timeout=15000, headers=req_headers
-                        )
-                    status = resp.status
-                    # Playwright Python APIResponse exposes headers as a property/dict
+                rows = []
+                artifacts = []
+                waf_detected = False
+                for idx, t in enumerate(targets, start=1):
                     try:
-                        headers = resp.headers  # type: ignore[attr-defined]
-                    except Exception:
-                        headers = {}
-                    # Always attempt to capture a body preview, even on error, for WAF pages
-                    try:
-                        text_body = await resp.text()
-                    except Exception:
-                        text_body = ""
-                    # Persist a compact artifact for each fetched resource
-                    artifact_path = os.path.join(
-                        browser.artifacts_dir,
-                        f"http_fallback_{time.time_ns()}_{idx}.txt",
-                    )
-                    preview = text_body[:2000] if isinstance(text_body, str) else ""
-                    with open(artifact_path, "w", encoding="utf-8") as fh:
-                        fh.write(
-                            "\n".join(
-                                [
-                                    f"URL: {t}",
-                                    f"Status: {status}",
-                                    "Headers:",
-                                    format_headers(headers) or "(none)",
-                                    "\nBody (first 2000 chars):\n" + preview
-                                    if preview
-                                    else "\n(No body captured)",
-                                ]
-                            )
-                        )
-                    artifacts.append(artifact_path)
-                    # Detect Cloudflare/WAF via headers/body hints
-                    try:
-                        server_header = str((headers or {}).get("server", "")).lower()
-                        cf_ray = (headers or {}).get("cf-ray") or (headers or {}).get(
-                            "cf_ray"
-                        )
-                        if (
-                            "cloudflare" in server_header
-                            or cf_ray
-                            or (
-                                isinstance(text_body, str)
-                                and "cloudflare" in text_body.lower()
-                            )
-                        ):
-                            waf_detected = True
-                    except Exception:
-                        pass
-                    rows.append(
-                        {
-                            "#": idx,
-                            "url": t,
-                            "status": status,
-                            "bytes": len(text_body)
-                            if isinstance(text_body, str)
-                            else 0,
-                            "artifact": os.path.basename(artifact_path),
+                        # Provide generic desktop headers to reduce basic bot blocking
+                        req_headers = {
+                            "user-agent": (
+                                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                            ),
+                            "accept-language": "en-US,en;q=0.9",
                         }
-                    )
-                except Exception as fetch_exc:
-                    rows.append(
-                        {
-                            "#": idx,
-                            "url": t,
-                            "status": "error",
-                            "bytes": 0,
-                            "artifact": str(fetch_exc),
-                        }
-                    )
+                        logger.info("[BROWSER] getting response for %s", t)
+                        async with browser.timeout():
+                            resp = await browser.context.request.get(
+                                t, timeout=15000, headers=req_headers
+                            )
+                        logger.info("[BROWSER] got response for %s", t)
+                        status = resp.status
+                        # Playwright Python APIResponse exposes headers as a property/dict
+                        try:
+                            headers = resp.headers  # type: ignore[attr-defined]
+                        except Exception:
+                            headers = {}
+                        # Always attempt to capture a body preview, even on error, for WAF pages
+                        logger.info("[BROWSER] getting response text for %s", t)
+                        try:
+                            text_body = await resp.text()
+                        except Exception:
+                            text_body = ""
+                        logger.info("[BROWSER] got response text for %s", t)
+                        # Persist a compact artifact for each fetched resource
+                        artifact_path = os.path.join(
+                            browser.artifacts_dir,
+                            f"http_fallback_{time.time_ns()}_{idx}.txt",
+                        )
+                        preview = text_body[:2000] if isinstance(text_body, str) else ""
+                        with open(artifact_path, "w", encoding="utf-8") as fh:
+                            fh.write(
+                                "\n".join(
+                                    [
+                                        f"URL: {t}",
+                                        f"Status: {status}",
+                                        "Headers:",
+                                        format_headers(headers) or "(none)",
+                                        "\nBody (first 2000 chars):\n" + preview
+                                        if preview
+                                        else "\n(No body captured)",
+                                    ]
+                                )
+                            )
+                        artifacts.append(artifact_path)
+                        # Detect Cloudflare/WAF via headers/body hints
+                        try:
+                            server_header = str((headers or {}).get("server", "")).lower()
+                            cf_ray = (headers or {}).get("cf-ray") or (headers or {}).get(
+                                "cf_ray"
+                            )
+                            if (
+                                    "cloudflare" in server_header
+                                    or cf_ray
+                                    or (
+                                    isinstance(text_body, str)
+                                    and "cloudflare" in text_body.lower()
+                            )
+                            ):
+                                waf_detected = True
+                        except Exception:
+                            pass
+                        rows.append(
+                            {
+                                "#": idx,
+                                "url": t,
+                                "status": status,
+                                "bytes": len(text_body)
+                                if isinstance(text_body, str)
+                                else 0,
+                                "artifact": os.path.basename(artifact_path),
+                            }
+                        )
+                    except Exception as fetch_exc:
+                        rows.append(
+                            {
+                                "#": idx,
+                                "url": t,
+                                "status": "error",
+                                "bytes": 0,
+                                "artifact": str(fetch_exc),
+                            }
+                        )
 
-            toon = format_toon_table(
-                "http_fallback", ["#", "url", "status", "bytes", "artifact"], rows
-            )
-            waf_note = " Detected Cloudflare/WAF indicators." if waf_detected else ""
-            banner = f"[HTTP fallback executed] Reason: {reason}. Fetched {len(rows)} resource(s).{waf_note}"
-            return "\n".join([banner, toon])
+                toon = format_toon_table(
+                    "http_fallback", ["#", "url", "status", "bytes", "artifact"], rows
+                )
+                waf_note = " Detected Cloudflare/WAF indicators." if waf_detected else ""
+                banner = f"[HTTP fallback executed] Reason: {reason}. Fetched {len(rows)} resource(s).{waf_note}"
+                logger.info("[BROWSER] _http_fallback: %s", banner)
+                return "\n".join([banner, toon])
+
+            return await browser.run_in_browser_loop(_impl)
 
         async def _perform_navigation():
-            async with browser.interaction_context_capture(
-                only_domains=[browser.page_domain, extract_domain(url)]
-            ) as interaction_context:
-                async with browser.timeout():
-                    await browser.page.goto(url)
+            async def _impl() -> str:
+                async with browser.interaction_context_capture(
+                        only_domains=[browser.page_domain, extract_domain(url)]
+                ) as interaction_context:
+                    async with browser.timeout():
+                        await browser.page.goto(url)
 
-            async with browser.timeout():
-                observations = "\n".join(
-                    map(
-                        lambda obs: obs.description,
-                        await browser.page.observe(
-                            f"{url} was just opened. "
-                            "give all important elements on the page that might be relevant to the next action. "
-                            "observe the overall state of the page to understand the purpose of the page."
-                        ),
-                    )
-                )
-            return f"<observations>\n{observations}\n</observations>\n{interaction_context}"
+                    async with browser.timeout():
+                        observations = "\n".join(
+                            map(
+                                lambda obs: obs.description,
+                                await browser.page.observe(
+                                    f"{url} was just opened. "
+                                    "give all important elements on the page that might be relevant to the next action. "
+                                    "observe the overall state of the page to understand the purpose of the page."
+                                ),
+                            )
+                        )
+                    summary = await interaction_context.summarize()
+                    return f"<observations>\n{observations}\n</observations>\n{summary}"
+
+            return await browser.run_in_browser_loop(_impl)
 
         for attempt in range(2):
             try:
                 payload = await _perform_navigation()
                 if reset_notice:
                     payload = f"{reset_notice}\n{payload}"
+                logger.info("[BROWSER] returning payload %s", payload)
+                log_heap_stats()
                 return payload
             except TimeoutError:
                 # Navigation timed out: perform a light reset once, then fallback
@@ -1044,6 +1125,8 @@ async def browser_goto_url(url: str):
                     reset_notice = "[Browser reset applied] Navigation timeout; retrying after session reset."
                     continue
                 # Fallback to HTTP fetch
+                logger.info("[BROWSER] navigation timeout")
+                log_heap_stats()
                 return await _http_fallback("navigation timeout")
             except Exception as exc:
                 message = str(exc)
@@ -1059,7 +1142,16 @@ async def browser_goto_url(url: str):
                     reset_notice = "[Browser reset applied] Execution context was destroyed; retry succeeded after session reset."
                     continue
                 # On non-retriable errors (e.g., WAF/blocked), use HTTP fallback to at least collect headers
+                logger.warning(
+                    "Browser navigation failed (%s); running fallback",
+                    message,
+                    exc_info=exc,
+                )
+                log_heap_stats()
                 return await _http_fallback(message or "navigation error")
+        logger.info("[BROWSER] retry attempts exhausted")
+        log_heap_stats()
+        return await _http_fallback("retry attempts exhausted")
 
 
 @tool
@@ -1072,14 +1164,20 @@ async def browser_get_page_html() -> str:
     Returns:
         The path of the downloaded HTML file artifact.
     """
+    logger.info("browser_get_page_html")
     async with get_browser() as browser:
-        async with browser.timeout():
-            page_html = await browser.page.content()
+        async def _impl():
+            async with browser.timeout():
+                return await browser.page.content()
+
+        page_html = await browser.run_in_browser_loop(_impl)
         html_artifact_file = os.path.join(
             browser.artifacts_dir, f"browser_page_{time.time_ns()}.html"
         )
         with open(html_artifact_file, "w", encoding="utf-8") as f:
             f.write(page_html)
+        logger.info("browser_get_page_html: %s", html_artifact_file)
+        log_heap_stats()
         return f"HTML content saved to artifact: {html_artifact_file}"
 
 
@@ -1101,9 +1199,16 @@ async def browser_evaluate_js(expression: str):
     Returns:
         The result of the javascript expression.
     """
+    logger.info("browser_evaluate_js: %s", expression)
     async with get_browser() as browser:
-        async with browser.timeout():
-            return await browser.page.evaluate(expression)
+        async def _impl():
+            async with browser.timeout():
+                return await browser.page.evaluate(expression)
+
+        retval = await browser.run_in_browser_loop(_impl)
+        logger.info("browser_evaluate_js: %s = %s", expression, retval)
+        log_heap_stats()
+        return retval
 
 
 @tool
@@ -1119,10 +1224,15 @@ async def browser_get_cookies():
              'httpOnly', 'secure', and 'sameSite'. If no cookies are found,
              a message string indicating this is returned.
     """
+    logger.info("browser_get_cookies")
     async with get_browser() as browser:
-        async with browser.timeout():
-            cookies = await browser.context.cookies()
+        async def _impl():
+            async with browser.timeout():
+                return await browser.context.cookies()
+
+        cookies = await browser.run_in_browser_loop(_impl)
         if len(cookies) == 0:
+            logger.info("browser_get_cookies: no cookies")
             return "No cookies found"
 
         csv_buffer = StringIO()
@@ -1143,6 +1253,8 @@ async def browser_get_cookies():
         for cookie in cookies:
             writer.writerow(dict(cookie))
 
+        logger.info("browser_get_cookies: %s", csv_buffer.getvalue())
+        log_heap_stats()
         return csv_buffer.getvalue()
 
 
@@ -1170,28 +1282,36 @@ async def browser_perform_action(action: str):
         - Any Network requests, dialogs, console logs and downloads captured during the interaction.
         - Observations of the current page state after the interaction.
     """
+    logger.info("browser_perform_action: %s", action)
     async with get_browser() as browser:
-        async with browser.interaction_context_capture(
-            only_domains=[browser.page_domain]
-        ) as interaction_context:
-            async with browser.timeout():
-                await browser.page.act(action)
-            with contextlib.suppress(TimeoutError):
-                await browser.page.wait_for_load_state("networkidle", timeout=60000)
+        async def _impl():
+            async with browser.interaction_context_capture(
+                    only_domains=[browser.page_domain]
+            ) as interaction_context:
+                async with browser.timeout():
+                    await browser.page.act(action)
+                with contextlib.suppress(TimeoutError):
+                    await browser.page.wait_for_load_state("networkidle", timeout=60000)
 
-        # Eagerly returning relevant observations to reduce agent tool calls
-        async with browser.timeout():
-            observations = "\n".join(
-                map(
-                    lambda obs: obs.description,
-                    await browser.page.observe(
-                        f"`{action}` action was just performed. "
-                        "give all important elements on the page that might be relevant to the next action."
-                        "observe the overall state of the page to understand the purpose of the page."
-                    ),
-                )
-            )
-        return f"<observations>\n{observations}\n</observations>\n{interaction_context}"
+                # Eagerly returning relevant observations to reduce agent tool calls
+                async with browser.timeout():
+                    observations = "\n".join(
+                        map(
+                            lambda obs: obs.description,
+                            await browser.page.observe(
+                                f"`{action}` action was just performed. "
+                                "give all important elements on the page that might be relevant to the next action."
+                                "observe the overall state of the page to understand the purpose of the page."
+                            ),
+                        )
+                    )
+                summary = await interaction_context.summarize()
+                return observations, summary
+
+        observations, summary = await browser.run_in_browser_loop(_impl)
+        logger.info("browser_perform_action: %s done", action)
+        log_heap_stats()
+        return f"<observations>\n{observations}\n</observations>\n{summary}"
 
 
 @tool
@@ -1216,7 +1336,23 @@ async def browser_observe_page(instruction: Optional[str] = None) -> list[str]:
         List[str]: A list of descriptions derived from the observations recorded
             on the browser page.
     """
+    logger.info("browser_observe_page: %s", instruction)
     async with get_browser() as browser:
-        async with browser.timeout():
-            observations = await browser.page.observe(instruction)
-        return [observation.description for observation in observations]
+        async def _impl():
+            async with browser.timeout():
+                observations = await browser.page.observe(instruction)
+            return [observation.description for observation in observations]
+
+        retval = await browser.run_in_browser_loop(_impl)
+        log_heap_stats()
+        logger.info("browser_observe_page: %s", retval)
+        return retval
+
+
+def log_heap_stats():
+    try:
+        from guppy import hpy
+        h = hpy()
+        logger.info(h.heap()[0:12])
+    except ImportError:
+        logger.debug("Install guppy3 for heap analysis")

@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+import yaml
+
 from modules.handlers.utils import print_status
 from modules.config.system.logger import get_logger, initialize_logger_factory
 
@@ -109,183 +111,20 @@ def auto_setup(skip_mem0_cleanup: bool = False) -> List[str]:
     }
     print(f"__CYBER_EVENT__{json.dumps(tool_discovery_event)}__CYBER_EVENT_END__")
 
-    # Check which tools are available and capture their binary paths
-    cyber_tools = {
-        # Core scanners and recon
-        "nmap": "Network discovery and security auditing",
-        "nikto": "Web server scanner",
-        "sqlmap": "SQL injection detection and exploitation",
-        "gobuster": "Directory/file brute-forcer",
-        "whatweb": "Web technology fingerprinting",
-        "wafw00f": "WAF fingerprinting",
-        # Web app scanners (GUI/CLI)
-        "zaproxy": "OWASP ZAP web scanner (CLI/API)",
-        "burpsuite": "Burp Suite (Community) web scanner",
-        # GraphQL-specific tools
-        "clairvoyance": "GraphQL schema enumeration and introspection",
-        "graphql-inspector": "GraphQL schema analysis and validation",
-        # JWT manipulation tools
-        "jwt-tool": "JWT analysis and manipulation toolkit",
-        "jwt-decode": "JWT token decoder and validator",
-        # Template injection tools
-        "tplmap": "Server-Side Template Injection scanner",
-        # Cookie/Session manipulation
-        "cookiecutter": "Cookie template generation tool",
-        # ProjectDiscovery ecosystem
-        "nuclei": "Templated vulnerability scanner",
-        "naabu": "Fast TCP port scanner (SYN/CONNECT)",
-        "amass": "In-depth DNS enumeration and attack surface mapping",
-        "subfinder": "Passive subdomain discovery",
-        # Web fuzzing & dirs
-        "ffuf": "Fast web fuzzer",
-        "feroxbuster": "Fast recursive content discovery",
-        "dirb": "HTTP(S) web content scanner",
-        "arjun": "HTTP parameter discovery suite",
-        "wapiti": "Web vulnerability scanner",
-        "wfuzz": "Web application bruteforcer",
-        "wpscan": "WordPress security scanner",
-        # Web recon helpers
-        "gospider": "Web spider for finding URLs and endpoints",
-        "httprobe": "Probes for working HTTP and HTTPS servers",
-        "subjack": "Subdomain takeover tool",
-        "knockpy": "DNS subdomain scanner",
-        "assetfinder": "Subdomain discovery (tomnomnom)",
-        "httpx": "HTTP probing and technology detection (ProjectDiscovery)",
-        "katana": "Fast web crawler (ProjectDiscovery)",
-        # DNS/Recon
-        "dnsrecon": "DNS reconnaissance",
-        "dnsenum": "DNS enumeration",
-        "theharvester": "Emails, subdomains, IPs and URLs OSINT",
-        # Network scanning
-        "masscan": "Very fast port scanner",
-        # SMB/NetBIOS
-        "smbclient": "Samba SMB/CIFS client",
-        "smbmap": "Enumerate Samba share drives across domains",
-        "nbtscan": "NetBIOS name network scanner",
-        # SNMP/Discovery
-        "arp-scan": "ARP scanning and fingerprinting",
-        "ike-scan": "VPN IKE scanner",
-        "onesixtyone": "Fast SNMP scanner",
-        "snmpcheck": "SNMP enumerator",
-        "netdiscover": "Active/passive ARP reconnaissance",
-        # Utilities
-        "hping3": "TCP/IP packet assembler/analyzer",
-        "socat": "Multipurpose relay (SOcket CAT)",
-        "proxychains4": "Force any TCP connection through proxy",
-        "sslscan": "SSL/TLS scanner",
-        # Frameworks and cracking
-        "metasploit": "Penetration testing framework",
-        "msfvenom": "Payload generator for Metasploit",
-        "john": "John the Ripper password cracker",
-        # Networking suites
-        "iproute2": "Provides modern networking tools (ip, ss, tc, etc.)",
-        "net-tools": "Provides classic networking utilities (netstat, ifconfig, route, etc.)",
-        # Basics
-        "netcat": "Network utility for reading/writing data",
-        "curl": "HTTP client for web requests",
-        "tcpdump": "Network packet capture",
-        # Binary Exploitation & Reversing
-        "gdb": "GNU Debugger",
-        "ltrace": "Library call tracer",
-        "strace": "System call tracer",
-        "radare2": "Reverse engineering framework",
-        "ropgadget": "ROP gadget finder",
-        "ropper": "ROP gadget finder and binary information",
-        # Steganography & Forensics
-        "steghide": "Steganography tool",
-        "binwalk": "Firmware analysis tool",
-        "foremost": "File carving tool",
-        "zsteg": "PNG/BMP steganography",
-        # Deserialization
-        "ysoserial": "Java deserialization payload generator",
-        "phpggc": "PHP generic gadget chains",
-        # SSRF
-        "gopherus": "SSRF payload generator",
-        # Tunneling & OOB
-        # Tunneling & OOB
-        "interactsh-client": "OOB interaction client",
-        "ligolo-proxy": "Advanced tunneling tool (Ligolo-ng)",
-        "chisel": "Fast TCP/UDP tunnel over HTTP",
-        # Password Cracking
-        "hashcat": "Advanced password recovery",
-        "kerbrute": "Kerberos pre-auth brute-forcing",
-        # Windows/AD
-        "enum4linux": "SMB enumeration tool",
-        "netexec": "Network service exploitation (SMB/WinRM/etc)",
-        "evil-winrm": "WinRM shell access",
-        # XSS Advanced
-        "xsstrike": "Advanced XSS detection suite",
-        "dalfox": "Parameter analysis and XSS scanning",
-        # Privilege Escalation
-        "linpeas": "Linux Privilege Escalation Awesome Script",
-        "pwncat-cs": "Advanced reverse shell handler",
-        # C2 & Post-Exploitation
-        "sliver": "Command and Control framework",
-        # Active Directory Advanced
-        "bloodhound-python": "AD ingestor for BloodHound",
-        "certipy": "Active Directory Certificate Services abuse",
-        "coercer": "Active Directory coercion attacks",
-        "responder": "LLMNR/NBT-NS poisoner",
-        # Secrets & Git
-        "trufflehog": "Find leaked credentials",
-        "gitdumper": "Dump git repositories from websites",
-        # Cryptography & Forensics
-        "rsactftool": "RSA attack tool",
-        "volatility": "Memory forensics framework",
-    }
+    # Load tools from environment.yaml in the same directory as this file
+    env_path = Path(__file__).with_name("environment.yaml")
+    with env_path.open("r", encoding="utf-8") as f:
+        env_config = yaml.safe_load(f) or {}
 
-    # Map tool names to their checkable binary names
-    tool_commands = {
-        "metasploit": "msfconsole",
-        "msfvenom": "msfvenom",
-        "iproute2": "ip",
-        "net-tools": "netstat",
-        # Explicit binary names for GUI scanners
-        "zaproxy": "zaproxy",
-        "burpsuite": "burpsuite",
-        # New security tools
-        "clairvoyance": "clairvoyance",
-        "graphql-inspector": "graphql-inspector",
-        "jwt-tool": "jwt-tool",
-        "jwt-decode": "jwt-decode",
-        "tplmap": "tplmap",
-        "cookiecutter": "cookiecutter",
-        # Deserialization wrappers
-        "ysoserial": "ysoserial",
-        "phpggc": "phpggc",
-        "gopherus": "gopherus",
-        # Tunneling
-        "ligolo-proxy": "ligolo-proxy",
-        "chisel": "chisel",
-        # Windows/AD
-        "netexec": "nxc",  # NetExec binary is 'nxc'
-        "evil-winrm": "evil-winrm",
-        "kerbrute": "kerbrute",
-        "bloodhound-python": "bloodhound-python",
-        "certipy": "certipy",
-        "coercer": "coercer",
-        "responder": "responder",
-        # XSS
-        "xsstrike": "xsstrike",
-        "dalfox": "dalfox",
-        # PrivEsc
-        "linpeas": "linpeas",
-        "pwncat-cs": "pwncat-cs",
-        # C2
-        "sliver": "sliver",
-        # Secrets
-        "trufflehog": "trufflehog",
-        "gitdumper": "gitdumper",
-        # Crypto/Forensics
-        "rsactftool": "rsactftool",
-        "volatility": "vol",
-    }
+    cyber_tools = env_config.get("cyber_tools", {})
 
     available_tools = []
 
     # Check existing tools using shutil.which
-    for tool_name, description in cyber_tools.items():
-        binary = tool_commands.get(tool_name, tool_name)
+    for tool_name, tool_info in cyber_tools.items():
+        description = tool_info.get("description", "")
+        binary = tool_info.get("command", tool_name)
+
         tool_path = shutil.which(binary)
         is_available = tool_path is not None
 
@@ -345,6 +184,7 @@ class TeeOutput:
         self.log = open(log_file, "a", encoding="utf-8", buffering=1)
         self.lock = threading.Lock()
         self.line_buffer = ""  # Buffer for incomplete lines
+        self._closed = False
 
     def write(self, message):
         with self.lock:
@@ -398,10 +238,14 @@ class TeeOutput:
 
     def close(self):
         with self.lock:
+            if self._closed:
+                return
+            self._closed = True
             try:
                 # Flush any remaining buffered content
                 if self.line_buffer:
                     self.log.write(self.line_buffer)
+                    self.line_buffer = ""
                     self.log.flush()
                 self.log.close()
             except (OSError, AttributeError):

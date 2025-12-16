@@ -24,7 +24,7 @@ from modules.prompts.factory import (
 from modules.tools.memory import Mem0ServiceClient
 from modules.config.manager import get_config_manager
 from modules.config.system.logger import get_logger
-from modules.handlers.core.utils import sanitize_target_name
+from modules.handlers.utils import sanitize_target_name
 
 logger = get_logger("Tools.ReportBuilder")
 

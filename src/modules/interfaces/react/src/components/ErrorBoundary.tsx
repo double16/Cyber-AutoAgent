@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <Box flexDirection="column" width="100%">
           {/* Always show header for visual continuity */}
           <Header
-            version="0.1.4"
+            version="0.1.5"
             terminalWidth={80}
             nightly={false}
           />
@@ -153,7 +153,7 @@ export class ErrorBoundary extends Component<Props, State> {
               If this error persists, please report it at:
             </Text>
             <Text color={theme.primary}>
-              https://github.com/westonbrown/Cyber-AutoAgent/issues
+              https://github.com/double16/Cyber-AutoAgent/issues
             </Text>
           </Box>
           </Box>

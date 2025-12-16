@@ -527,12 +527,7 @@ def _llm_rewrite_execution_prompt(
 
     # Load active provider configuration
     config_manager = get_config_manager()
-    provider = (
-        os.getenv("PROVIDER")
-        or os.getenv("CYBER_PROVIDER")
-        or os.getenv("CYBER_AGENT_PROVIDER")
-        or "ollama"
-    ).lower()
+    provider = config_manager.get_provider()
 
     try:
         server_config = config_manager.get_server_config(provider)
@@ -540,7 +535,7 @@ def _llm_rewrite_execution_prompt(
         provider = "ollama"
         server_config = config_manager.get_server_config(provider)
 
-    region_name = os.getenv("AWS_REGION") or config_manager.get_default_region()
+    region_name = config_manager.get_default_region()
     model_id = server_config.llm.model_id
 
     # Set max_tokens=8000 for rewriter to handle full prompt output

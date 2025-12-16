@@ -166,6 +166,7 @@ graph LR
     B[Module Execution Prompt] --> C
     D[Environmental Tools] --> E[Full Tools Context]
     F[Module Tools] --> E
+    H[MCP Tools] --> E
     E --> C
     C --> G[Agent System Prompt]
 ```

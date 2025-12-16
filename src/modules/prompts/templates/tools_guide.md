@@ -6,7 +6,7 @@
 4. Novel exploit → Meta-tooling (editor + load_tool) when existing tools insufficient
 5. POC reuse → python_repl for prototype → if logic needed >2 times → editor+load_tool promotion
 
-**Core Rule**: Native tools > custom. Save all artifacts to OPERATION ARTIFACTS DIRECTORY (path injected above).
+**Core Rule**: Native tools > Command line > custom. Save all artifacts to OPERATION ARTIFACTS DIRECTORY (path injected above).
 
 **shell**
 - Usage: Non-interactive, parallel execution. Default timeout: 300s, heavy operations ≤600s
@@ -84,6 +84,12 @@
 - FORBIDDEN: Intermediate success (creds/hash/vuln WITHOUT objective), approach blocked, constraints, budget <95% without trying different capability + swarm
 - **Common violation**: Stopping after capability discovery. Must complete chain: capability confirmed → direct use tested → objective reached
 
+**tool_catalog**
+- Purpose: List all available tools, their descriptions and how to call them
+- When to use:
+  - Capabilities are required that existing tools may satisfy
+  - Information on correct argument types for a tool is needed
+  - User requests a specific tool
 </tool_protocols>
 
 <general_protocols>

@@ -17,7 +17,8 @@ tools:
   - specialized_recon_orchestrator
   - advanced_payload_coordinator  
   - auth_chain_analyzer
+  - validation_specialist
 module_interface:
   accepts_from: []
   provides_to: []
-  finding_categories: ["web-vulnerabilities", "authentication-flaws", "business-logic", "injection-vulnerabilities"]
+  finding_categories: ["web-vulnerabilities", "authentication-flaws", "business-logic", "injection-vulnerabilities", "xss-bypasses", "idor-discoveries", "auth-bypasses", "injection-points", "file-traversal", "ssrf"]
