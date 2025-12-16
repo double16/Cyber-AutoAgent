@@ -20,7 +20,7 @@ class TestMemoryAwareAgentIntegration:
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
     @patch("modules.agents.cyber_autoagent.get_memory_client")
     @patch("modules.agents.cyber_autoagent.check_existing_memories")
-    @patch("modules.agents.cyber_autoagent.create_bedrock_model")
+    @patch("modules.config.models.factory.create_bedrock_model")
     @patch("modules.agents.cyber_autoagent.get_config_manager")
     def test_agent_creation_with_memory_overview(
         self,
@@ -96,7 +96,7 @@ class TestMemoryAwareAgentIntegration:
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
     @patch("modules.agents.cyber_autoagent.get_memory_client")
     @patch("modules.agents.cyber_autoagent.check_existing_memories")
-    @patch("modules.agents.cyber_autoagent.create_bedrock_model")
+    @patch("modules.config.models.factory.create_bedrock_model")
     @patch("modules.agents.cyber_autoagent.get_config_manager")
     def test_agent_creation_fresh_start(
         self,
@@ -159,7 +159,7 @@ class TestMemoryAwareAgentIntegration:
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
     @patch("modules.agents.cyber_autoagent.get_memory_client")
     @patch("modules.agents.cyber_autoagent.check_existing_memories")
-    @patch("modules.agents.cyber_autoagent.create_bedrock_model")
+    @patch("modules.config.models.factory.create_bedrock_model")
     @patch("modules.agents.cyber_autoagent.get_config_manager")
     def test_agent_creation_with_memory_path(
         self,
@@ -235,7 +235,7 @@ class TestMemoryAwareAgentIntegration:
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
     @patch("modules.agents.cyber_autoagent.get_memory_client")
     @patch("modules.agents.cyber_autoagent.check_existing_memories")
-    @patch("modules.agents.cyber_autoagent.create_bedrock_model")
+    @patch("modules.config.models.factory.create_bedrock_model")
     @patch("modules.agents.cyber_autoagent.get_config_manager")
     def test_agent_creation_memory_overview_error_handling(
         self,

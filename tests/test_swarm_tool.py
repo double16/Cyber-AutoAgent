@@ -88,10 +88,10 @@ class SwarmToolTests(unittest.TestCase):
 
         # Response includes final team result content
         txt = out["content"][0]["text"]
-        self.assertIn("🎯 **Custom Agent Team Execution Complete**", txt)
-        self.assertIn("**🎯 Final Team Result:**", txt)
+        self.assertIn("**Custom Agent Team Execution Complete**", txt)
+        self.assertIn("** Final Team Result:**", txt)
         self.assertIn("A2 final answer.", txt)
-        self.assertIn("📈 Team Resource Usage:", txt)
+        self.assertIn(" Team Resource Usage:", txt)
 
     @patch.object(swarm_mod, "create_rich_status_panel", autospec=True)
     @patch.object(swarm_mod.console_util, "create", autospec=True)

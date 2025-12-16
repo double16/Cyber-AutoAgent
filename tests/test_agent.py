@@ -151,7 +151,7 @@ class TestMemoryConfig:
         # We'll test that the right config is passed to initialize_memory_system
         with patch("modules.config.ConfigManager.validate_requirements"):
             with patch(
-                "modules.agents.cyber_autoagent.create_ollama_model"
+                "modules.config.models.factory.create_ollama_model"
             ) as mock_create_ollama:
                 mock_create_ollama.return_value = Mock()
                 with patch("modules.agents.cyber_autoagent.Agent") as mock_agent_class:
@@ -188,7 +188,7 @@ class TestMemoryConfig:
         """Test remote memory configuration is created correctly"""
         with patch("modules.config.ConfigManager.validate_requirements"):
             with patch(
-                "modules.agents.cyber_autoagent.create_bedrock_model"
+                "modules.config.models.factory.create_bedrock_model"
             ) as mock_create_remote:
                 mock_create_remote.return_value = Mock()
                 with patch("modules.agents.cyber_autoagent.Agent") as mock_agent_class:
@@ -322,7 +322,7 @@ class TestCreateAgent:
     """Test agent creation functionality"""
 
     @patch("modules.config.ConfigManager.validate_requirements")
-    @patch("modules.agents.cyber_autoagent.create_bedrock_model")
+    @patch("modules.config.models.factory.create_bedrock_model")
     @patch("modules.agents.cyber_autoagent.Agent")
     @patch("modules.handlers.react.react_bridge_handler.ReactBridgeHandler")
     @patch("modules.agents.cyber_autoagent.get_system_prompt")
@@ -365,7 +365,7 @@ class TestCreateAgent:
         assert handler == mock_handler
 
     @patch("modules.config.ConfigManager.validate_requirements")
-    @patch("modules.agents.cyber_autoagent.create_ollama_model")
+    @patch("modules.config.models.factory.create_ollama_model")
     @patch("modules.agents.cyber_autoagent.Agent")
     @patch("modules.handlers.react.react_bridge_handler.ReactBridgeHandler")
     @patch("modules.agents.cyber_autoagent.get_system_prompt")
@@ -421,8 +421,8 @@ class TestCreateAgent:
             create_agent(target="test.com", objective="test objective", config=config)
 
     @patch("modules.config.ConfigManager.validate_requirements")
-    @patch("modules.agents.cyber_autoagent.create_ollama_model")
-    @patch("modules.agents.cyber_autoagent._handle_model_creation_error")
+    @patch("modules.config.models.factory.create_ollama_model")
+    @patch("modules.config.models.factory._handle_model_creation_error")
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
     def test_create_agent_model_creation_failure(
         self,

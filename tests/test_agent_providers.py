@@ -9,7 +9,7 @@ import pytest
 def _minimal_server_config():
     # Create a minimal server_config with required nested attributes
     return SimpleNamespace(
-        llm=SimpleNamespace(model_id="gpt-4o"),
+        llm=SimpleNamespace(model_id="gpt-4o", max_tokens=256000, temperature=0.95),
         output=SimpleNamespace(base_dir="./outputs"),
         swarm=SimpleNamespace(llm=SimpleNamespace(model_id="gpt-4o")),
         sdk=SimpleNamespace(conversation_window_size=64),
@@ -17,7 +17,7 @@ def _minimal_server_config():
 
 
 @patch("modules.agents.cyber_autoagent.get_config_manager")
-@patch("modules.agents.cyber_autoagent.create_litellm_model")
+@patch("modules.config.models.factory.create_litellm_model")
 @patch("modules.handlers.react.hooks.ReactHooks")
 @patch("modules.handlers.react.react_bridge_handler.ReactBridgeHandler")
 @patch("modules.agents.cyber_autoagent.initialize_memory_system")
@@ -59,7 +59,7 @@ def test_agent_creation_litellm(
 
 
 @patch("modules.agents.cyber_autoagent.get_config_manager")
-@patch("modules.agents.cyber_autoagent._handle_model_creation_error")
+@patch("modules.config.models.factory._handle_model_creation_error")
 @patch("modules.handlers.react.hooks.ReactHooks")
 @patch("modules.handlers.react.react_bridge_handler.ReactBridgeHandler")
 @patch("modules.agents.cyber_autoagent.initialize_memory_system")

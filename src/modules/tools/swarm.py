@@ -481,7 +481,7 @@ def swarm(
             if last_agent in result.results:
                 last_result = result.results[last_agent]
                 if hasattr(last_result, "result") and hasattr(last_result.result, "content"):
-                    response_parts.append("\n**🎯 Final Team Result:**")
+                    response_parts.append("\n** Final Team Result:**")
                     for content_block in last_result.result.content:
                         if hasattr(content_block, "text") and content_block.text:
                             response_parts.append(content_block.text)

@@ -414,7 +414,7 @@ export const InitializationFlow: React.FC<InitializationFlowProps> = ({ onComple
         const pythonCheck = await pythonService.checkPythonVersion();
         
         if (!pythonCheck.installed) {
-          throw new Error(pythonCheck.error || 'Python 3.10+ is required');
+          throw new Error(pythonCheck.error || 'Python 3.11+ is required');
         }
         
         addSetupLog(`Python ${pythonCheck.version} detected`, 'success');
@@ -468,9 +468,9 @@ export const InitializationFlow: React.FC<InitializationFlowProps> = ({ onComple
       
       // Provide more user-friendly error messages
       if (errorMessage.includes('Python not found')) {
-        errorMessage = 'Python 3.10+ is not installed. Please install Python from https://python.org';
-      } else if (errorMessage.includes('Python 3.10+ is required')) {
-        errorMessage = 'Python 3.10 or higher is required. Please upgrade your Python installation.';
+        errorMessage = 'Python 3.11+ is not installed. Please install Python from https://python.org';
+      } else if (errorMessage.includes('Python 3.11+ is required')) {
+        errorMessage = 'Python 3.11 or higher is required. Please upgrade your Python installation.';
       } else if (errorMessage.includes('No requirements.txt')) {
         errorMessage = 'Missing requirements.txt or pyproject.toml in project root.';
       } else if (errorMessage.includes('Docker compose file not found')) {

@@ -381,7 +381,7 @@ python src/cyberautoagent.py \
   --iterations 50
 ```
 
-Requirements: Python 3.10+, dependencies installed
+Requirements: Python 3.11+, dependencies installed
 
 ### Docker Standalone
 

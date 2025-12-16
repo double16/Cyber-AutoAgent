@@ -19,7 +19,7 @@
 </p>
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker&style=for-the-badge)](https://hub.docker.com/r/cyberautoagent/cyber-autoagent)
-[![Python](https://img.shields.io/badge/Python-3.10+-yellow?logo=python&style=for-the-badge)](https://www.python.org)
+[![Python](https://img.shields.io/badge/Python-3.11+-yellow?logo=python&style=for-the-badge)](https://www.python.org)
 [![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange?logo=amazon-aws&style=for-the-badge)](https://aws.amazon.com/bedrock/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_AI-green?style=for-the-badge)](https://ollama.ai)
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/WNHhsnkTc3)
@@ -44,7 +44,7 @@
 - [Features](#features)
 - [Architecture](#architecture)
 - [Model Providers](#model-providers)
-- [Observability](#observability)
+- [Observability](#observability--evaluation)
 - [Installation & Deployment](#installation--deployment)
 - [Configuration](#configuration)
 - [Development & Testing](#development--testing)
@@ -479,7 +479,7 @@ LANGFUSE_ADMIN_PASSWORD=strong-password-here
 
 **System Requirements**
 - **Node.js**: Version 20+ required for React CLI interface
-- **Python**: Version 3.10+ for local installation
+- **Python**: Version 3.11+ for local installation
 - **Docker**: For containerized deployments
 - **macOS Users**: Xcode Command Line Tools required
 
