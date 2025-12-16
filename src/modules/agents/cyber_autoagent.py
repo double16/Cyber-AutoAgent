@@ -730,6 +730,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
 
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
     hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
+    swarm_hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
     agent_logger.info(
         "HOOK REGISTRATION: Created PromptBudgetHook, will register %d hooks total",
         len(hooks),
@@ -907,6 +908,11 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         },
     }
 
+    os.environ["STRANDS_PROVIDER"] = config.provider
+    os.environ["STRANDS_MODEL_ID"] = config.model_id
+    os.environ["STRANDS_MAX_TOKENS"] = str(server_config.llm.max_tokens)
+    os.environ["STRANDS_TEMPERATURE"] = str(server_config.llm.temperature)
+
     # Create agent (telemetry is handled globally by Strands SDK)
     agent = Agent(**agent_kwargs)
     # Allow reasoning deltas only when the provider/model supports them
@@ -922,6 +928,10 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         setattr(agent, "system_prompt", system_prompt)
     except Exception:
         pass
+    try:
+        setattr(agent, "swarm_hooks", swarm_hooks)
+    except Exception as e:
+        logger.error("Could not set swarm_hooks on agent, swarm agents may not behave as intended", exc_info=e)
 
     agent_logger.debug("Agent initialized successfully")
     return agent, callback_handler

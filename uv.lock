@@ -543,6 +543,7 @@ dependencies = [
     { name = "google-genai" },
     { name = "guppy3" },
     { name = "langchain-aws" },
+    { name = "langchain-litellm" },
     { name = "langchain-ollama" },
     { name = "langfuse" },
     { name = "litellm" },
@@ -601,6 +602,7 @@ requires-dist = [
     { name = "guppy3", specifier = "~=3.1.5" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "langchain-aws", specifier = ">=0.2.0" },
+    { name = "langchain-litellm" },
     { name = "langchain-ollama", specifier = ">=0.2.0" },
     { name = "langfuse", specifier = ">=2.0.0" },
     { name = "litellm", specifier = "==1.80.0" },
@@ -2022,6 +2024,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/95/9b/da155eee3a21ecec2e1d6b78ca5fd2ee1936dcd36b0bf0b70d94b5ac6fce/langchain_core-1.1.1.tar.gz", hash = "sha256:029877a34ac5dedefe9c5c36e3c1206e56fc4cac6025df933277451b6df177ad", size = 799487, upload-time = "2025-12-04T19:55:12.935Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/22/d8dc366b13ad394a4abc1d61fbb3cc638c0d3f959ad7981889f1f47fd6fd/langchain_core-1.1.1-py3-none-any.whl", hash = "sha256:98c8cfe7a29448f9d987313be1afac2686e3d12f2f38be024ee9f729ff7cb87c", size = 475045, upload-time = "2025-12-04T19:55:11.715Z" },
+]
+
+[[package]]
+name = "langchain-litellm"
+version = "0.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "litellm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d0/2d/6c6abf75b0412a87474c8fe237d24b1b7a67a4923a19babb241db09adfb1/langchain_litellm-0.3.5.tar.gz", hash = "sha256:43dfbba20c71beb1a23cbf497755215748b09e0dd675dba9acf9d1ffa3b61201", size = 12724, upload-time = "2025-12-13T05:09:24.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/9f/cd01d312c22a37f80ae0239a91622fdf810e6046dc325e80195fa36c08ef/langchain_litellm-0.3.5-py3-none-any.whl", hash = "sha256:324378ac9965e4e36cb60ef98e9ede3f8886394e5054e6b3665df6e4b8015a72", size = 13489, upload-time = "2025-12-13T05:09:23.697Z" },
 ]
 
 [[package]]

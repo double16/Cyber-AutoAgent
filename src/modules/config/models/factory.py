@@ -27,6 +27,8 @@ from modules.config.models.capabilities import (
 )
 from modules.handlers.utils import print_status
 
+from google.genai import types
+
 logger = get_logger("Config.ModelFactory")
 
 PROMPT_TOKEN_FALLBACK_LIMIT = 0
@@ -813,7 +815,7 @@ def create_gemini_model(
         )
 
     # Prepare client args
-    client_args = {
+    client_args: dict[str, Any] = {
         "api_key": api_key,
     }
 
@@ -837,6 +839,13 @@ def create_gemini_model(
         clean_model_id,
         llm_temp,
         llm_max,
+    )
+
+    client_args["http_options"] = types.HttpOptions(
+        retry_options=types.HttpRetryOptions(
+            attempts=10,
+            exp_base=4.0,
+        )
     )
 
     return GeminiModel(

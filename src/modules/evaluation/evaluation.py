@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_aws import BedrockEmbeddings, ChatBedrock
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.chat_models import ChatLiteLLM  # type: ignore
+from langchain_litellm import ChatLiteLLM
 from langfuse import Langfuse
 from ragas.dataset_schema import MultiTurnSample, SingleTurnSample
 from ragas.embeddings import LangchainEmbeddingsWrapper

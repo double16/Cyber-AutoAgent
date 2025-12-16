@@ -190,7 +190,10 @@ def _create_custom_agents(
                 system_prompt = f"{system_prompt}\n\nBase Instructions:\n{parent_agent.system_prompt}"
 
         # Configure agent tools
-        agent_tools = spec.get("tools")
+        agent_tools = spec.get("tools", [])
+        if "shell" not in agent_tools:
+            # shell is needed for tools the agent tries to execute that don't exist as tools but in the shell
+            agent_tools.append("shell")
         if agent_tools and parent_agent and hasattr(parent_agent, "tool_registry"):
             # Filter tools to ensure they exist in parent agent's registry
             available_tools = parent_agent.tool_registry.registry.keys()
@@ -202,8 +205,15 @@ def _create_custom_agents(
             # Get actual tool objects from parent agent's registry
             agent_tools = [parent_agent.tool_registry.registry[tool_name] for tool_name in filtered_tool_names]
 
+        swarm_hooks = []
+        if parent_agent and hasattr(parent_agent, "swarm_hooks"):
+            swarm_hooks = getattr(parent_agent, "swarm_hooks")
+
         config_manager = get_config_manager()
         provider = config_manager.get_provider()
+
+        if parent_agent is None:
+            logger.error("Parent agent not given, swarm agents will lack intended functionality")
 
         # Create agent
         swarm_agent = Agent(
@@ -213,6 +223,8 @@ def _create_custom_agents(
             tools=agent_tools,
             callback_handler=parent_agent.callback_handler if parent_agent else None,
             trace_attributes=parent_agent.trace_attributes if parent_agent else None,
+            conversation_manager=parent_agent.conversation_manager if parent_agent else None,
+            hooks=swarm_hooks,
         )
 
         agents.append(swarm_agent)

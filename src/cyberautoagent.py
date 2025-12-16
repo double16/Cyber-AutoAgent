@@ -465,9 +465,6 @@ def main():
     if args.eval_rubric:
         os.environ["EVAL_RUBRIC_ENABLED"] = "true"
 
-    # Ensure CYBER_AGENT_PROVIDER env reflects CLI for downstream modules (evaluator)
-    os.environ["CYBER_AGENT_PROVIDER"] = args.provider
-
     server_config = config_manager.get_server_config(args.provider, **config_overrides)
 
     # Set mem0 environment variables based on configuration
