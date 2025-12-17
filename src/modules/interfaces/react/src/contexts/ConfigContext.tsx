@@ -135,6 +135,12 @@ export interface Config {
   enableToolSearch?: boolean;
   /** Enable tool examples beta feature for Claude Opus 4.5+ (enhanced tool definitions) */
   enableToolExamples?: boolean;
+  /** Limit model requests to tokens per minute. */
+  rateLimitTokensPerMinute?: number;
+  /** Limit model requests to requests per minute. */
+  rateLimitRequestsPerMinute?: number;
+  /** Limit model concurrent requests. */
+  rateLimitConcurrency?: number;
 
   // Docker Container Execution Configuration
   /** Docker image name for assessment execution */
@@ -226,7 +232,7 @@ export interface Config {
   minEvidenceQualityScore?: number;
   minAnswerRelevancyScore?: number;
   minContextPrecisionScore?: number;
-  // LLM-driven evaluation tunables
+  // LLM-driven evaluation configuration
   minToolCalls?: number;
   minEvidence?: number;
   evalMaxWaitSecs?: number;
@@ -561,12 +567,17 @@ export const defaultConfig: Config = {
   minEvidenceQualityScore: 0.7,
   minAnswerRelevancyScore: 0.7,
   minContextPrecisionScore: 0.8,
-  // LLM-driven evaluation tunables (UI defaults)
+  // LLM-driven evaluation configuration (UI defaults)
   minToolCalls: 3,
   minEvidence: 1,
   evalMaxWaitSecs: 30,
   evalPollIntervalSecs: 5,
   evalSummaryMaxChars: 8000,
+
+  // Model rate limits
+  rateLimitTokensPerMinute: undefined,
+  rateLimitRequestsPerMinute: undefined,
+  rateLimitConcurrency: undefined,
 
   // Setup Status
   isConfigured: false,

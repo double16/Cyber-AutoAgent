@@ -70,6 +70,9 @@ const CONFIG_FIELDS: ConfigField[] = [
   { key: 'embeddingModel', label: 'Embedding Model', type: 'text', section: 'Models' },
   { key: 'evaluationModel', label: 'Evaluation Model', type: 'text', section: 'Models' },
   { key: 'swarmModel', label: 'Swarm Model', type: 'text', section: 'Models' },
+  { key: 'rateLimitTokensPerMinute', label: 'Tokens/Minute', type: 'number', section: 'Models' },
+  { key: 'rateLimitRequestsPerMinute', label: 'Requests/Minute', type: 'number', section: 'Models' },
+  { key: 'rateLimitConcurrency', label: 'Concurrent Requests', type: 'number', section: 'Models' },
 
   // Models - Credentials (shown in Models section based on provider)
   { key: 'awsAccessKeyId', label: 'AWS Access Key ID', type: 'password', section: 'Models' },
@@ -719,7 +722,7 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
 
       fields = fields.filter(f => {
         // Always show provider and model fields
-        if (['modelProvider', 'modelId', 'embeddingModel', 'evaluationModel', 'swarmModel'].includes(f.key)) {
+        if (['modelProvider', 'modelId', 'embeddingModel', 'evaluationModel', 'swarmModel', 'rateLimitTokensPerMinute', 'rateLimitRequestsPerMinute', 'rateLimitConcurrency'].includes(f.key)) {
           return true;
         }
 

@@ -10,7 +10,7 @@ import Spinner from 'ink-spinner';
 import { themeManager } from '../themes/theme-manager.js';
 
 interface ThinkingIndicatorProps {
-  context?: 'reasoning' | 'tool_preparation' | 'tool_execution' | 'waiting' | 'startup';
+  context?: 'reasoning' | 'tool_preparation' | 'tool_execution' | 'waiting' | 'startup' | 'rate_limit';
   startTime?: number;
   message?: string;
   toolName?: string;
@@ -57,6 +57,8 @@ const getContextMessage = (context?: string, phraseIndex?: number): string => {
   switch (context) {
     case 'startup':
       return 'Initializing';
+    case 'rate_limit':
+        return 'Rate Limit - Waiting';
     case 'reasoning':
     case 'tool_preparation':
     case 'tool_execution':

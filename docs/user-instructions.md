@@ -348,6 +348,20 @@ export HTB_MCP_TOKEN=xxx.yyy.zzz
 }
 ```
 
+## Model Rate Limiting
+
+Providers usually rate limit model calls considering both the number of requests and tokens. There are two approaches
+taken. When a call fails due to rate limiting, the request is retried a few times with a delay. This doesn't always
+work. Rate limiting can be configured to be proactive using the following parameters:
+
+- Tokens per minute
+- Requests per minute
+- Maximum concurrent requests
+
+Examples:
+- `CYBER_RATE_LIMIT_TOKENS_PER_MIN=150000`
+- `CYBER_RATE_LIMIT_REQ_PER_MIN=3`
+- `CYBER_RATE_LIMIT_MAX_CONCURRENT=1`
 
 ## Docker Management
 

@@ -81,12 +81,11 @@ from rich.console import Console
 from rich.panel import Panel
 from strands import Agent, tool
 from strands.multiagent import Swarm
-from strands.models.ollama import OllamaModel
 
 from strands_tools.utils import console_util
 
 from modules.config import get_config_manager
-from modules.config.models.factory import create_strands_model
+from modules.config.models.factory import create_strands_model, get_model_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -408,12 +407,7 @@ def swarm(
         )
 
         # adjust minimum timeouts based on agent timeout
-        model_timeout = None
-        first_agent = swarm_agents[0]
-        if isinstance(first_agent.model, OllamaModel):
-            ollama_model = first_agent.model
-            if "timeout" in ollama_model.client_args:
-                model_timeout = float(ollama_model.client_args["timeout"])
+        model_timeout = get_model_timeout(swarm_agents[0].model)
 
         # enforce minimum values to address bad LLM values
         max_handoffs = max(max_handoffs,  20)

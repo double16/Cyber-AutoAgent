@@ -309,6 +309,9 @@ const runAutoAssessment = async () => {
         if (event.type === 'output' && event.content) {
           loggingService.info(event.content);
         }
+        if (event.type === 'rate_limit' && event.sleep_time) {
+          loggingService.info(` Rate limit: waiting for ${Math.ceil(event.sleep_time)} seconds`);
+        }
       });
 
       const result = await handle.result;

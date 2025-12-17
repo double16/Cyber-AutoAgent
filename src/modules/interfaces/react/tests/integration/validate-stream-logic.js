@@ -279,6 +279,19 @@ class StreamLogicValidator {
       passed: endResult.some(e => e.type === 'thinking_end')
     });
 
+    // Test rate_limit event
+    const rateLimit = {
+      type: 'thinking',
+      context: 'rate_limit',
+      startTime: Date.now()
+    };
+
+    const rateLimitResult = aggregator.processEvent(rateLimit);
+    tests.push({
+      name: 'Rate limit event processed',
+      passed: rateLimitResult.some(e => e.type === 'thinking')
+    });
+
     const passed = tests.every(t => t.passed);
     this.reportTestResults('Reasoning Events', tests, passed);
     return passed;

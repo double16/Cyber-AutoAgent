@@ -1432,6 +1432,26 @@ export const Terminal: React.FC<TerminalProps> = React.memo(({
         break;
       }
 
+      case 'rate_limit':
+        if (animationsEnabled) {
+          cancelDelayedThinking();
+          setActiveThinking(true);
+          seenThinkingThisPhaseRef.current = true;
+
+          // Immediately show urgent thinking event to bypass any delays
+          const thinkingEvent: DisplayStreamEvent = {
+            type: 'thinking',
+            context: 'rate_limit',
+            message: `Rate Limit for ${Math.ceil(event.wait_total)}s`,
+            startTime: Date.now(),
+            urgent: true
+          } as DisplayStreamEvent;
+
+          // Push to results so it gets processed by the event loop
+          results.push(thinkingEvent);
+        }
+        break;
+
       default:
         // Pass through other events as-is (no synthetic headers)
         results.push(event as DisplayStreamEvent);
@@ -1721,7 +1741,7 @@ completedBufRef.current.pushMany(newCompletedEvents);
 
   // Check if we have thinking-only events (spinner without other content)
   const hasOnlyThinkingInActive = activeEvents.length > 0 &&
-    activeEvents.every(e => e.type === 'thinking' || e.type === 'thinking_end');
+    activeEvents.every(e => e.type === 'thinking' || e.type === 'thinking_end' || e.type === 'rate_limit');
 
   const hasFinalReportCluster = finalReportEvents != null && finalReportEvents.length > 0;
 

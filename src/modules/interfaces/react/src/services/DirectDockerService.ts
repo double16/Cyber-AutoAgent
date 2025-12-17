@@ -263,6 +263,15 @@ export class DirectDockerService extends EventEmitter {
       if (config.modelId) {
         env.push(`CYBER_AGENT_LLM_MODEL=${config.modelId}`);
       }
+      if (config.rateLimitTokensPerMinute) {
+        env.push(`CYBER_RATE_LIMIT_TOKENS_PER_MIN=${config.rateLimitTokensPerMinute}`);
+      }
+      if (config.rateLimitRequestsPerMinute) {
+        env.push(`CYBER_RATE_LIMIT_REQ_PER_MIN=${config.rateLimitRequestsPerMinute}`);
+      }
+      if (config.rateLimitConcurrency) {
+        env.push(`CYBER_RATE_LIMIT_MAX_CONCURRENT=${config.rateLimitConcurrency}`);
+      }
 
       // AWS credentials
       if (config.awsAccessKeyId && config.awsSecretAccessKey) {

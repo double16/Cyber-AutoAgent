@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import litellm
 import ollama
 
+from modules.agents.rate_limit import RateLimitConfig
 from modules.handlers.utils import get_output_path, sanitize_target_name
 from modules.config.system.logger import get_logger
 from modules.config.models.dev_client import get_models_client
@@ -1103,6 +1104,27 @@ class ConfigManager:
             enable_unified_output=enable_unified_output,
             operation_id=operation_id,
         )
+
+    def get_rate_limit_config(self, provider: str) -> Optional[RateLimitConfig]:
+        request_per_minute = self.getenv_float("CYBER_RATE_LIMIT_REQ_PER_MIN")
+        tokens_per_minute = self.getenv_float("CYBER_RATE_LIMIT_TOKENS_PER_MIN")
+        max_concurrent = self.getenv_int("CYBER_RATE_LIMIT_MAX_CONCURRENT")
+        assume_output_tokens = 1024  # looking at langfuse stats to get this number
+
+        if provider == "ollama" and not max_concurrent:
+            logger.info(
+                "Ollama default concurrency limited to 1, set CYBER_RATE_LIMIT_MAX_CONCURRENT to make it higher")
+            max_concurrent = 1
+
+        if request_per_minute or tokens_per_minute or max_concurrent:
+            return RateLimitConfig(
+                rpm=request_per_minute,
+                tpm=tokens_per_minute,
+                max_concurrent=max_concurrent,
+                assume_output_tokens=assume_output_tokens
+            )
+
+        return None
 
     # Validation helper methods now in validation.py module
 

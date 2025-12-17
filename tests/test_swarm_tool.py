@@ -3,11 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import modules.tools.swarm as swarm_mod
-
-
-class DummyOllamaModel:
-    def __init__(self, client_args=None):
-        self.client_args = client_args or {}
+from strands.models.ollama import OllamaModel
 
 
 class FakeSwarm:
@@ -53,12 +49,16 @@ class SwarmToolTests(unittest.TestCase):
         FakeSwarm.result_to_return = _mk_result()
 
         # Make first agent appear to have an Ollama model timeout > 300.
-        dummy_first = SimpleNamespace(model=DummyOllamaModel(client_args={"timeout": "400"}))
+        ollama_model = OllamaModel(
+            host="http://127.0.0.1:11434",
+            model_id="llama3.2",
+            ollama_client_args={"timeout": "400"}
+        )
+        dummy_first = SimpleNamespace(model=ollama_model)
         dummy_second = SimpleNamespace(model=object())
 
         with patch.object(swarm_mod, "_create_custom_agents", autospec=True, return_value=[dummy_first, dummy_second]), \
-                patch.object(swarm_mod, "Swarm", autospec=True, side_effect=lambda **kw: FakeSwarm(**kw)), \
-                patch.object(swarm_mod, "OllamaModel", DummyOllamaModel):
+                patch.object(swarm_mod, "Swarm", autospec=True, side_effect=lambda **kw: FakeSwarm(**kw)):
 
             out = swarm_mod.swarm(
                 task="do the thing",

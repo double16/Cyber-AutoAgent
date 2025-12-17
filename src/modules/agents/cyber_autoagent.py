@@ -730,7 +730,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
 
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
     hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
-    swarm_hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
+    swarm_hooks = [tool_router_hook, prompt_budget_hook]
     agent_logger.info(
         "HOOK REGISTRATION: Created PromptBudgetHook, will register %d hooks total",
         len(hooks),

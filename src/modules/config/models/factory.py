@@ -17,6 +17,7 @@ from strands.models.litellm import LiteLLMModel
 from strands.models.ollama import OllamaModel
 from strands.models.gemini import GeminiModel
 
+from modules.agents.rate_limit import patch_model_provider_class, ThreadSafeRateLimiter
 from modules.config.providers import get_ollama_host
 from modules.config.providers.ollama_config import get_ollama_timeout
 from modules.config.system import EnvironmentReader
@@ -732,12 +733,13 @@ def create_litellm_model(
         params["top_p"] = config["top_p"]
 
     # Add request timeout and retries for robustness (env-overridable)
-    timeout_secs = config_manager.getenv_int("LITELLM_TIMEOUT", 180)
+    timeout_secs = config_manager.getenv_int("LITELLM_TIMEOUT", 600)
     num_retries = config_manager.getenv_int("LITELLM_NUM_RETRIES", 3)
     if timeout_secs > 0:
         client_args["timeout"] = timeout_secs
     if num_retries >= 0:
         client_args["num_retries"] = num_retries
+        client_args["max_retries"] = num_retries
 
     # Reasoning parameters for reasoning-capable models (o1, o3, o4, gpt-5)
     reasoning_effort = config_manager.getenv("REASONING_EFFORT")
@@ -899,3 +901,37 @@ def create_strands_model(provider: Optional[str] = None, model_id: Optional[str]
         _handle_model_creation_error(provider, e)
         # Re-raise to satisfy tests expecting exception propagation after logging
         raise
+
+
+def get_model_timeout(model: Optional[Model] = None, default_timeout: Optional[int] = None) -> Optional[int]:
+    if model is None:
+        return default_timeout
+
+    model_timeout = default_timeout
+    if isinstance(model, OllamaModel):
+        ollama_model = model
+        if "timeout" in ollama_model.client_args:
+            model_timeout = float(ollama_model.client_args["timeout"])
+
+    return model_timeout if model_timeout else default_timeout
+
+
+def configure_model_rate_limits(provider: Optional[str] = None):
+    config_manager = _get_config_manager()
+    if not provider:
+        provider = config_manager.get_provider()
+
+    rate_limit_config = config_manager.get_rate_limit_config(provider)
+    if rate_limit_config is None:
+        return
+
+    if provider == "ollama":
+        patch_model_provider_class(OllamaModel, ThreadSafeRateLimiter(rate_limit_config))
+    elif provider == "bedrock":
+        patch_model_provider_class(BedrockModel, ThreadSafeRateLimiter(rate_limit_config))
+    elif provider == "litellm":
+        patch_model_provider_class(LiteLLMModel, ThreadSafeRateLimiter(rate_limit_config))
+    elif provider == "gemini":
+        patch_model_provider_class(GeminiModel, ThreadSafeRateLimiter(rate_limit_config))
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")

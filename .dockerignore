@@ -47,6 +47,8 @@ logs/
 cyber_operations.log
 outputs/
 benchmark_harness/
+src/modules/interfaces/react/node_modules/
+src/modules/interfaces/react/dist/
 
 # Build artifacts
 build/

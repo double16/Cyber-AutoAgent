@@ -126,6 +126,7 @@ export const EVENT_TYPES = {
   ERROR: 'error',
   METADATA: 'metadata',
   DIVIDER: 'divider',
+  RATE_LIMIT: 'rate_limit',
 
   // Swarm events
   SWARM_START: 'swarm_start',

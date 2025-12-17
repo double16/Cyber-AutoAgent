@@ -111,6 +111,19 @@ function processEventsForSpinners(events: TestEvent[], animationsEnabled = true)
         }
         break;
 
+      case 'rate_limit':
+        results.push(event);
+        // Should add thinking spinner after operation init
+        if (animationsEnabled && !activeThinking) {
+          activeThinking = true;
+          results.push({
+            type: 'thinking',
+            context: 'rate_limit',
+            urgent: true
+          });
+        }
+        break;
+
       default:
         results.push(event);
     }
@@ -301,7 +314,8 @@ describe('Terminal Spinner Placement', () => {
       { type: 'step_header', step: 1 },
       { type: 'tool_start', tool_name: 'test' },
       { type: 'output', content: 'test' },
-      { type: 'tool_end', tool_name: 'test' }
+      { type: 'tool_end', tool_name: 'test' },
+      { type: 'rate_limit', sleep_time: '1' }
     ];
 
     const processed = processEventsForSpinners(events);
@@ -324,7 +338,8 @@ describe('Terminal Spinner Placement', () => {
       { type: 'step_header', step: 1 },    // → 'tool_preparation' (persists through tool_start)
       { type: 'tool_start', tool_name: 't' }, // (spinner already active, no new one added)
       { type: 'output', content: 'test' },
-      { type: 'tool_end', tool_name: 't' } // → 'waiting'
+      { type: 'tool_end', tool_name: 't' }, // → 'waiting'
+      { type: 'rate_limit', sleep_time: '1' } // → 'rate_limit'
     ];
 
     const processed = processEventsForSpinners(events);

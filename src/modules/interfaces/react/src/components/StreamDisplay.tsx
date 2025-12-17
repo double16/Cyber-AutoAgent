@@ -53,7 +53,7 @@ const resolveProjectRoot = (): string | null => {
 export type AdditionalStreamEvent = 
   | { type: 'step_header'; step: number | string; maxSteps?: number; totalTools?: number; operation?: string; duration?: string; [key: string]: any }
   | { type: 'reasoning'; content: string; [key: string]: any }
-  | { type: 'thinking'; context?: 'reasoning' | 'tool_preparation' | 'tool_execution' | 'waiting' | 'startup'; startTime?: number; urgent?: boolean; [key: string]: any }
+  | { type: 'thinking'; context?: 'reasoning' | 'tool_preparation' | 'tool_execution' | 'waiting' | 'startup' | 'rate_limit'; startTime?: number; urgent?: boolean; [key: string]: any }
   | { type: 'thinking_end'; [key: string]: any }
   | { type: 'delayed_thinking_start'; context?: string; startTime?: number; delay?: number; [key: string]: any }
   | { type: 'tool_start'; tool_name: string; tool_input: any; [key: string]: any }
@@ -83,7 +83,8 @@ export type AdditionalStreamEvent =
   | { type: 'batch'; id?: string; events: DisplayStreamEvent[]; [key: string]: any }
   | { type: 'tool_output'; tool: string; status?: string; output?: any; [key: string]: any }
   | { type: 'operation_init'; operation_id?: string; target?: string; objective?: string; memory?: any; [key: string]: any }
-  | { type: 'report_paths'; operation_id?: string; target?: string; outputDir?: string; reportPath?: string; logPath?: string; memoryPath?: string; [key: string]: any };
+  | { type: 'report_paths'; operation_id?: string; target?: string; outputDir?: string; reportPath?: string; logPath?: string; memoryPath?: string; [key: string]: any }
+  | { type: 'rate_limit'; sleep_time?: number; wait_total?: number; [key: string]: any };
 
 // Combined event type supporting both SDK-aligned and additional events
 export type DisplayStreamEvent = StreamEvent | AdditionalStreamEvent;
@@ -618,6 +619,7 @@ export const EventLine: React.FC<EventLineProps> = React.memo(({
           context={event.context}
           startTime={event.startTime}
           enabled={animationsEnabled}
+          message={event.message ?? null}
         />
       );
       

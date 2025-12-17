@@ -49,6 +49,7 @@ from modules.agents.cyber_autoagent import (
     create_agent,
     _ensure_prompt_within_budget,
 )
+from modules.config.models.factory import get_model_timeout, configure_model_rate_limits
 from modules.config.system.environment import auto_setup, clean_operation_memory, setup_logging
 from modules.config.manager import get_config_manager
 from modules.handlers.base import StepLimitReached
@@ -545,6 +546,9 @@ def main():
 
     atexit.register(cleanup_logging)
 
+    # Configure rate limiting
+    configure_model_rate_limits(provider=config_manager.get_provider())
+
     if os.environ.get("CYBERAGENT_NO_BANNER", "").lower() not in ("1", "true", "yes"):
         print_banner()
 
@@ -878,12 +882,12 @@ def main():
                     elif "step limit" in error_str:
                         print_status("Step limit reached", "SUCCESS")
                     elif (
-                        "read timed out" in error_str or "readtimeouterror" in error_str
+                            any(n in error_str for n in ["read timed out", "readtimeouterror", "network connection"])
                     ):
-                        # Handle AWS Bedrock timeouts - these are now less likely with our config
+                        # Handle provider timeouts - these are now less likely with our config
                         # but if they occur, we should save progress and report it
                         logger.warning(
-                            "AWS Bedrock timeout detected - operation interrupted but progress saved"
+                            "Provider timeout detected - operation interrupted but progress saved"
                         )
                         print_status("Network timeout - progress saved", "WARNING")
                         # Don't break - let finally block handle report generation
@@ -1082,7 +1086,8 @@ def main():
                     os.getenv("ENABLE_AUTO_EVALUATION", default_evaluation).lower()
                     == "true"
                 ):
-                    callback_handler.wait_for_evaluation_completion(timeout=300)
+                    callback_handler.wait_for_evaluation_completion(
+                        timeout=max(300, get_model_timeout(agent.model, 300)))
 
             except Exception as error:
                 logger.warning("Error in final report/evaluation: %s", error)

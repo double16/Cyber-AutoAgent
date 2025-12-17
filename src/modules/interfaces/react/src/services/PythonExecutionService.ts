@@ -720,6 +720,10 @@ export class PythonExecutionService extends EventEmitter {
         // Model Configuration - pass separate models from config
         ...(config.swarmModel ? { CYBER_AGENT_SWARM_MODEL: config.swarmModel } : {}),
         ...(config.evaluationModel ? { CYBER_AGENT_EVALUATION_MODEL: config.evaluationModel } : {}),
+        // Model rate limits
+        ...(config.rateLimitTokensPerMinute ? { CYBER_RATE_LIMIT_TOKENS_PER_MIN: String(config.rateLimitTokensPerMinute) } : {}),
+        ...(config.rateLimitRequestsPerMinute ? { CYBER_RATE_LIMIT_REQ_PER_MIN: String(config.rateLimitRequestsPerMinute) } : {}),
+        ...(config.rateLimitConcurrency ? { CYBER_RATE_LIMIT_MAX_CONCURRENT: String(config.rateLimitConcurrency) } : {}),
         // Context Management - conversation budget settings
         ...(config.conversationWindow !== undefined ? { CYBER_CONVERSATION_WINDOW: String(config.conversationWindow) } : {}),
         ...(config.conversationPreserveFirst !== undefined ? { CYBER_CONVERSATION_PRESERVE_FIRST: String(config.conversationPreserveFirst) } : {}),
@@ -1037,6 +1041,14 @@ export class PythonExecutionService extends EventEmitter {
           this.sawBackendToolOutput = false; // reset per tool
           // Remember the current tool name for proper attribution on flush
           try { (this as any)._currentToolName = eventData.tool_name || eventData.toolName || eventData.tool || undefined; } catch {}
+
+          if (eventData.type === 'tool_start') {
+            this.emit('event', {
+              type: 'output',
+              content: `◆ ${eventData.tool_name} ${JSON.stringify(eventData.tool_input)}`,
+              timestamp: Date.now()
+            });
+          }
         } else if (
           eventData.type === 'tool_invocation_end' ||
           eventData.type === 'tool_result' ||
@@ -1053,6 +1065,20 @@ export class PythonExecutionService extends EventEmitter {
           this.inToolExecution = false;
           this.sawBackendToolOutput = false;
           try { (this as any)._currentToolName = undefined; } catch {}
+
+          if (eventData.type === 'tool_end') {
+            var content : string;
+            if (eventData.success) {
+              content = `✓ ${eventData.tool_name}`;
+            } else {
+              content = `○ ${eventData.tool_name}`;
+            }
+            this.emit('event', {
+              type: 'output',
+              content: content,
+              timestamp: Date.now()
+            });
+          }
         }
 
         // Emit tool output immediately - backend already handles proper metadata and deduplication
