@@ -172,7 +172,6 @@ def test_prompt_optimizer_optimize_execution_with_empty_lists_dev_backup(tmp_pat
     from unittest.mock import patch
 
     root = _setup_env(tmp_path, monkeypatch)
-    monkeypatch.setenv("DEV", "true")
 
     optimized_path = root / "execution_prompt_optimized.txt"
     optimized_path.write_text("Current prompt")

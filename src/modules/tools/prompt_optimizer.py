@@ -472,13 +472,13 @@ def _optimize_execution_prompt(
 
     # Save optimized prompt
     try:
-        if os.getenv("DEV", "false") == "true":
-            # backup the current prompt
-            for idx in range(1, 100):
-                backup_path = Path(optimized_path.parent, optimized_path.name + "." + str(idx))
-                if not backup_path.exists():
-                    shutil.copy(optimized_path, backup_path)
-                    break
+        # backup the current prompt
+        for idx in range(1, 100):
+            backup_path = Path(optimized_path.parent, optimized_path.name + "." + str(idx))
+            if not backup_path.exists():
+                logger.debug('Saving %s to %s', optimized_path, backup_path)
+                shutil.copy(optimized_path, backup_path)
+                break
 
         with open(optimized_path, "w", encoding="utf-8") as f:
             f.write(optimized_prompt)

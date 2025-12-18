@@ -141,6 +141,8 @@ def test_prompt_rebuild_triggered_at_interval(
     mock_callback_handler, mock_memory, mock_config, setup_operation_folder
 ):
     """Test that rebuild is triggered when interval is reached."""
+    (setup_operation_folder / "execution_prompt_optimized.txt").touch()
+
     hook = PromptRebuildHook(
         callback_handler=mock_callback_handler,
         memory_instance=mock_memory,
@@ -172,6 +174,7 @@ def test_prompt_rebuild_triggered_at_interval(
     expected_prompt = "rebuilt prompt\n\n## MODULE EXECUTION GUIDANCE\nOriginal execution prompt content"
     assert mock_event.agent.system_prompt == expected_prompt
     assert hook.last_rebuild_step == 20
+    assert (setup_operation_folder / "execution_prompt_optimized.txt.1").exists()
 
 
 def test_prompt_rebuild_triggered_by_force_flag(
