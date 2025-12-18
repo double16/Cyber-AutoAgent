@@ -17,6 +17,7 @@ from langchain_aws import BedrockEmbeddings, ChatBedrock
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_litellm import ChatLiteLLM
+from langchain_core.load.dump import dumps
 from langfuse import Langfuse
 from ragas.dataset_schema import MultiTurnSample, SingleTurnSample
 from ragas.embeddings import LangchainEmbeddingsWrapper
@@ -460,7 +461,7 @@ class CyberAgentEvaluator:
                         adjusted[name] = val
                 scores = adjusted
         except Exception as e:
-            logger.debug("Evaluation policy inference failed: %s", e)
+            logger.debug("Evaluation policy inference failed: %s", exc_info=e)
 
         # Upload scores to Langfuse
         if hasattr(trace, "id"):
@@ -1073,7 +1074,7 @@ class CyberAgentEvaluator:
         )
         user_prompt = (
             "Features (JSON):\n"
-            + json.dumps(feats)
+            + dumps(feats)
             + "\n\n"
             + "Rules (conceptual, not hard-coded):\n"
             "- If evidence_count produced in this operation is low, cap evidence_quality and overall quality.\n"
@@ -1443,7 +1444,7 @@ class CyberAgentEvaluator:
             "Findings: Tooling verified; no new vulnerabilities validated this session.\n"
             "Outcomes: Objective achieved (tool testing complete).\n"
             "Gaps: No pentest validation attempted in-session.\n\n"
-            f"Raw data (JSON):\n{json.dumps(payload)[:max_chars]}\n\n"
+            f"Raw data (JSON):\n{dumps(payload)[:max_chars]}\n\n"
             "Return plain text (no markdown tables)."
         )
         try:
@@ -1519,7 +1520,7 @@ class CyberAgentEvaluator:
             )
             user_prompt = (
                 "Context for topic generation (JSON):\n"
-                + json.dumps(payload)
+                + dumps(payload)
                 + "\n\n"
                 + "Rules:\n"
                 "- Focus on security topics relevant to the target and objective.\n"
