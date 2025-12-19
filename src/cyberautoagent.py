@@ -279,7 +279,7 @@ def main():
     signal.signal(signal.SIGUSR1, dumpstacks)
 
     # Suppress extra debugging from LiteLLM that is printed to stderr
-    litellm.suppress_debug_info = False
+    litellm.suppress_debug_info = True
 
     # Check for service mode before normal argument parsing to avoid validation issues
     is_service_mode = "--service-mode" in sys.argv
