@@ -30,6 +30,14 @@ from modules.tools.channels import (
     channel_close_all,
 )
 from modules.tools.prompt_optimizer import prompt_optimizer
+from modules.tools.oast import (
+    oast_health,
+    oast_endpoints,
+    oast_poll,
+    oast_register_http_response,
+    oast_clear_http_responses,
+    close_oast_providers,
+)
 
 __all__ = [
     "mem0_memory",
@@ -54,4 +62,10 @@ __all__ = [
     "channel_status",
     "channel_close",
     "channel_close_all",
+    "oast_health",
+    "oast_endpoints",
+    "oast_poll",
+    "oast_register_http_response",
+    "oast_clear_http_responses",
+    "close_oast_providers",
 ]

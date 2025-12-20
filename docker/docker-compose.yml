@@ -57,6 +57,9 @@ services:
       - AZURE_OPENAI_ENDPOINT=${AZURE_API_BASE}
       - OPENAI_API_VERSION=${AZURE_API_VERSION}       
 
+      # WebHook.site API key (OAST Provider)
+      - WEBHOOK_API_KEY=${WEBHOOK_API_KEY}
+
       # Python configuration
       - PYTHONPATH=/app/src
       - PYTHONUNBUFFERED=1

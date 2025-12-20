@@ -67,6 +67,7 @@ from modules.handlers.utils import (
     dumpstacks,
 )
 from modules.tools import browser, channel_close_all
+from modules.tools.oast import close_oast_providers
 
 load_dotenv()
 
@@ -1050,6 +1051,7 @@ def main():
 
         loop = asyncio.new_event_loop()
         loop.run_until_complete(channel_close_all())
+        loop.run_until_complete(close_oast_providers())
         loop.close()
 
         # Ensure log files are properly closed before exit

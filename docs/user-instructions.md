@@ -363,6 +363,16 @@ Examples:
 - `CYBER_RATE_LIMIT_REQ_PER_MIN=3`
 - `CYBER_RATE_LIMIT_MAX_CONCURRENT=1`
 
+## OAST (Out-of-band Application Security Testing)
+
+OAST is used to capture callbacks from targets, particularly XSS payloads. There are two implementations available
+based on the network of the target. If the target uses a private IP address, an internal implementation is used.
+
+If the target uses a public IP address, https://webhook.site is used. Unauthenticated use is supported, but is limited by
+the number of requests. Providing the API KEY has unlimited requests and allows configuring responses.
+
+- `WEBHOOK_API_KEY=...`
+
 ## Docker Management
 
 ```bash

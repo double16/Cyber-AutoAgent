@@ -19,6 +19,7 @@ from strands.tools.executors import ConcurrentToolExecutor
 from strands_tools.editor import editor
 from strands_tools.load_tool import load_tool
 from strands_tools.shell import shell
+from strands_tools.sleep import sleep
 
 # These tools are modules, not functions, the following imports MUST import the module
 from strands_tools import (
@@ -83,7 +84,13 @@ from modules.tools.channels import (
     channel_poll,
     channel_status,
     channel_close,
-    channel_close_all,
+)
+from modules.tools.oast import (
+    oast_health,
+    oast_endpoints,
+    oast_poll,
+    oast_register_http_response,
+    oast_clear_http_responses,
 )
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -782,6 +789,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         stop,
         http_request,
         python_repl,
+        sleep,
         browser_set_headers,
         browser_goto_url,
         browser_get_page_html,
@@ -795,6 +803,11 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         channel_poll,
         channel_status,
         channel_close,
+        oast_health,
+        oast_endpoints,
+        oast_poll,
+        oast_register_http_response,
+        oast_clear_http_responses,
     ]
 
     if enable_prompt_optimization:
