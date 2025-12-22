@@ -241,13 +241,14 @@ run_benchmark() {
         --target "${target}" \
         --module ctf \
         --objective "${objective}" \
+        --iterations 200 \
         --verbose
 
     local agent_exit=$?
 
     echo "[*] cyber-autoagent exit code for ${bench_id}: ${agent_exit}"
 
-    if grep -q "${flag}" "../outputs/${bench_id}/*/security_assessment_report.md"; then
+    if grep -qF "${flag}" "../outputs/${bench_id}/$(ls -t | grep OP_ | head -n 1)/security_assessment_report.md"; then
       echo "[*] cyber-autoagent ${bench_id}: SOLVED"
     else
       echo "[-] cyber-autoagent ${bench_id}: UNSOLVED"
