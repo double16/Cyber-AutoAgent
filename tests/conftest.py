@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-# Disable dotenv loading in tests by setting LITELLM_MODE before any imports
-os.environ["LITELLM_MODE"] = "PRODUCTION"
+# Disable dotenv loading in tests
+os.environ["PYTHON_DOTENV_DISABLED"] = "true"
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
