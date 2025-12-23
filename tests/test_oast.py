@@ -11,10 +11,6 @@ import pytest
 import modules.tools.oast as oast_mod
 
 
-# ----------------------------
-# Helpers / stubs
-# ----------------------------
-
 @dataclass
 class _StubResponse:
     status_code: int = 200
@@ -98,10 +94,6 @@ class _TimeStub:
         self.now += max(0.0, float(seconds))
 
 
-# ----------------------------
-# Fixtures
-# ----------------------------
-
 @pytest.fixture(autouse=True)
 def _reset_provider_cache():
     oast_mod._OAST_PROVIDERS.clear()
@@ -116,31 +108,35 @@ def httpx_stub(monkeypatch) -> _HttpxStubFactory:
     return f
 
 
-# ----------------------------
-# Unit tests - small pure funcs
-# ----------------------------
-
 def test__host_for_url_ipv6_brackets():
     assert oast_mod._host_for_url("::1") == "[::1]"
     assert oast_mod._host_for_url("[::1]") == "[::1]"
     assert oast_mod._host_for_url("127.0.0.1") == "127.0.0.1"
 
 
-# ----------------------------
-# Unit tests - get_oast_provider
-# ----------------------------
-
 @pytest.mark.parametrize(
-    "target, expect_cls",
+    "target",
     [
-        (None, oast_mod.WebhookSiteProvider),
-        ("not-an-ip-or-host??", oast_mod.WebhookSiteProvider),  # ValueError -> global
-        ("8.8.8.8", oast_mod.WebhookSiteProvider),  # global IP
+        None,
+        "not-an-ip-or-host??",
     ],
 )
-def test_get_oast_provider_global_paths(target, expect_cls):
+def test_get_oast_provider_invalid_target(target):
+    with pytest.raises(ValueError):
+        oast_mod.get_oast_provider(target)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "8.8.8.8",
+        "google.com",
+        "https://google.com",
+    ],
+)
+def test_get_oast_provider_global_paths(target):
     p = oast_mod.get_oast_provider(target)
-    assert isinstance(p, expect_cls)
+    assert isinstance(p, oast_mod.WebhookSiteProvider)
 
     # should be cached by bind_target "global"
     p2 = oast_mod.get_oast_provider("1.1.1.1")
@@ -159,14 +155,26 @@ def test_get_oast_provider_private_uses_pick_local_addr(monkeypatch):
     assert p is p2
 
 
-def test_get_oast_provider_private_valueerror_in_pick_local_addr_falls_back_to_global(monkeypatch):
+def test_get_oast_provider_private_uses_pick_local_addr_port(monkeypatch):
+    monkeypatch.setattr(oast_mod, "pick_local_addr", lambda target: ("127.0.0.1", 2))
+
+    p = oast_mod.get_oast_provider("10.0.0.10:80")
+    assert isinstance(p, oast_mod.LocalListenerOASTProvider)
+    assert p._bind_addr == "127.0.0.1"
+
+    # cached under bind_target "127.0.0.1"
+    p2 = oast_mod.get_oast_provider("10.0.0.10")
+    assert p is p2
+
+
+def test_get_oast_provider_private_valueerror_in_pick_local_addr_raises_upstream(monkeypatch):
     def _boom(_t: str):
         raise ValueError("nope")
 
     monkeypatch.setattr(oast_mod, "pick_local_addr", _boom)
 
-    p = oast_mod.get_oast_provider("10.0.0.99")
-    assert isinstance(p, oast_mod.WebhookSiteProvider)
+    with pytest.raises(ValueError):
+        oast_mod.get_oast_provider("10.0.0.99")
 
 
 # ----------------------------

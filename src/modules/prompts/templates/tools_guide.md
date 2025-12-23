@@ -50,6 +50,7 @@
 - Purpose: Record and report target interactions with out-of-band network services.
 - When to use: testing XSS (http or https), DNS, SMTP using callbacks, XSS attacks to exfiltrate browser
 - Workflow: oast_endpoints → construct payload using endpoint → oast_register_http_response to register payload → inject payload in target → oast_poll to validate callback
+- Parameters: target to select the listener address, prefer IP address, or a resolvable host name
 
 **swarm**
 - Purpose: Multi-agent collaboration for parallel capability testing

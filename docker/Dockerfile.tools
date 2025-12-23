@@ -83,6 +83,7 @@ RUN set -eux; \
     iproute2 \
     net-tools \
     traceroute \
+    openvpn \
     # Additional essential tools
     jq \
     yq \

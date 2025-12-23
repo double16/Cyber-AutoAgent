@@ -1,5 +1,7 @@
 import asyncio
+import socket
 import threading
+from urllib.parse import urlparse
 
 import httpx
 import functools
@@ -12,7 +14,8 @@ import uuid
 from typing import Optional, Dict, List, Any, Set, Deque
 from collections import deque
 
-from pydantic import BaseModel, Field
+import validators
+from pydantic import BaseModel, Field, ValidationError
 import json
 from http import HTTPStatus
 
@@ -24,6 +27,9 @@ from modules.tools.pick_nic import pick_local_addr
 
 logger = logging.getLogger(__name__)
 
+
+# TODO: allow oast endpoints to be passed in to support host VPNs
+# Example: run an interactsh server on the host
 
 class Endpoints(BaseModel):
     # Optional fields to support heterogeneous providers
@@ -720,15 +726,68 @@ class LocalListenerOASTProvider(OASTProvider):
 _OAST_LOCK = threading.Lock()
 _OAST_PROVIDERS: Dict[str, OASTProvider] = {}
 
+_TARGET_VALIDATION_ERROR = "target IP address or FQDN is required"
 
 def get_oast_provider(target: Optional[str] = None) -> OASTProvider:
+    if not target:
+        raise ValueError(_TARGET_VALIDATION_ERROR)
+
     try:
-        if not target or ipaddress.ip_address(target).is_global:
+        # IP address given
+        if ipaddress.ip_address(target).is_global:
             bind_target = "global"
         else:
-            bind_target, *_ = pick_local_addr(target)
+            try:
+                bind_target, *_ = pick_local_addr(target)
+            except OSError:
+                bind_target = "global"
     except ValueError:
-        bind_target = "global"
+        try:
+            # URL given
+            validators.url(target, skip_ipv4_addr=False, skip_ipv6_addr=False, simple_host=True, strict_query=False,
+                           consider_tld=False)
+            if "://" in target:
+                url_parsed = urlparse(target)
+            else:
+                url_parsed = urlparse("http://" + target)
+            if url_parsed.hostname:
+                target = url_parsed.hostname
+        except ValidationError:
+            try:
+                # Hostname given
+                validators.hostname(target, skip_ipv4_addr=False, skip_ipv6_addr=False, may_have_port=True,
+                                    simple_host=True, consider_tld=False)
+                target = urlparse("http://" + target).hostname
+            except ValidationError:
+                raise ValueError(_TARGET_VALIDATION_ERROR)
+
+        try:
+            # IP address given in a URL or ip:port
+            if ipaddress.ip_address(target).is_global:
+                bind_target = "global"
+            else:
+                try:
+                    bind_target, *_ = pick_local_addr(target)
+                except OSError:
+                    bind_target = "global"
+        except ValueError:
+            try:
+                bind_target = "global"
+                for _, _, _, _, ip_address_t, *_ in socket.getaddrinfo(target, 80):
+                    ip_address = ip_address_t[0]
+                    try:
+                        if ipaddress.ip_address(ip_address).is_global:
+                            bind_target = "global"
+                        else:
+                            bind_target, *_ = pick_local_addr(ip_address)
+                        target = ip_address
+                        print(f"target {ip_address} resolves to {target}")
+                        break
+                    except OSError:
+                        continue
+            except socket.gaierror:
+                raise ValueError(_TARGET_VALIDATION_ERROR)
+
     with _OAST_LOCK:
         if bind_target in _OAST_PROVIDERS:
             return _OAST_PROVIDERS.get(bind_target)
@@ -753,7 +812,7 @@ async def oast_health(target: str) -> HealthOutput:
     Check the health/reachability of the currently configured OAST provider.
 
     Args:
-        target: the name or IP address of the target, used to select a reachable network address
+        target: the IP address (preferred) or host name of the target, used to select a reachable network address
     """
     try:
         provider = get_oast_provider(target)
@@ -780,7 +839,7 @@ async def oast_endpoints(target: str) -> Endpoints:
     passing the values in a query string or POST data.
 
     Args:
-        target: the name or IP address of the target, used to select a reachable network address
+        target: the IP address (preferred) or host name of the target, used to select a reachable network address
     """
     return await get_oast_provider(target).init()
 
@@ -796,7 +855,7 @@ async def oast_poll(
     Invoke this tool when the user wants to check for interactions from the target to the OAST service.
 
     Args:
-        target: the name or IP address of the target, used to select a reachable network address
+        target: the IP address (preferred) or host name of the target, used to select a reachable network address
         timeout: The number of seconds to wait for interactions. A value of 0 returns immediately with any pending interactions.
     """
     timeout = max(0.0, min(600.0, timeout))
@@ -817,6 +876,8 @@ async def oast_poll(
 async def oast_register_http_response(target: str, inp: RegisterHttpResponseInput) -> None:
     """
     Register a dynamic HTTP response for the OAST http/https endpoint when a matching request is received.
+    Args:
+        target: the IP address (preferred) or host name of the target, used to select a reachable network address
     """
     provider = get_oast_provider(target)
     await provider.register_http_response(inp.match, inp.response, scheme=inp.scheme)
@@ -826,6 +887,8 @@ async def oast_register_http_response(target: str, inp: RegisterHttpResponseInpu
 async def oast_clear_http_responses(target: str, inp: ClearHttpResponsesInput = ClearHttpResponsesInput()) -> None:
     """
     Clear registered dynamic HTTP responses for the OAST provider.
+    Args:
+        target: the IP address (preferred) or host name of the target, used to select a reachable network address
     """
     provider = get_oast_provider(target)
     await provider.clear_http_responses(scheme=inp.scheme)

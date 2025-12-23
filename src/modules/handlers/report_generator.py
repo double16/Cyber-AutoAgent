@@ -259,7 +259,8 @@ Remember: You MUST use your build_report_sections tool first to get the evidence
         )
 
         # Generate the report using the agent with its tool
-        logger.info("Invoking report generation agent with structured prompt...")
+        logger.info("Invoking report generation agent with structured prompt of %d characters ...", len(agent_prompt))
+        logger.debug("Report prompt\n%s", agent_prompt)
         for retry in range(1,-1,-1):  # [1,0]
             try:
                 result = report_agent(agent_prompt)

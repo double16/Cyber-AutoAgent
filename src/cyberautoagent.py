@@ -696,6 +696,8 @@ def main():
                     # Execute agent with current message
                     result = agent(current_message)
 
+                    logger.debug(f"Agent result: {repr(result)}")
+
                     # Pass the metrics from the result to the callback handler
                     if (
                         callback_handler

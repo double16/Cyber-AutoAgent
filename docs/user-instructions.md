@@ -287,7 +287,7 @@ can be used to configure, command line options or environment variables.
          "server_url": "https://127.0.0.1:8000/mcp",
          "plugins": ["*"], 
          "timeoutSeconds": 900,
-         "allowedTools": ["port_scan", "directory_buster"]  // or ["*"]
+         "allowed_tools": ["port_scan","register_hostname_address","directory_buster","deobfuscate_javascript","fetch_web_resource_content","find_domains","find_hosts","find_netloc","find_urls","find_web_resources","spider_website","index_http_url","query_findings","web_search","unavailable"]  // or ["*"]
       }
     ]
   }
