@@ -850,6 +850,7 @@ def main():
 
                 except Exception as error:
                     # Handle other termination scenarios
+                    logger.debug("Termination exception", exc_info=error)
                     error_str = str(error).lower()
                     if "maxtokensreached" in error_str or "max_tokens" in error_str:
                         # Fallback path if the specific exception type wasn't available
@@ -902,7 +903,7 @@ def main():
                         # Don't break - let finally block handle report generation
                     else:
                         print_status(f"Agent error: {str(error)}", "ERROR")
-                        logger.exception("Unexpected agent error occurred")
+                        logger.exception("Unexpected agent error occurred", exc_info=error)
                     break
 
             execution_time = time.time() - operation_start
