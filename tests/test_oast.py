@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Tuple
@@ -702,6 +703,13 @@ async def test_oast_register_http_response_tool_delegates(monkeypatch):
     assert calls["match"].target == "/x"
     assert calls["response"].status == 204
 
+    calls.clear()
+    await oast_mod.oast_register_http_response("t", inp.model_dump_json())
+    assert calls["scheme"] == "http"
+    assert calls["scheme"] == "http"
+    assert calls["match"].target == "/x"
+    assert calls["response"].status == 204
+
 
 @pytest.mark.asyncio
 async def test_oast_clear_http_responses_tool_delegates(monkeypatch):
@@ -720,7 +728,13 @@ async def test_oast_clear_http_responses_tool_delegates(monkeypatch):
     prov = _P()
     monkeypatch.setattr(oast_mod, "get_oast_provider", lambda _t: prov)
 
-    await oast_mod.oast_clear_http_responses("t", oast_mod.ClearHttpResponsesInput(scheme="https"))
+    inp = oast_mod.ClearHttpResponsesInput(scheme="https")
+
+    await oast_mod.oast_clear_http_responses("t", inp)
+    assert calls["scheme"] == "https"
+
+    calls.clear()
+    await oast_mod.oast_clear_http_responses("t", inp.model_dump_json())
     assert calls["scheme"] == "https"
 
 

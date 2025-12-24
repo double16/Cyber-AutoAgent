@@ -11,7 +11,7 @@ import os
 import tempfile
 import time
 import uuid
-from typing import Optional, Dict, List, Any, Set, Deque
+from typing import Optional, Dict, List, Any, Set, Deque, Union
 from collections import deque
 
 import validators
@@ -873,22 +873,42 @@ async def oast_poll(
 
 
 @tool
-async def oast_register_http_response(target: str, inp: RegisterHttpResponseInput) -> None:
+async def oast_register_http_response(
+        target: str,
+        inp: Union[str, RegisterHttpResponseInput]
+) -> None:
     """
     Register a dynamic HTTP response for the OAST http/https endpoint when a matching request is received.
     Args:
         target: the IP address (preferred) or host name of the target, used to select a reachable network address
     """
     provider = get_oast_provider(target)
+    if isinstance(inp, str):
+        if inp.startswith("{") and inp.endswith("}"):
+            inp = RegisterHttpResponseInput(**json.loads(inp))
+        else:
+            raise ValidationError(
+                "Error: Validation failed for input parameters, Input should be a valid dictionary or instance of RegisterHttpResponseInput")
     await provider.register_http_response(inp.match, inp.response, scheme=inp.scheme)
 
 
 @tool
-async def oast_clear_http_responses(target: str, inp: ClearHttpResponsesInput = ClearHttpResponsesInput()) -> None:
+async def oast_clear_http_responses(
+        target: str,
+        inp: Optional[Union[str, ClearHttpResponsesInput]] = ClearHttpResponsesInput()
+) -> None:
     """
     Clear registered dynamic HTTP responses for the OAST provider.
     Args:
         target: the IP address (preferred) or host name of the target, used to select a reachable network address
     """
     provider = get_oast_provider(target)
+    if inp is None:
+        inp = ClearHttpResponsesInput()
+    elif isinstance(inp, str):
+        if inp.startswith("{") and inp.endswith("}"):
+            inp = ClearHttpResponsesInput(**json.loads(inp))
+        else:
+            raise ValidationError(
+                "Error: Validation failed for input parameters, Input should be a valid dictionary or instance of ClearHttpResponsesInput")
     await provider.clear_http_responses(scheme=inp.scheme)

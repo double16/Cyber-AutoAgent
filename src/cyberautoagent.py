@@ -683,6 +683,7 @@ def main():
         try:
             operation_start = time.time()
             current_message = initial_prompt
+            step0_retry = 1
 
             # SDK-aligned execution loop with continuation support
             while not interrupted:
@@ -732,7 +733,8 @@ def main():
                             print_status("Step limit reached - terminating", "SUCCESS")
                         break
 
-                    # If agent hasn't done anything substantial for a while, break to avoid infinite loop
+                    # TODO: If agent hasn't done anything substantial for a while, break to avoid infinite loop
+
                     # Allow at least one assistant turn to emit reasoning before concluding no action
                     if callback_handler.current_step == 0:
                         # If we've seen any reasoning emitted, give the agent one more cycle
@@ -741,9 +743,10 @@ def main():
                             logger.debug(
                                 "Initial reasoning observed with no tools yet; continuing one more cycle"
                             )
-                        else:
+                        elif step0_retry <= 0:
                             print_status("No actions taken - completing", "SUCCESS")
                             break
+                        step0_retry -= 1
 
                     # Generate continuation prompt
                     remaining_steps = (
@@ -892,8 +895,9 @@ def main():
                     elif "step limit" in error_str:
                         print_status("Step limit reached", "SUCCESS")
                     elif (
-                            any(n in error_str for n in ["read timed out", "readtimeouterror", "network connection"])
+                            any(n in error_str for n in ["read timed out", "readtimeouterror", "network connection", "ratelimiterror"])
                     ):
+                        # TODO: combine this detection into block above that uses exception types for consistent handling
                         # Handle provider timeouts - these are now less likely with our config
                         # but if they occur, we should save progress and report it
                         logger.warning(
