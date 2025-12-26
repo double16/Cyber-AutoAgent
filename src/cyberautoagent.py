@@ -684,14 +684,19 @@ def main():
             operation_start = time.time()
             current_message = initial_prompt
             step0_retry = 2
+            # the number of consecutive action-less results
+            actionless_step_count = 0
 
             # SDK-aligned execution loop with continuation support
             while not interrupted:
                 try:
                     print_status(
-                        f"Agent processing: {current_message[:100]}{'...' if len(current_message) > 100 else ''}",
+                        f"Agent processing: {current_message[:100]}{' ...' if len(current_message) > 100 else ''}",
                         "THINKING",
                     )
+                    logger.debug(f"Agent processing: {current_message}")
+
+                    last_step = callback_handler.current_step
 
                     _ensure_prompt_within_budget(agent)
                     # Execute agent with current message
@@ -718,6 +723,22 @@ def main():
                                 )
                                 callback_handler.process_metrics(metrics_obj)
 
+                    # Ensure step is incremented and detect lack of progress
+                    if callback_handler and callback_handler.current_step == last_step:
+                        tool_total_count = sum(callback_handler.tool_counts.values())
+                        logger.debug("Incrementing step because agent returned but callback_handler did not, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
+                                     str(callback_handler.pending_step_header),
+                                     tool_total_count,
+                                     str(getattr(callback_handler, '_reasoning_emitted_since_last_step_header', None))
+                                     )
+                        callback_handler.current_step += 1
+                        if callback_handler.pending_step_header:
+                            actionless_step_count += 1
+                        else:
+                            actionless_step_count = 0
+                    else:
+                        actionless_step_count = 0
+
                     # Check if we should continue
                     if callback_handler and callback_handler.should_stop():
                         if callback_handler.stop_tool_used:
@@ -733,8 +754,6 @@ def main():
                             print_status("Step limit reached - terminating", "SUCCESS")
                         break
 
-                    # TODO: If agent hasn't done anything substantial for a while, break to avoid infinite loop
-
                     # Allow at least one assistant turn to emit reasoning before concluding no action
                     if callback_handler.current_step == 0:
                         # If we've seen any reasoning emitted, give the agent one more cycle
@@ -747,6 +766,10 @@ def main():
                             print_status("No actions taken - completing", "SUCCESS")
                             break
                         step0_retry -= 1
+                    # If agent hasn't done anything substantial for a while, break to avoid infinite loop
+                    elif actionless_step_count > 2:
+                        print_status("No actions taken - completing", "SUCCESS")
+                        break
 
                     # Generate continuation prompt
                     remaining_steps = (

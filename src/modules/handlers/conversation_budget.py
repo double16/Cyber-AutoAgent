@@ -397,6 +397,7 @@ class LargeToolResultMapper:
             if "text" in block:
                 content_types.append("text")
                 text = block["text"]
+                # TODO: If already truncated, modify truncated messages instead of treating as original output
                 if len(text) > self.truncate_at:
                     truncated = (
                         text[: self.truncate_at]
@@ -414,6 +415,7 @@ class LargeToolResultMapper:
 
                 if payload_len > self.truncate_at:
                     # Create structured compression metadata
+                    # TODO: If already truncated, modify truncated messages instead of treating as original output
                     if isinstance(json_data, dict):
                         json_original_keys = len(json_data)
                         # Sample first few keys with size check (Strands pattern)
@@ -497,6 +499,7 @@ class LargeToolResultMapper:
         # Compress input fields
         for key, value in input_data.items():
             value_str = str(value)
+            # TODO: If already truncated, modify truncated messages instead of treating as original output
             if len(value_str) > self.truncate_at:
                 compressed_input[key] = (
                     value_str[: self.truncate_at]
