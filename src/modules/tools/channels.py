@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
 
-from .pick_nic import pick_local_addr
+from modules.utils.pick_nic import pick_local_addr
 from modules.handlers.utils import b64
 
 from strands import tool

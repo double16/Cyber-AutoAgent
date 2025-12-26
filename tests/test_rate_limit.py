@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import Mock
 
-import modules.agents.rate_limit as rl
+import modules.rate_limit.rate_limit as rl
+from modules.config import types
 
 
 @pytest.fixture
@@ -132,7 +133,7 @@ def test_estimate_tokens_rough_includes_text_json_and_assume_output():
 # ----------------------------
 
 def test_limiter_init_builds_buckets_and_uses_rpm_per_second_refill():
-    cfg = rl.RateLimitConfig(rpm=30.0, tpm=600.0, max_concurrent=None)
+    cfg = types.RateLimitConfig(rpm=30.0, tpm=600.0, max_concurrent=None)
     limiter = rl.ThreadSafeRateLimiter(cfg)
 
     assert limiter._req_bucket is not None
@@ -146,7 +147,7 @@ def test_limiter_init_builds_buckets_and_uses_rpm_per_second_refill():
 
 
 def test_acquire_blocking_calls_buckets_and_returns_release():
-    cfg = rl.RateLimitConfig(rpm=10.0, tpm=100.0, max_concurrent=1)
+    cfg = types.RateLimitConfig(rpm=10.0, tpm=100.0, max_concurrent=1)
     limiter = rl.ThreadSafeRateLimiter(cfg)
 
     limiter._req_bucket = Mock()
@@ -164,7 +165,7 @@ def test_acquire_blocking_calls_buckets_and_returns_release():
 
 
 def test_acquire_blocking_releases_semaphore_on_exception():
-    cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=1)
+    cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=1)
     limiter = rl.ThreadSafeRateLimiter(cfg)
 
     limiter._req_bucket = Mock()
@@ -204,7 +205,7 @@ async def test_patch_and_unpatch_stream(monkeypatch, inline_to_thread):
                 yield e
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
 
     released = {"count": 0}
 
@@ -247,7 +248,7 @@ async def test_patch_structured_output(monkeypatch, inline_to_thread):
             yield {"ok": True}
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
 
     released = {"count": 0}
 
@@ -280,7 +281,7 @@ def test_patch_model_provider_class_no_stream_is_noop(monkeypatch):
         pass
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0)
 
     rl.patch_model_provider_class(NoStream, limiter)
     assert not hasattr(NoStream, rl._ORIG_STREAM_ATTR)
@@ -308,7 +309,7 @@ def test_patch_generate_calls_limiter_and_releases(monkeypatch):
         calls["release"] += 1
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
     limiter.acquire_blocking.return_value = release
 
     class DummyLC:
@@ -355,7 +356,7 @@ async def test_patch_agenerate_calls_limiter_and_releases(monkeypatch, inline_to
         calls["release"] += 1
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
     limiter.acquire_blocking.return_value = release
 
     class DummyLC:
@@ -404,7 +405,7 @@ def test_unpatch_is_idempotent(monkeypatch):
     rl.unpatch_langchain_chat_class_generate(DummyLC)
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, assume_output_tokens=0)
     limiter.acquire_blocking.return_value = lambda: None
 
     try:
@@ -423,7 +424,7 @@ def test_patch_missing_methods_is_noop(monkeypatch):
         pass
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0)
 
     rl.patch_langchain_chat_class_generate(NoGenerate, limiter)
 

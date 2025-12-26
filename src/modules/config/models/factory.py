@@ -22,8 +22,6 @@ from langchain_ollama import ChatOllama
 from langchain_litellm import ChatLiteLLM
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from modules.agents.rate_limit import patch_model_provider_class, ThreadSafeRateLimiter, \
-    patch_langchain_chat_class_generate
 from modules.config.providers import get_ollama_host
 from modules.config.providers.ollama_config import get_ollama_timeout
 from modules.config.system import EnvironmentReader
@@ -932,6 +930,11 @@ def configure_model_rate_limits(provider: Optional[str] = None):
         return
 
     # limiter must be per-provider
+    from modules.rate_limit.rate_limit import (
+        ThreadSafeRateLimiter,
+        patch_model_provider_class,
+        patch_langchain_chat_class_generate
+    )
 
     if provider == "ollama":
         limiter = ThreadSafeRateLimiter(rate_limit_config)

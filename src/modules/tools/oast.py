@@ -1,5 +1,6 @@
 import asyncio
 import socket
+import sys
 import threading
 from urllib.parse import urlparse
 
@@ -21,11 +22,16 @@ from http import HTTPStatus
 
 from strands import tool
 
-from modules.config import get_config_manager
 from modules.handlers import b64
-from modules.tools.pick_nic import pick_local_addr
+from modules.utils.pick_nic import pick_local_addr
 
 logger = logging.getLogger(__name__)
+
+
+def _get_config_manager():
+    """Lazy import to avoid circular dependency."""
+    from modules.config.manager import get_config_manager
+    return get_config_manager()
 
 
 # TODO: allow oast endpoints to be passed in to support host VPNs
@@ -137,7 +143,7 @@ class WebhookSiteProvider(OASTProvider):
         self._response_rules: List[RegisterHttpResponseInput] = []
         self._response_action_id: Optional[str] = None
 
-        config_manager = get_config_manager()
+        config_manager = _get_config_manager()
         self._headers = {"Accept": "application/json", "Content-Type": "application/json"}
         webhook_api_key = config_manager.getenv("WEBHOOK_API_KEY", "")
         if webhook_api_key:
@@ -415,6 +421,7 @@ class LocalListenerOASTProvider(OASTProvider):
             return await self.endpoints()
 
         try:
+            # Requests are not returning. Could be a malformed request is holding up the thread, add a timeout. Reading could be incorrect.
             await self._start_http()
             await self._start_https()
             self._endpoints = self._build_endpoints()
@@ -451,18 +458,10 @@ class LocalListenerOASTProvider(OASTProvider):
 
         if self._http_server:
             self._http_server.close()
-            try:
-                await self._http_server.wait_closed()
-            except Exception:
-                pass
             self._http_server = None
 
         if self._https_server:
             self._https_server.close()
-            try:
-                await self._https_server.wait_closed()
-            except Exception:
-                pass
             self._https_server = None
 
         if self._tmpdir:
@@ -527,29 +526,33 @@ class LocalListenerOASTProvider(OASTProvider):
         sock = writer.get_extra_info("sockname")
 
         try:
-            req = await self._read_http_request(reader)
-            interaction = {
-                "id": str(uuid.uuid4()),
-                "ts": time.time(),
-                "scheme": scheme,
-                "local": {"addr": sock[0], "port": sock[1]} if sock else None,
-                "remote": {"addr": peer[0], "port": peer[1]} if peer else None,
-                **req,
-            }
-            async with self._lock:
-                self._events.append(interaction)
+            async with asyncio.timeout(10.0):
+                req = await self._read_http_request(reader)
+                interaction = {
+                    "id": str(uuid.uuid4()),
+                    "ts": time.time(),
+                    "scheme": scheme,
+                    "local": {"addr": sock[0], "port": sock[1]} if sock else None,
+                    "remote": {"addr": peer[0], "port": peer[1]} if peer else None,
+                    **req,
+                }
+                async with self._lock:
+                    while len(self._events) > 100:
+                        self._events.popleft()
+                    self._events.append(interaction)
 
-            # If a registered response matches, return it; otherwise return a simple 200 OK.
-            resp_spec = self._select_registered_response(scheme, req)
-            resp = self._format_http_response(resp_spec)
-            writer.write(resp)
-            await writer.drain()
+                # If a registered response matches, return it; otherwise return a simple 200 OK.
+                resp_spec = self._select_registered_response(scheme, req)
+                resp = self._format_http_response(resp_spec)
+                writer.write(resp)
+                await writer.drain()
+        except TimeoutError:
+            logger.debug("Client handler timeout")
         except Exception as e:
             logger.debug("Client handler error (%s): %s", scheme, e)
         finally:
             try:
                 writer.close()
-                await writer.wait_closed()
             except Exception:
                 pass
 
@@ -912,3 +915,19 @@ async def oast_clear_http_responses(
             raise ValidationError(
                 "Error: Validation failed for input parameters, Input should be a valid dictionary or instance of ClearHttpResponsesInput")
     await provider.clear_http_responses(scheme=inp.scheme)
+
+
+async def main(target="127.0.0.1") -> None:
+    provider = get_oast_provider(target)
+    endpoints = await provider.init()
+    print(repr(endpoints))
+    try:
+        while True:
+            await asyncio.sleep(5)
+            print(repr(await provider.poll_new()))
+    except:
+        await provider.deregister()
+
+
+if __name__ == "__main__":
+    asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"))

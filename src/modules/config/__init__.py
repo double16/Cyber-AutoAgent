@@ -12,6 +12,7 @@ from modules.config.types import (
     EmbeddingConfig,
     ServerConfig,
     AgentConfig,
+    RateLimitConfig,
 )
 from modules.config.manager import (
     ConfigManager,
@@ -36,6 +37,7 @@ __all__ = [
     "EmbeddingConfig",
     "ServerConfig",
     "AgentConfig",
+    "RateLimitConfig",
     # Environment setup
     "auto_setup",
     "setup_logging",

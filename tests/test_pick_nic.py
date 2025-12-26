@@ -3,7 +3,7 @@ from __future__ import annotations
 import socket
 import pytest
 
-import modules.tools.pick_nic as m
+import modules.utils.pick_nic as m
 
 
 def test_pick_local_addr_loopback_ipv4():

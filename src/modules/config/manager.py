@@ -22,7 +22,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import litellm
 import ollama
 
-from modules.agents.rate_limit import RateLimitConfig
 from modules.handlers.utils import get_output_path, sanitize_target_name
 from modules.config.system.logger import get_logger
 from modules.config.models.dev_client import get_models_client
@@ -43,6 +42,7 @@ from modules.config.types import (
     MCPConfig,
     MEM0_PROVIDER_MAP,
     get_default_base_dir,
+    RateLimitConfig,
 )
 from modules.config.system.env_reader import EnvironmentReader
 from modules.config.system.defaults import build_default_configs

@@ -7,19 +7,19 @@ the operation.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 import time
 import threading
 import json
 
-from dataclasses import dataclass
 from typing import Any, Optional, Type, TypeVar, Callable
 
-from modules.config.system.logger import get_logger
+from modules.config.types import RateLimitConfig
 
 T = TypeVar("T")
 
-logger = get_logger("RateLimit")
+logger = logging.getLogger("RateLimit")
 
 
 # ----------------------------
@@ -82,21 +82,6 @@ class _TokenBucket:
             }
             print(f"__CYBER_EVENT__{json.dumps(rate_limit_event)}__CYBER_EVENT_END__")
             time.sleep(sleep_time)
-
-
-@dataclass(frozen=True)
-class RateLimitConfig:
-    # Requests per minute (set None to disable)
-    rpm: Optional[float] = None
-
-    # Tokens per minute (set None to disable)
-    tpm: Optional[float] = None
-
-    # Max in-flight model calls (set None to disable)
-    max_concurrent: Optional[int] = None
-
-    # Token estimation knobs
-    assume_output_tokens: int = 0  # add a constant to estimated input tokens
 
 
 class ThreadSafeRateLimiter:

@@ -683,7 +683,7 @@ def main():
         try:
             operation_start = time.time()
             current_message = initial_prompt
-            step0_retry = 1
+            step0_retry = 2
 
             # SDK-aligned execution loop with continuation support
             while not interrupted:

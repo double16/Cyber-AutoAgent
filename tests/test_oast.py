@@ -183,7 +183,7 @@ def test_get_oast_provider_private_valueerror_in_pick_local_addr_raises_upstream
 # ----------------------------
 
 def test_webhook_headers_include_api_key(monkeypatch):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({"WEBHOOK_API_KEY": "KEY"}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({"WEBHOOK_API_KEY": "KEY"}))
     p = oast_mod.WebhookSiteProvider()
     h = p._headers
     assert h["Api-Key"] == "KEY"
@@ -192,7 +192,7 @@ def test_webhook_headers_include_api_key(monkeypatch):
 
 
 def test_webhook_headers_no_api_key(monkeypatch):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
     p = oast_mod.WebhookSiteProvider()
     h = p._headers
     assert "Api-Key" not in h
@@ -200,7 +200,7 @@ def test_webhook_headers_no_api_key(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_webhook_health_non_200(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
     httpx_stub.on("GET", "https://webhook.site", lambda **kw: _StubResponse(503, None))
 
     p = oast_mod.WebhookSiteProvider()
@@ -211,7 +211,7 @@ async def test_webhook_health_non_200(monkeypatch, httpx_stub: _HttpxStubFactory
 
 @pytest.mark.asyncio
 async def test_webhook_init_is_idempotent(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
 
     httpx_stub.on("POST", "https://webhook.site/token", lambda **kw: _StubResponse(200, {"uuid": "abc"}))
 
@@ -230,7 +230,7 @@ async def test_webhook_init_is_idempotent(monkeypatch, httpx_stub: _HttpxStubFac
 
 @pytest.mark.asyncio
 async def test_webhook_poll_new_handles_missing_uuid_and_empty_data(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
 
     p = oast_mod.WebhookSiteProvider()
     p.inited = True
@@ -256,7 +256,7 @@ async def test_webhook_poll_new_handles_missing_uuid_and_empty_data(monkeypatch,
 
 @pytest.mark.asyncio
 async def test_webhook_poll_new_when_response_json_is_none(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
 
     p = oast_mod.WebhookSiteProvider()
     p.inited = True
@@ -271,7 +271,7 @@ async def test_webhook_poll_new_when_response_json_is_none(monkeypatch, httpx_st
 
 @pytest.mark.asyncio
 async def test_webhook_deregister_noop_when_not_inited(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
 
     p = oast_mod.WebhookSiteProvider()
     p.inited = False
@@ -283,7 +283,7 @@ async def test_webhook_deregister_noop_when_not_inited(monkeypatch, httpx_stub: 
 
 @pytest.mark.asyncio
 async def test_webhook_deregister_calls_delete(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
 
     p = oast_mod.WebhookSiteProvider()
     p.inited = True
@@ -298,7 +298,7 @@ async def test_webhook_deregister_calls_delete(monkeypatch, httpx_stub: _HttpxSt
 
 @pytest.mark.asyncio
 async def test_webhook_register_http_response_creates_and_updates_action(monkeypatch, httpx_stub: _HttpxStubFactory):
-    monkeypatch.setattr(oast_mod, "get_config_manager", lambda: _Cfg({}))
+    monkeypatch.setattr(oast_mod, "_get_config_manager", lambda: _Cfg({}))
 
     # init -> create token
     httpx_stub.on("POST", "https://webhook.site/token", lambda **kw: _StubResponse(200, {"uuid": "abc"}))
