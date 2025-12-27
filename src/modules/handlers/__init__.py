@@ -15,6 +15,7 @@ from modules.handlers.utils import (
     print_status,
     sanitize_target_name,
     validate_output_path,
+    b64,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "print_section",
     "print_status",
     "analyze_objective_completion",
+    "b64",
 ]

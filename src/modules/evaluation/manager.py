@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from .evaluation import CyberAgentEvaluator
 from modules.config.system.logger import get_logger
+from ..handlers.events import EventEmitter, get_emitter
 
 logger = get_logger("Evaluation.Manager")
 
@@ -54,7 +55,7 @@ class EvaluationManager:
     report generation.
     """
 
-    def __init__(self, operation_id: str):
+    def __init__(self, operation_id: str, emitter: Optional[EventEmitter] = None):
         """
         Initialize the evaluation manager.
 
@@ -67,6 +68,7 @@ class EvaluationManager:
         self._lock = threading.Lock()
         self._evaluation_thread: Optional[threading.Thread] = None
         self._evaluation_complete = threading.Event()
+        self._emitter = emitter or get_emitter(operation_id=operation_id)
 
     def register_trace(
         self,
@@ -137,7 +139,7 @@ class EvaluationManager:
         """
         # Initialize evaluator if not already done
         if not self.evaluator:
-            self.evaluator = CyberAgentEvaluator()
+            self.evaluator = CyberAgentEvaluator(emitter=self._emitter)
 
         results = {}
         unevaluated = self.get_unevaluated_traces()

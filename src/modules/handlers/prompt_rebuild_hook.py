@@ -15,6 +15,7 @@ Key Features:
 
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -597,6 +598,14 @@ Without category='finding', your work will NOT appear in the final report.
 
             # Phase 5: Persist optimized prompt with error handling
             try:
+                # backup the current prompt
+                for idx in range(1, 100):
+                    backup_path = Path(self.exec_prompt_path.parent, self.exec_prompt_path.name + "." + str(idx))
+                    if not backup_path.exists():
+                        logger.debug('Saving %s to %s', self.exec_prompt_path, backup_path)
+                        shutil.copy(self.exec_prompt_path, backup_path)
+                        break
+
                 self.exec_prompt_path.write_text(optimized, encoding="utf-8")
                 logger.info("Optimized execution prompt saved to %s", self.exec_prompt_path)
             except PermissionError as perm_err:

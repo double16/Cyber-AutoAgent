@@ -248,6 +248,7 @@ def test_auto_optimization_rewrites_prompt(
         optimized_content = hook.exec_prompt_path.read_text()
         assert "Focus Areas (Working)" in optimized_content
         assert "Avoid (Dead Ends)" in optimized_content
+        assert (setup_operation_folder / "execution_prompt_optimized.txt.1").exists()
 
 
 @patch.dict(os.environ, {"CYBER_ENABLE_PROMPT_OPTIMIZER": "true"})

@@ -5,7 +5,7 @@ Utility functions for the handlers module.
 This module contains general utility functions for file operations,
 output formatting, and message analysis.
 """
-
+import base64
 import json
 import os
 import pathlib
@@ -471,3 +471,7 @@ def dumpstacks(signal, frame):
         print("\n".join(h.heap()[0:12]))
     except ImportError:
         pass
+
+
+def b64(b: bytes) -> str:
+    return base64.b64encode(b).decode("ascii")

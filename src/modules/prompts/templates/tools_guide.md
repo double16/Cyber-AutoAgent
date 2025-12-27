@@ -46,6 +46,12 @@
 - Integration: Extract cookies/tokens → use with http_request for API testing, or evaluate JS for localStorage/session data
 - Anti-pattern: Using browser when http_request suffices (wastes resources, slower, more complex)
 
+**`oast_*` tools**
+- Purpose: Record and report target interactions with out-of-band network services.
+- When to use: testing XSS (http or https), DNS, SMTP using callbacks, XSS attacks to exfiltrate browser
+- Workflow: oast_endpoints → construct payload using endpoint → oast_register_http_response to register payload → inject payload in target → oast_poll to validate callback
+- Parameters: target to select the listener address, prefer IP address, or a resolvable host name
+
 **swarm**
 - Purpose: Multi-agent collaboration for parallel capability testing
 - Configuration: 2-3 agents max, max_handoffs=3, max_iterations=8, node_timeout=3200, execution_timeout=3800
@@ -78,6 +84,23 @@
 - External intel: NVD/CVE, Exploit-DB, vendor advisories, Shodan/Censys, VirusTotal
 - Large responses (HTML/JS): Save raw to <artifacts_path>/*.html, grep/sed to extract relevant data, store only file path in findings
 - Managed endpoints: Common keys (Vercel, Supabase anon, Tenderly RPC, analytics) often normal - treat as observations unless abuse/sensitive exposure demonstrated with artifacts
+
+**`channel_*` tools**
+- Purpose: Interact with network services by directly sending and receiving bytes.
+- When to use: Direct TCP connection is needed to control each byte send. Receiving a connection back, such as a reverse
+  shell.
+- When NOT: Protocol specific tools will work, such as http_request, ftp, smb_client.
+- Usage:
+  - The **channel_create_forward** tool creates a channel by using a command like `nc 1.2.3.4 8080` and a channel ID is
+    returned.
+  - A reverse channel opens a listening socket and returns the IP address, port and channel ID. Send the IP address and
+    port to the target.
+  - The channel ID *must* be kept for further `channel_*` tools.
+
+**sleep**
+- Purpose: Wait for external processes to complete
+- When to use: An external process is running on the target, a tool reports to try again later
+- When NOT: Waiting for an oast_poll response (use timeout argument instead)
 
 **stop**
 - Valid: Objective achieved with artifacts OR budget ≥95% (from REFLECTION SNAPSHOT)

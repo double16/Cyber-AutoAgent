@@ -406,8 +406,15 @@ def swarm(
             parent_agent=agent,
         )
 
-        # adjust minimum timeouts based on agent timeout
+        # adjust minimum timeouts based on agent timeout and rate limit
+        rate_limit_config = get_config_manager().get_rate_limit_config()
         model_timeout = get_model_timeout(swarm_agents[0].model)
+        # assume about 3 seconds per model request without limiting, so 20 requests per minute
+        # NOTE: this is a really rough adjustment
+        if rate_limit_config and rate_limit_config.rpm:
+            rate_limit_scale = max(1.0, 20.0 / rate_limit_config.rpm)
+        else:
+            rate_limit_scale = 1.0
 
         # enforce minimum values to address bad LLM values
         max_handoffs = max(max_handoffs,  20)
@@ -415,11 +422,11 @@ def swarm(
         repetitive_handoff_detection_window = max(repetitive_handoff_detection_window, 8)
         repetitive_handoff_min_unique_agents = max(repetitive_handoff_min_unique_agents, 3)
         if model_timeout and model_timeout > 300.0:
-            execution_timeout = max(execution_timeout, model_timeout*3)
-            node_timeout = max(node_timeout, model_timeout)
+            execution_timeout = max(execution_timeout, model_timeout * 3, 900.0 * rate_limit_scale)
+            node_timeout = max(node_timeout, model_timeout, 300.0 * rate_limit_scale)
         else:
-            execution_timeout = max(execution_timeout, 900.0)
-            node_timeout = max(node_timeout, 300.0)
+            execution_timeout = max(execution_timeout, 900.0 * rate_limit_scale)
+            node_timeout = max(node_timeout, 300.0 * rate_limit_scale)
 
         # Create SDK Swarm with configuration
         sdk_swarm = Swarm(

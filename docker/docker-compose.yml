@@ -15,10 +15,14 @@ services:
       - NET_RAW      # For packet crafting (nmap SYN scans, tcpdump)
       - NET_ADMIN    # For network administration
       - SYS_PTRACE   # For process tracing (some exploitation tools)
+    devices:
+      - /dev/net/tun
     environment:
       # Provider Configuration
       - CYBER_AGENT_PROVIDER=${CYBER_AGENT_PROVIDER:-bedrock}
       - CYBER_AGENT_LLM_MODEL=${CYBER_AGENT_LLM_MODEL}
+      - CYBER_AGENT_SWARM_MODEL=${CYBER_AGENT_SWARM_MODEL}
+      - CYBER_AGENT_EVALUATION_MODEL=${CYBER_AGENT_EVALUATION_MODEL}
       - CYBER_AGENT_EMBEDDING_MODEL=${CYBER_AGENT_EMBEDDING_MODEL}
       - MAX_TOKENS=${MAX_TOKENS}
       - MAX_COMPLETION_TOKENS=${MAX_COMPLETION_TOKENS}
@@ -54,6 +58,9 @@ services:
       - AZURE_OPENAI_API_KEY=${AZURE_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_API_BASE}
       - OPENAI_API_VERSION=${AZURE_API_VERSION}       
+
+      # WebHook.site API key (OAST Provider)
+      - WEBHOOK_API_KEY=${WEBHOOK_API_KEY}
 
       # Python configuration
       - PYTHONPATH=/app/src

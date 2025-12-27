@@ -271,3 +271,4 @@ yarn-error.log*
 package-lock.json
 *.tar.gz
 /benchmark_harness/validation-benchmarks/
+/benchmark_harness/results.csv

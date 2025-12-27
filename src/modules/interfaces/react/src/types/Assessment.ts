@@ -48,7 +48,7 @@ export interface SessionInfo {
 }
 
 export interface ProviderConfig {
-  type: 'bedrock' | 'ollama' | 'openai' | 'litellm';
+  type: 'bedrock' | 'ollama' | 'litellm' | 'gemini';
   region?: string;
   apiKey?: string;
   host?: string;

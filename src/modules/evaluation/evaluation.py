@@ -15,7 +15,9 @@ from typing import Any, Dict, List, Optional
 
 from langchain_aws import BedrockEmbeddings, ChatBedrock
 from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_litellm import ChatLiteLLM
+from langchain_core.load.dump import dumps
 from langfuse import Langfuse
 from ragas.dataset_schema import MultiTurnSample, SingleTurnSample
 from ragas.embeddings import LangchainEmbeddingsWrapper
@@ -31,6 +33,7 @@ from modules.config.manager import get_config_manager
 from modules.config.system.logger import get_logger
 
 from .trace_parser import TraceParser
+from ..handlers.events import EventEmitter
 
 logger = get_logger("Evaluation.Evaluation")
 
@@ -56,8 +59,9 @@ class CyberAgentEvaluator:
     - Langfuse integration with categorized metadata
     """
 
-    def __init__(self):
+    def __init__(self, emitter: EventEmitter):
         """Initialize evaluator with Langfuse and evaluation metrics."""
+        self._emitter = emitter
         config_manager = get_config_manager()
         self.langfuse = Langfuse(
             public_key=config_manager.getenv("LANGFUSE_PUBLIC_KEY", "cyber-public"),
@@ -131,7 +135,23 @@ class CyberAgentEvaluator:
             self.llm = LangchainLLMWrapper(langchain_chat)
             self.embeddings = LangchainEmbeddingsWrapper(langchain_embeddings)
             self._chat_model = langchain_chat
-        else:
+        elif server_type == "gemini":
+            # Remote mode using Google GenAI
+            langchain_chat = ChatGoogleGenerativeAI(
+                model=config_manager.getenv(
+                    "RAGAS_EVALUATOR_MODEL", server_config.evaluation.llm.model_id
+                ),
+            )
+            langchain_embeddings = GoogleGenerativeAIEmbeddings(
+                model=config_manager.getenv(
+                    "MEM0_EMBEDDING_MODEL", server_config.embedding.model_id
+                )
+            )
+
+            self.llm = LangchainLLMWrapper(langchain_chat)
+            self.embeddings = LangchainEmbeddingsWrapper(langchain_embeddings)
+            self._chat_model = langchain_chat
+        elif server_type == "bedrock":
             # Remote mode using AWS Bedrock
             langchain_chat = ChatBedrock(
                 model_id=config_manager.getenv(
@@ -149,6 +169,8 @@ class CyberAgentEvaluator:
             self.llm = LangchainLLMWrapper(langchain_chat)
             self.embeddings = LangchainEmbeddingsWrapper(langchain_embeddings)
             self._chat_model = langchain_chat
+        else:
+            raise ValueError(f"Unsupported provider: {server_type}")
 
         # Internal cache for last evaluation context summary hash (used in score metadata)
         self._last_eval_summary_sha256: Optional[str] = None
@@ -439,7 +461,7 @@ class CyberAgentEvaluator:
                         adjusted[name] = val
                 scores = adjusted
         except Exception as e:
-            logger.debug("Evaluation policy inference failed: %s", e)
+            logger.debug("Evaluation policy inference failed: %s", exc_info=e)
 
         # Upload scores to Langfuse
         if hasattr(trace, "id"):
@@ -547,7 +569,7 @@ class CyberAgentEvaluator:
         Uses the TraceParser for robust data extraction and creates either
         SingleTurnSample or MultiTurnSample based on conversation complexity.
 
-        Additionally synthesizes an LLM-driven EvaluationContext summary to
+        Additionally, synthesizes an LLM-driven EvaluationContext summary to
         stabilize downstream rubric-based metrics and reduce 0/1 collapses.
 
         Args:
@@ -559,11 +581,20 @@ class CyberAgentEvaluator:
         logger.debug(
             "Creating evaluation data from trace: %s", getattr(trace, "id", "unknown")
         )
+        event_base = {
+            "tool_name": "evaluation",
+            "tool_id": f"evaluation-{time.time_ns()}",
+        }
+        self._emitter.emit(event_base | {
+            "type": "tool_start",
+            "tool_input": {"create_evaluation_data": getattr(trace, "id", "unknown")},
+        })
 
         # Use TraceParser for robust data extraction
         parsed_trace = self.trace_parser.parse_trace(trace)
         if not parsed_trace:
             logger.error("Failed to parse trace data")
+            self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
             return None
         # Cache for rubric judge use
         try:
@@ -752,6 +783,7 @@ class CyberAgentEvaluator:
         except Exception:
             pass
 
+        self._emitter.emit(event_base | {"type": "tool_end", "success": True, })
         return evaluation_data
 
     async def _evaluate_all_metrics(self, eval_data) -> Dict[str, float]:
@@ -813,6 +845,14 @@ class CyberAgentEvaluator:
         for metric in self.all_metrics:
             try:
                 logger.info("Starting evaluation of metric: %s", metric.name)
+                event_base = {
+                    "tool_name": "evaluation",
+                    "tool_id": f"evaluation-{time.time_ns()}",
+                }
+                self._emitter.emit(event_base | {
+                    "type": "tool_start",
+                    "tool_input": {"metric": metric.name},
+                })
 
                 score = None
 
@@ -825,6 +865,7 @@ class CyberAgentEvaluator:
                             "Metric %s doesn't support multi-turn evaluation, skipping",
                             metric.name,
                         )
+                        self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
                         scores[metric.name] = 0.0
                         continue
 
@@ -837,6 +878,7 @@ class CyberAgentEvaluator:
                             "Metric %s doesn't support single-turn evaluation, skipping",
                             metric.name,
                         )
+                        self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
                         scores[metric.name] = 0.0
                         continue
 
@@ -844,11 +886,13 @@ class CyberAgentEvaluator:
                 if score is None:
                     logger.warning("Score is None for %s", metric.name)
                     scores[metric.name] = 0.0
+                    self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
                 else:
                     scores[metric.name] = float(score)
                     logger.info(
                         "Metric %s score: %.2f", metric.name, scores[metric.name]
                     )
+                    self._emitter.emit(event_base | {"type": "tool_end", "success": True, })
 
             except Exception as e:
                 logger.error(
@@ -967,6 +1011,15 @@ class CyberAgentEvaluator:
         except Exception:
             return {}
 
+        event_base = {
+            "tool_name": "evaluation",
+            "tool_id": f"evaluation-{time.time_ns()}",
+        }
+        self._emitter.emit(event_base | {
+            "type": "tool_start",
+            "tool_input": {"metric": "evaluation_policy"},
+        })
+
         # Build compact features for the judge
         feats = {
             "objective": getattr(eval_data, "user_input", None),
@@ -1021,7 +1074,7 @@ class CyberAgentEvaluator:
         )
         user_prompt = (
             "Features (JSON):\n"
-            + json.dumps(feats)
+            + dumps(feats)
             + "\n\n"
             + "Rules (conceptual, not hard-coded):\n"
             "- If evidence_count produced in this operation is low, cap evidence_quality and overall quality.\n"
@@ -1048,9 +1101,11 @@ class CyberAgentEvaluator:
                 text = " ".join(str(part) for part in text)
             text = text if isinstance(text, str) else str(resp)
             data = json.loads(text)
+            self._emitter.emit(event_base | {"type": "tool_end", "success": True, })
             return data if isinstance(data, dict) else {}
         except Exception as e:
             logger.debug("Policy JSON parse failed: %s", e)
+            self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
             return {}
 
     async def _rubric_judge_scores(self, eval_data) -> Dict[str, Any]:
@@ -1086,6 +1141,15 @@ class CyberAgentEvaluator:
                     return {}
             except Exception:
                 pass
+
+        event_base = {
+            "tool_name": "evaluation",
+            "tool_id": f"evaluation-{time.time_ns()}",
+        }
+        self._emitter.emit(event_base | {
+            "type": "tool_start",
+            "tool_input": {"metric": "rubric_judge"},
+        })
 
         # Build a compact context payload for the judge (best effort)
         try:
@@ -1206,6 +1270,7 @@ class CyberAgentEvaluator:
             text = text if isinstance(text, str) else str(resp)
         except Exception as e:
             logger.debug("Rubric judge LLM call failed: %s", e)
+            self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
             return {}
 
         # Parse JSON robustly
@@ -1225,13 +1290,16 @@ class CyberAgentEvaluator:
                 logger.debug(
                     "Rubric judge JSON parse failed: %s | text=%s", e, text[:500]
                 )
+                self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
                 return {}
 
         if not isinstance(parsed, dict):
+            self._emitter.emit(event_base | {"type": "tool_end", "success": False, })
             return {}
 
         insufficient = bool(parsed.get("insufficient_evidence", False))
         if insufficient and getattr(eval_cfg, "skip_if_insufficient_evidence", True):
+            self._emitter.emit(event_base | {"type": "tool_end", "success": True, })
             return {}
 
         scores_obj = parsed.get("scores", {}) or {}
@@ -1262,6 +1330,7 @@ class CyberAgentEvaluator:
                 md.update(extra)
             except Exception:
                 pass
+            self._emitter.emit(event_base | {"type": "tool_end", "success": True, })
             return md
 
         # Overall metric
@@ -1276,6 +1345,7 @@ class CyberAgentEvaluator:
                     meta({"dimension": dim}),
                 )
 
+        self._emitter.emit(event_base | {"type": "tool_end", "success": True, })
         return rubric_results
 
     def _synthesize_context_summary(self, parsed_trace: Any) -> str:
@@ -1374,7 +1444,7 @@ class CyberAgentEvaluator:
             "Findings: Tooling verified; no new vulnerabilities validated this session.\n"
             "Outcomes: Objective achieved (tool testing complete).\n"
             "Gaps: No pentest validation attempted in-session.\n\n"
-            f"Raw data (JSON):\n{json.dumps(payload)[:max_chars]}\n\n"
+            f"Raw data (JSON):\n{dumps(payload)[:max_chars]}\n\n"
             "Return plain text (no markdown tables)."
         )
         try:
@@ -1450,7 +1520,7 @@ class CyberAgentEvaluator:
             )
             user_prompt = (
                 "Context for topic generation (JSON):\n"
-                + json.dumps(payload)
+                + dumps(payload)
                 + "\n\n"
                 + "Rules:\n"
                 "- Focus on security topics relevant to the target and objective.\n"

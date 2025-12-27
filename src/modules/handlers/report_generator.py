@@ -259,8 +259,20 @@ Remember: You MUST use your build_report_sections tool first to get the evidence
         )
 
         # Generate the report using the agent with its tool
-        logger.info("Invoking report generation agent with structured prompt...")
-        result = report_agent(agent_prompt)
+        logger.info("Invoking report generation agent with structured prompt of %d characters ...", len(agent_prompt))
+        logger.debug("Report prompt\n%s", agent_prompt)
+        for retry in range(1,-1,-1):  # [1,0]
+            try:
+                result = report_agent(agent_prompt)
+            except Exception as e:
+                if retry == 0:
+                    raise e
+                e_str = str(e).lower()
+                if "midstreamfallbackerror" in e_str:
+                    # network errors midstream are not uncommon with litellm and is not retried
+                    logger.info("Report agent failed, retrying ... %s", e_str)
+                    continue
+                raise e
 
         # Extract the report content
         if result and hasattr(result, "message"):

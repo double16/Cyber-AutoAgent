@@ -101,7 +101,13 @@ class ReportGenerator:
             llm_cfg = cfg.get_llm_config("ollama")
             # Only override if explicitly provided, otherwise use config
             mid = model_id if model_id else llm_cfg.model_id
-            model = OllamaModel(host=host, model_id=mid)
+            model = OllamaModel(
+                host=host,
+                model_id=mid,
+                ollama_client_args={
+                    "timeout": cfg.get_ollama_timeout(),
+                },
+            )
         else:  # litellm
             llm_cfg = cfg.get_llm_config("litellm")
             # Only override if explicitly provided, otherwise use config
@@ -120,7 +126,7 @@ class ReportGenerator:
             }
             client_args = {
                 "num_retries": 5,
-                "timeout": 600,
+                "timeout": 1200,
             }
             model = LiteLLMModel(model_id=mid, params=params, client_args=client_args)
 

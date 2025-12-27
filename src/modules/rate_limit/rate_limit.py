@@ -7,19 +7,19 @@ the operation.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 import time
 import threading
 import json
 
-from dataclasses import dataclass
 from typing import Any, Optional, Type, TypeVar, Callable
 
-from modules.config.system.logger import get_logger
+from modules.config.types import RateLimitConfig
 
 T = TypeVar("T")
 
-logger = get_logger("RateLimit")
+logger = logging.getLogger("RateLimit")
 
 
 # ----------------------------
@@ -71,31 +71,17 @@ class _TokenBucket:
 
             # Sleep outside lock
             sleep_time = min(120.0, max(wait_s, 0.1))
+            # TODO: use an EventEmitter object
             rate_limit_event = {
                 "type": "rate_limit",
                 "timestamp": datetime.now().isoformat(),
                 "needed": needed,
                 "wait_total": wait_s,
                 "sleep_time": sleep_time,
-                "message": f"Sleeping for {sleep_time} seconds",
+                "message": f"Sleeping for {sleep_time:.1f} seconds",
             }
             print(f"__CYBER_EVENT__{json.dumps(rate_limit_event)}__CYBER_EVENT_END__")
             time.sleep(sleep_time)
-
-
-@dataclass(frozen=True)
-class RateLimitConfig:
-    # Requests per minute (set None to disable)
-    rpm: Optional[float] = None
-
-    # Tokens per minute (set None to disable)
-    tpm: Optional[float] = None
-
-    # Max in-flight model calls (set None to disable)
-    max_concurrent: Optional[int] = None
-
-    # Token estimation knobs
-    assume_output_tokens: int = 0  # add a constant to estimated input tokens
 
 
 class ThreadSafeRateLimiter:
@@ -207,8 +193,64 @@ def estimate_tokens_rough(messages: Any, system_prompt: Any, system_prompt_conte
     return int(approx_in + max(0, assume_output_tokens))
 
 
+def _lc_message_text(msg: Any) -> str:
+    """
+    Best-effort extraction for LangChain BaseMessage-like objects.
+    Includes:
+      - msg.content
+      - msg.additional_kwargs (tool_calls/function_call/etc) as JSON
+    """
+    if msg is None:
+        return ""
+
+    # BaseMessage-like: content
+    content = getattr(msg, "content", None)
+    text = _extract_text_from_content(content) if content is not None else ""
+
+    # BaseMessage-like: additional kwargs (tool calls, function call, etc)
+    ak = getattr(msg, "additional_kwargs", None)
+    if isinstance(ak, dict) and ak:
+        # Avoid exploding size too much; still count common payloads
+        # (keeps your JSON counting behavior).
+        text += _json_to_compact_str(ak)
+
+    return text
+
+
+def _estimate_tokens_for_batch_messages(
+        batch_messages: Any,
+        *,
+        assume_output_tokens: int = 0,
+) -> int:
+    """
+    LangChain ChatModel.generate/agenerate signature typically uses:
+      generate(messages: list[list[BaseMessage]], ...)
+      agenerate(messages: list[list[BaseMessage]], ...)
+    We estimate across the whole batch.
+    """
+    # Accept a single conversation list as a convenience.
+    # If user passes list[BaseMessage], treat as one item batch.
+    if isinstance(batch_messages, list) and batch_messages and not isinstance(batch_messages[0], list):
+        batch = [batch_messages]
+    else:
+        batch = batch_messages or []
+
+    text = ""
+    if isinstance(batch, list):
+        for conv in batch:
+            if not isinstance(conv, list):
+                continue
+            for msg in conv:
+                text += _lc_message_text(msg)
+
+    # Same heuristic as your estimate_tokens_rough: chars//4 (+ clamp)
+    chars = len(text)
+    approx_in = max(1 if chars else 0, chars // 4)
+    return int(approx_in + max(0, int(assume_output_tokens or 0)))
+
+
 # ----------------------------
-# Class patching
+# Strands Class patching
 # ----------------------------
 
 _ORIG_STREAM_ATTR = "_rl_orig_stream"
@@ -227,7 +269,7 @@ def patch_model_provider_class(model_cls: Type[Any], limiter: ThreadSafeRateLimi
         return
 
     if not hasattr(model_cls, _ORIG_STREAM_ATTR):
-        logger.info("Rate limit: Applying rate limit to %s: %s", model_cls.__name__, str(limiter.cfg))
+        logger.info("Rate limit: Applying Strands rate limit to %s: %s", model_cls.__name__, str(limiter.cfg))
         setattr(model_cls, _ORIG_STREAM_ATTR, model_cls.stream)
 
     orig_stream = getattr(model_cls, _ORIG_STREAM_ATTR)
@@ -305,3 +347,85 @@ def unpatch_model_provider_class(model_cls: Type[Any]) -> None:
     if hasattr(model_cls, _ORIG_STRUCT_ATTR):
         model_cls.structured_output = getattr(model_cls, _ORIG_STRUCT_ATTR)  # type: ignore[assignment]
         delattr(model_cls, _ORIG_STRUCT_ATTR)
+
+
+# ----------------------------
+# Langchain Class patching
+# ----------------------------
+
+_ORIG_GENERATE_ATTR = "_rl_orig_generate"
+_ORIG_AGENERATE_ATTR = "_rl_orig_agenerate"
+
+
+def patch_langchain_chat_class_generate(model_cls: Type[Any], limiter: ThreadSafeRateLimiter) -> None:
+    """
+    Monkey-patch LangChain chat model classes (ChatLiteLLM, ChatOllama, ChatBedrock, etc.)
+    at the CLASS level, rate-limiting generate/agenerate.
+    """
+
+    # ---- generate (sync) ----
+    if hasattr(model_cls, "generate") and callable(getattr(model_cls, "generate")):
+        if not hasattr(model_cls, _ORIG_GENERATE_ATTR):
+            logger.info(
+                "Rate limit: Applying LangChain generate rate limit to %s: %s",
+                model_cls.__name__,
+                str(limiter.cfg),
+            )
+            setattr(model_cls, _ORIG_GENERATE_ATTR, model_cls.generate)
+
+        orig_generate = getattr(model_cls, _ORIG_GENERATE_ATTR)
+
+        def generate(self, messages, *args: Any, **kwargs: Any) -> Any:
+            token_cost = _estimate_tokens_for_batch_messages(
+                messages,
+                assume_output_tokens=limiter.cfg.assume_output_tokens,
+            )
+            release = limiter.acquire_blocking(token_cost)
+            try:
+                return orig_generate(self, messages, *args, **kwargs)
+            finally:
+                release()
+
+        model_cls.generate = generate  # type: ignore[assignment]
+    else:
+        logger.warning("Rate limit: %s has no generate() to patch", model_cls)
+
+    # ---- agenerate (async) ----
+    if hasattr(model_cls, "agenerate") and callable(getattr(model_cls, "agenerate")):
+        if not hasattr(model_cls, _ORIG_AGENERATE_ATTR):
+            logger.info(
+                "Rate limit: Applying LangChain agenerate rate limit to %s: %s",
+                model_cls.__name__,
+                str(limiter.cfg),
+            )
+            setattr(model_cls, _ORIG_AGENERATE_ATTR, model_cls.agenerate)
+
+        orig_agenerate = getattr(model_cls, _ORIG_AGENERATE_ATTR)
+
+        async def agenerate(self, messages, *args: Any, **kwargs: Any) -> Any:
+            token_cost = _estimate_tokens_for_batch_messages(
+                messages,
+                assume_output_tokens=limiter.cfg.assume_output_tokens,
+            )
+            release = await asyncio.to_thread(limiter.acquire_blocking, token_cost)
+            try:
+                result = orig_agenerate(self, messages, *args, **kwargs)
+                if asyncio.iscoroutine(result):
+                    return await result
+                return result
+            finally:
+                release()
+
+        model_cls.agenerate = agenerate  # type: ignore[assignment]
+    else:
+        logger.warning("Rate limit: %s has no agenerate() to patch", model_cls)
+
+
+def unpatch_langchain_chat_class_generate(model_cls: Type[Any]) -> None:
+    if hasattr(model_cls, _ORIG_GENERATE_ATTR):
+        model_cls.generate = getattr(model_cls, _ORIG_GENERATE_ATTR)  # type: ignore[assignment]
+        delattr(model_cls, _ORIG_GENERATE_ATTR)
+
+    if hasattr(model_cls, _ORIG_AGENERATE_ATTR):
+        model_cls.agenerate = getattr(model_cls, _ORIG_AGENERATE_ATTR)  # type: ignore[assignment]
+        delattr(model_cls, _ORIG_AGENERATE_ATTR)

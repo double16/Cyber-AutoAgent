@@ -16,7 +16,28 @@ from modules.tools.browser import (
     browser_evaluate_js,
     browser_get_cookies,
 )
+from modules.tools.mcp import (
+    mcp_tool_catalog,
+    discover_mcp_tools,
+)
+from modules.tools.channels import (
+    channel_create_forward,
+    channel_create_reverse,
+    channel_send,
+    channel_poll,
+    channel_status,
+    channel_close,
+    channel_close_all,
+)
 from modules.tools.prompt_optimizer import prompt_optimizer
+from modules.tools.oast import (
+    oast_health,
+    oast_endpoints,
+    oast_poll,
+    oast_register_http_response,
+    oast_clear_http_responses,
+    close_oast_providers,
+)
 
 __all__ = [
     "mem0_memory",
@@ -32,4 +53,19 @@ __all__ = [
     "browser_get_cookies",
     "browser_evaluate_js",
     "prompt_optimizer",
+    "mcp_tool_catalog",
+    "discover_mcp_tools",
+    "channel_create_forward",
+    "channel_create_reverse",
+    "channel_send",
+    "channel_poll",
+    "channel_status",
+    "channel_close",
+    "channel_close_all",
+    "oast_health",
+    "oast_endpoints",
+    "oast_poll",
+    "oast_register_http_response",
+    "oast_clear_http_responses",
+    "close_oast_providers",
 ]

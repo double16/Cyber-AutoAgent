@@ -287,7 +287,7 @@ can be used to configure, command line options or environment variables.
          "server_url": "https://127.0.0.1:8000/mcp",
          "plugins": ["*"], 
          "timeoutSeconds": 900,
-         "allowedTools": ["port_scan", "directory_buster"]  // or ["*"]
+         "allowed_tools": ["port_scan","register_hostname_address","directory_buster","deobfuscate_javascript","fetch_web_resource_content","find_domains","find_hosts","find_netloc","find_urls","find_web_resources","spider_website","index_http_url","query_findings","web_search","unavailable"]  // or ["*"]
       }
     ]
   }
@@ -362,6 +362,19 @@ Examples:
 - `CYBER_RATE_LIMIT_TOKENS_PER_MIN=150000`
 - `CYBER_RATE_LIMIT_REQ_PER_MIN=3`
 - `CYBER_RATE_LIMIT_MAX_CONCURRENT=1`
+
+## OAST (Out-of-band Application Security Testing)
+
+OAST is used to capture callbacks from targets, particularly XSS payloads. There are two implementations available
+based on the network of the target. If the target uses a private IP address, an internal implementation is used.
+
+If the target uses a public IP address, https://webhook.site is used. Unauthenticated use is supported, but is limited by
+the number of requests. Providing the API key has unlimited requests and allows configuring responses.
+
+- `WEBHOOK_API_KEY=...`
+
+To effectively use the private address implementation, the agent must be able to bind a listener on the private network. If a VPN
+is used, run the VPN in the `cyber-autoagent` container or use the python CLI in the same host where the VPN is connected.
 
 ## Docker Management
 

@@ -782,9 +782,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             # Increment per-tool usage count once per announced tool id
             try:
                 self.tool_counts[tool_name] = self.tool_counts.get(tool_name, 0) + 1
-            except Exception:
+            except Exception as e:
                 # Defensive: never allow metrics to break streaming
-                pass
+                logger.debug("Incrementing tool_counts", exc_info=e)
             self.tool_input_buffer[tool_id] = tool_input
             self.tool_name_buffer[tool_id] = (
                 tool_name  # Track tool name for correct attribution
@@ -3371,7 +3371,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                     self.operation_id,
                 )
 
-            eval_manager = EvaluationManager(operation_id=self.operation_id)
+            eval_manager = EvaluationManager(operation_id=self.operation_id, emitter=self.emitter)
 
             eval_manager.register_trace(
                 trace_id=self.operation_id,

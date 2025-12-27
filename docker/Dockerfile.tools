@@ -22,7 +22,7 @@ FROM kalilinux/kali-rolling
 
 LABEL org.opencontainers.image.title="Cyber-AutoAgent Tools"
 LABEL org.opencontainers.image.description="Autonomous AI agent for ethical security assessments"
-LABEL org.opencontainers.image.version="0.1.6"
+LABEL org.opencontainers.image.version="0.2.0"
 LABEL org.opencontainers.image.source="https://github.com/double16/cyber-autoagent"
 LABEL org.opencontainers.image.licenses="MIT"
 
@@ -83,6 +83,8 @@ RUN set -eux; \
     iproute2 \
     net-tools \
     traceroute \
+    openvpn \
+    tshark \
     # Additional essential tools
     jq \
     yq \
@@ -97,7 +99,6 @@ RUN set -eux; \
     whatweb \
     wafw00f \
     zaproxy \
-    burpsuite \
     # Recon and DNS
     amass \
     subfinder \
@@ -112,6 +113,7 @@ RUN set -eux; \
     wapiti \
     wfuzz \
     wpscan \
+    wordlists \
     # Network scanning
     masscan \
     naabu \
@@ -137,6 +139,7 @@ RUN set -eux; \
     commix \
     xsser \
     hashid \
+    html2text \
     # ProjectDiscovery vuln scanner
     nuclei \
     # Auth/bruteforce

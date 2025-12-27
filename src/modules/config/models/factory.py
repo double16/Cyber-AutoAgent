@@ -17,7 +17,11 @@ from strands.models.litellm import LiteLLMModel
 from strands.models.ollama import OllamaModel
 from strands.models.gemini import GeminiModel
 
-from modules.agents.rate_limit import patch_model_provider_class, ThreadSafeRateLimiter
+from langchain_aws import ChatBedrock
+from langchain_ollama import ChatOllama
+from langchain_litellm import ChatLiteLLM
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 from modules.config.providers import get_ollama_host
 from modules.config.providers.ollama_config import get_ollama_timeout
 from modules.config.system import EnvironmentReader
@@ -925,13 +929,28 @@ def configure_model_rate_limits(provider: Optional[str] = None):
     if rate_limit_config is None:
         return
 
+    # limiter must be per-provider
+    from modules.rate_limit.rate_limit import (
+        ThreadSafeRateLimiter,
+        patch_model_provider_class,
+        patch_langchain_chat_class_generate
+    )
+
     if provider == "ollama":
-        patch_model_provider_class(OllamaModel, ThreadSafeRateLimiter(rate_limit_config))
+        limiter = ThreadSafeRateLimiter(rate_limit_config)
+        patch_model_provider_class(OllamaModel, limiter)
+        patch_langchain_chat_class_generate(ChatOllama, limiter)
     elif provider == "bedrock":
-        patch_model_provider_class(BedrockModel, ThreadSafeRateLimiter(rate_limit_config))
+        limiter = ThreadSafeRateLimiter(rate_limit_config)
+        patch_model_provider_class(BedrockModel, limiter)
+        patch_langchain_chat_class_generate(ChatBedrock, limiter)
     elif provider == "litellm":
-        patch_model_provider_class(LiteLLMModel, ThreadSafeRateLimiter(rate_limit_config))
+        limiter = ThreadSafeRateLimiter(rate_limit_config)
+        patch_model_provider_class(LiteLLMModel, limiter)
+        patch_langchain_chat_class_generate(ChatLiteLLM, limiter)
     elif provider == "gemini":
-        patch_model_provider_class(GeminiModel, ThreadSafeRateLimiter(rate_limit_config))
+        limiter = ThreadSafeRateLimiter(rate_limit_config)
+        patch_model_provider_class(GeminiModel, limiter)
+        patch_langchain_chat_class_generate(ChatGoogleGenerativeAI, limiter)
     else:
         raise ValueError(f"Unsupported provider: {provider}")

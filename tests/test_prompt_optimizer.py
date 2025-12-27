@@ -163,3 +163,40 @@ def test_prompt_optimizer_optimize_execution_with_empty_lists(tmp_path, monkeypa
     call_kwargs = mock_rewrite.call_args[1]
     assert call_kwargs["remove_tactics"] == []
     assert call_kwargs["focus_tactics"] == []
+    assert optimized_path.exists()
+
+
+def test_prompt_optimizer_optimize_execution_with_empty_lists_dev_backup(tmp_path, monkeypatch):
+    """Test optimize_execution keeps previous prompts for comparison"""
+    import sys
+    from unittest.mock import patch
+
+    root = _setup_env(tmp_path, monkeypatch)
+
+    optimized_path = root / "execution_prompt_optimized.txt"
+    optimized_path.write_text("Current prompt")
+
+    # Get the actual module object from sys.modules
+    prompt_opt_module = sys.modules["modules.tools.prompt_optimizer"]
+
+    with patch.object(
+            prompt_opt_module, "_llm_rewrite_execution_prompt"
+    ) as mock_rewrite:
+        mock_rewrite.return_value = "Optimized prompt"
+
+        for idx in range(3):
+            result = prompt_optimizer(
+                action="optimize_execution",
+                learned_patterns="General learning without specific tactics",
+                remove_dead_ends=[],
+                focus_areas=[],
+            )
+
+    assert result["status"] == "success"
+    mock_rewrite.assert_called()
+    assert optimized_path.exists()
+    assert (root / "execution_prompt_optimized.txt.1").exists()
+    assert (root / "execution_prompt_optimized.txt.2").exists()
+    assert (root / "execution_prompt_optimized.txt.3").exists()
+    assert not (root / "execution_prompt_optimized.txt.4").exists()
+

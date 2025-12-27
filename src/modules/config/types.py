@@ -5,6 +5,7 @@ Type definitions for configuration system.
 Contains all dataclass definitions, enums, and constants used across
 the configuration modules to avoid circular imports.
 """
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
@@ -352,3 +353,17 @@ class ServerConfig:
     host: Optional[str] = None
     region: str = "us-east-1"  # Default, can be overridden via environment
 
+
+@dataclass(frozen=True)
+class RateLimitConfig:
+    # Requests per minute (set None to disable)
+    rpm: Optional[float] = None
+
+    # Tokens per minute (set None to disable)
+    tpm: Optional[float] = None
+
+    # Max in-flight model calls (set None to disable)
+    max_concurrent: Optional[int] = None
+
+    # Token estimation knobs
+    assume_output_tokens: int = 0  # add a constant to estimated input tokens

@@ -19,6 +19,7 @@ from strands.tools.executors import ConcurrentToolExecutor
 from strands_tools.editor import editor
 from strands_tools.load_tool import load_tool
 from strands_tools.shell import shell
+from strands_tools.sleep import sleep
 
 # These tools are modules, not functions, the following imports MUST import the module
 from strands_tools import (
@@ -76,6 +77,21 @@ from modules.tools.browser import (
     browser_get_cookies,
 )
 from modules.tools.prompt_optimizer import prompt_optimizer
+from modules.tools.channels import (
+    channel_create_forward,
+    channel_create_reverse,
+    channel_send,
+    channel_poll,
+    channel_status,
+    channel_close,
+)
+from modules.tools.oast import (
+    oast_health,
+    oast_endpoints,
+    oast_poll,
+    oast_register_http_response,
+    oast_clear_http_responses,
+)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -396,10 +412,17 @@ Available {config.module} module tools:
     if config.available_tools:
         tool_count += len(config.available_tools)
         tools_context = f"""
-### COMMAND LINE TOOLS
+### COMMAND LINE PROGRAMS
 
-Command line tools available using the **shell** tool:
+Use the **shell** tool to invoke the following command line programs in a bash shell:
 {", ".join(config.available_tools)}
+
+**Example**:
+shell(command="nmap -sV ...")
+shell(command="nuclei ...")
+
+**Program options**: Use the `--help` option to learn how to use a program:
+shell(command="nmap --help")
 """
 
     # Load MCP tools and prepare for injection
@@ -766,6 +789,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         stop,
         http_request,
         python_repl,
+        sleep,
         browser_set_headers,
         browser_goto_url,
         browser_get_page_html,
@@ -773,6 +797,17 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         browser_observe_page,
         browser_evaluate_js,
         browser_get_cookies,
+        channel_create_forward,
+        channel_create_reverse,
+        channel_send,
+        channel_poll,
+        channel_status,
+        channel_close,
+        oast_health,
+        oast_endpoints,
+        oast_poll,
+        oast_register_http_response,
+        oast_clear_http_responses,
     ]
 
     if enable_prompt_optimization:

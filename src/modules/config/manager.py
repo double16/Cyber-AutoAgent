@@ -22,7 +22,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import litellm
 import ollama
 
-from modules.agents.rate_limit import RateLimitConfig
 from modules.handlers.utils import get_output_path, sanitize_target_name
 from modules.config.system.logger import get_logger
 from modules.config.models.dev_client import get_models_client
@@ -43,6 +42,7 @@ from modules.config.types import (
     MCPConfig,
     MEM0_PROVIDER_MAP,
     get_default_base_dir,
+    RateLimitConfig,
 )
 from modules.config.system.env_reader import EnvironmentReader
 from modules.config.system.defaults import build_default_configs
@@ -683,7 +683,9 @@ class ConfigManager:
                     "azure_endpoint": self.getenv("AZURE_API_BASE"),
                     "api_version": self.getenv("AZURE_API_VERSION"),
                 }
-        else:  # bedrock
+        elif server == "gemini":
+            raise ValueError(f"Unsupported provider: {server}")
+        elif server == "bedrock":
             embedder_config = {
                 "provider": "aws_bedrock",
                 "config": {
@@ -691,6 +693,8 @@ class ConfigManager:
                     "aws_region": memory_config.embedder.aws_region,
                 },
             }
+        else:
+            raise ValueError(f"Unsupported provider: {server}")
 
         # Build LLM config based on server type
         if server == "ollama":
@@ -725,7 +729,9 @@ class ConfigManager:
                     "azure_endpoint": self.getenv("AZURE_API_BASE"),
                     "api_version": self.getenv("AZURE_API_VERSION"),
                 }
-        else:  # bedrock
+        elif server == "gemini":
+            raise ValueError(f"Unsupported provider: {server}")
+        elif server == "bedrock":
             llm_config = {
                 "provider": "aws_bedrock",
                 "config": {
@@ -734,6 +740,8 @@ class ConfigManager:
                     "max_tokens": memory_config.llm.max_tokens,
                 },
             }
+        else:
+            raise ValueError(f"Unsupported provider: {server}")
 
         # Build vector store config
         opensearch_host = self.getenv("OPENSEARCH_HOST")
@@ -1105,11 +1113,14 @@ class ConfigManager:
             operation_id=operation_id,
         )
 
-    def get_rate_limit_config(self, provider: str) -> Optional[RateLimitConfig]:
+    def get_rate_limit_config(self, provider: Optional[str] = None) -> Optional[RateLimitConfig]:
         request_per_minute = self.getenv_float("CYBER_RATE_LIMIT_REQ_PER_MIN")
         tokens_per_minute = self.getenv_float("CYBER_RATE_LIMIT_TOKENS_PER_MIN")
         max_concurrent = self.getenv_int("CYBER_RATE_LIMIT_MAX_CONCURRENT")
         assume_output_tokens = 1024  # looking at langfuse stats to get this number
+
+        if not provider:
+            provider = self.get_provider()
 
         if provider == "ollama" and not max_concurrent:
             logger.info(

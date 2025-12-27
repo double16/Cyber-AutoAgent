@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import Mock
 
-import modules.agents.rate_limit as rl
+import modules.rate_limit.rate_limit as rl
+from modules.config import types
 
 
 @pytest.fixture
@@ -132,7 +133,7 @@ def test_estimate_tokens_rough_includes_text_json_and_assume_output():
 # ----------------------------
 
 def test_limiter_init_builds_buckets_and_uses_rpm_per_second_refill():
-    cfg = rl.RateLimitConfig(rpm=30.0, tpm=600.0, max_concurrent=None)
+    cfg = types.RateLimitConfig(rpm=30.0, tpm=600.0, max_concurrent=None)
     limiter = rl.ThreadSafeRateLimiter(cfg)
 
     assert limiter._req_bucket is not None
@@ -146,7 +147,7 @@ def test_limiter_init_builds_buckets_and_uses_rpm_per_second_refill():
 
 
 def test_acquire_blocking_calls_buckets_and_returns_release():
-    cfg = rl.RateLimitConfig(rpm=10.0, tpm=100.0, max_concurrent=1)
+    cfg = types.RateLimitConfig(rpm=10.0, tpm=100.0, max_concurrent=1)
     limiter = rl.ThreadSafeRateLimiter(cfg)
 
     limiter._req_bucket = Mock()
@@ -164,7 +165,7 @@ def test_acquire_blocking_calls_buckets_and_returns_release():
 
 
 def test_acquire_blocking_releases_semaphore_on_exception():
-    cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=1)
+    cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=1)
     limiter = rl.ThreadSafeRateLimiter(cfg)
 
     limiter._req_bucket = Mock()
@@ -179,7 +180,7 @@ def test_acquire_blocking_releases_semaphore_on_exception():
 
 
 # ----------------------------
-# patch_model_provider_class / unpatch_model_provider_class
+# strands patching
 # ----------------------------
 
 @pytest.mark.asyncio
@@ -204,7 +205,7 @@ async def test_patch_and_unpatch_stream(monkeypatch, inline_to_thread):
                 yield e
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
 
     released = {"count": 0}
 
@@ -247,7 +248,7 @@ async def test_patch_structured_output(monkeypatch, inline_to_thread):
             yield {"ok": True}
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
 
     released = {"count": 0}
 
@@ -280,8 +281,153 @@ def test_patch_model_provider_class_no_stream_is_noop(monkeypatch):
         pass
 
     limiter = Mock(spec=rl.ThreadSafeRateLimiter)
-    limiter.cfg = rl.RateLimitConfig(rpm=10.0)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0)
 
     rl.patch_model_provider_class(NoStream, limiter)
     assert not hasattr(NoStream, rl._ORIG_STREAM_ATTR)
+    assert log.warning.called
+
+# ----------------------------
+# langchain patching
+# ----------------------------
+
+
+class _Msg:
+    """Minimal BaseMessage-like object for LangChain tests."""
+    def __init__(self, content, additional_kwargs=None):
+        self.content = content
+        self.additional_kwargs = additional_kwargs or {}
+
+
+def test_patch_generate_calls_limiter_and_releases(monkeypatch):
+    log = Mock()
+    monkeypatch.setattr(rl, "logger", log)
+
+    calls = {"release": 0}
+
+    def release():
+        calls["release"] += 1
+
+    limiter = Mock(spec=rl.ThreadSafeRateLimiter)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.acquire_blocking.return_value = release
+
+    class DummyLC:
+        def generate(self, messages, *args, **kwargs):
+            return {"ok": True, "messages": messages, "kwargs": kwargs}
+
+    orig_generate = DummyLC.generate
+
+    try:
+        rl.patch_langchain_chat_class_generate(DummyLC, limiter)
+        assert hasattr(DummyLC, rl._ORIG_GENERATE_ATTR)
+        assert getattr(DummyLC, rl._ORIG_GENERATE_ATTR) is orig_generate
+        assert DummyLC.generate is not orig_generate
+
+        messages = [[
+            _Msg("abcd"),
+            _Msg([{"json": {"a": 1}}]),
+            _Msg("x", additional_kwargs={"tool_calls": [{"id": "1", "args": {"k": "v"}}]}),
+        ]]
+
+        out = DummyLC().generate(messages, temperature=0.1)
+
+        assert out["ok"] is True
+        assert out["messages"] == messages
+        assert out["kwargs"]["temperature"] == 0.1
+
+        # limiter invoked once, release called once
+        assert limiter.acquire_blocking.call_count == 1
+        assert calls["release"] == 1
+    finally:
+        rl.unpatch_langchain_chat_class_generate(DummyLC)
+        assert not hasattr(DummyLC, rl._ORIG_GENERATE_ATTR)
+        assert DummyLC.generate is orig_generate
+
+
+@pytest.mark.asyncio
+async def test_patch_agenerate_calls_limiter_and_releases(monkeypatch, inline_to_thread):
+    log = Mock()
+    monkeypatch.setattr(rl, "logger", log)
+
+    calls = {"release": 0}
+
+    def release():
+        calls["release"] += 1
+
+    limiter = Mock(spec=rl.ThreadSafeRateLimiter)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, tpm=None, max_concurrent=None, assume_output_tokens=0)
+    limiter.acquire_blocking.return_value = release
+
+    class DummyLC:
+        async def agenerate(self, messages, *args, **kwargs):
+            return {"ok": True, "messages": messages, "kwargs": kwargs}
+
+    orig_agenerate = DummyLC.agenerate
+
+    try:
+        rl.patch_langchain_chat_class_generate(DummyLC, limiter)
+        assert hasattr(DummyLC, rl._ORIG_AGENERATE_ATTR)
+        assert getattr(DummyLC, rl._ORIG_AGENERATE_ATTR) is orig_agenerate
+        assert DummyLC.agenerate is not orig_agenerate
+
+        messages = [[
+            _Msg("hello"),
+            _Msg({"json": {"b": 2}}),
+        ]]
+
+        out = await DummyLC().agenerate(messages, max_tokens=123)
+
+        assert out["ok"] is True
+        assert out["messages"] == messages
+        assert out["kwargs"]["max_tokens"] == 123
+
+        assert limiter.acquire_blocking.call_count == 1
+        assert calls["release"] == 1
+    finally:
+        rl.unpatch_langchain_chat_class_generate(DummyLC)
+        assert not hasattr(DummyLC, rl._ORIG_AGENERATE_ATTR)
+        assert DummyLC.agenerate is orig_agenerate
+
+
+def test_unpatch_is_idempotent(monkeypatch):
+    log = Mock()
+    monkeypatch.setattr(rl, "logger", log)
+
+    class DummyLC:
+        def generate(self, messages, *args, **kwargs):
+            return "gen"
+
+        async def agenerate(self, messages, *args, **kwargs):
+            return "agen"
+
+    # Unpatch before patch should not raise
+    rl.unpatch_langchain_chat_class_generate(DummyLC)
+
+    limiter = Mock(spec=rl.ThreadSafeRateLimiter)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0, assume_output_tokens=0)
+    limiter.acquire_blocking.return_value = lambda: None
+
+    try:
+        rl.patch_langchain_chat_class_generate(DummyLC, limiter)
+    finally:
+        # Unpatch twice should not raise
+        rl.unpatch_langchain_chat_class_generate(DummyLC)
+        rl.unpatch_langchain_chat_class_generate(DummyLC)
+
+
+def test_patch_missing_methods_is_noop(monkeypatch):
+    log = Mock()
+    monkeypatch.setattr(rl, "logger", log)
+
+    class NoGenerate:
+        pass
+
+    limiter = Mock(spec=rl.ThreadSafeRateLimiter)
+    limiter.cfg = types.RateLimitConfig(rpm=10.0)
+
+    rl.patch_langchain_chat_class_generate(NoGenerate, limiter)
+
+    assert not hasattr(NoGenerate, rl._ORIG_GENERATE_ATTR)
+    assert not hasattr(NoGenerate, rl._ORIG_AGENERATE_ATTR)
     assert log.warning.called
