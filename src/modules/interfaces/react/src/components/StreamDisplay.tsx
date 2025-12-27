@@ -677,10 +677,11 @@ export const EventLine: React.FC<EventLineProps> = React.memo(({
       const providerLabel = (() => {
         const providerId = effectiveConfig?.modelProvider;
         if (!providerId) return 'model provider';
-        const labelMap: Record<'bedrock' | 'ollama' | 'litellm', string> = {
+        const labelMap: Record<'bedrock' | 'ollama' | 'litellm' | 'gemini', string> = {
           bedrock: 'AWS Bedrock',
           ollama: 'Ollama',
-          litellm: 'LiteLLM'
+          litellm: 'LiteLLM',
+          gemini: 'Google GenAI'
         };
         return labelMap[providerId] ?? providerId.replace(/_/g, ' ');
       })();

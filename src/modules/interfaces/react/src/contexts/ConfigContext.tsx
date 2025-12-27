@@ -45,8 +45,8 @@ export type EnvironmentMap = RawEnvironmentMap;
  */
 export interface Config {
   // AI Model Provider Configuration
-  /** Primary AI model provider (AWS Bedrock, Ollama local, or LiteLLM proxy) */
-  modelProvider: 'bedrock' | 'ollama' | 'litellm';
+  /** Primary AI model provider (AWS Bedrock, Ollama local, Gemini or LiteLLM proxy) */
+  modelProvider: 'bedrock' | 'ollama' | 'litellm' | 'gemini';
   /** Main assessment model identifier (e.g., 'claude-sonnet-4', 'llama3.1:8b') */
   modelId: string;
   /** Vector embedding model for memory operations */

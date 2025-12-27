@@ -49,7 +49,7 @@ export function useAutoRun({
         configUpdates.iterations = iterations;
       }
       if (provider && provider !== applicationConfig.modelProvider) {
-        configUpdates.modelProvider = provider as 'bedrock' | 'ollama' | 'litellm';
+        configUpdates.modelProvider = provider as 'bedrock' | 'ollama' | 'litellm' | 'gemini';
       }
       if (model && model !== applicationConfig.modelId) {
         configUpdates.modelId = model;
