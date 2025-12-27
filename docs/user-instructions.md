@@ -369,9 +369,12 @@ OAST is used to capture callbacks from targets, particularly XSS payloads. There
 based on the network of the target. If the target uses a private IP address, an internal implementation is used.
 
 If the target uses a public IP address, https://webhook.site is used. Unauthenticated use is supported, but is limited by
-the number of requests. Providing the API KEY has unlimited requests and allows configuring responses.
+the number of requests. Providing the API key has unlimited requests and allows configuring responses.
 
 - `WEBHOOK_API_KEY=...`
+
+To effectively use the private address implementation, the agent must be able to bind a listener on the private network. If a VPN
+is used, run the VPN in the `cyber-autoagent` container or use the python CLI in the same host where the VPN is connected.
 
 ## Docker Management
 

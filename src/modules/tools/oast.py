@@ -861,16 +861,24 @@ async def oast_poll(
         target: the IP address (preferred) or host name of the target, used to select a reachable network address
         timeout: The number of seconds to wait for interactions. A value of 0 returns immediately with any pending interactions.
     """
+    provider = get_oast_provider(target)
     timeout = max(0.0, min(600.0, timeout))
     time_end = time.time() + timeout
     time_step = 3.0
-    provider = get_oast_provider(target)
-    while time.time() < time_end:
+    last_check = False
+    while time.time() < time_end or last_check:
         result = await provider.poll_new()
         if len(result.interactions) > 0:
             logger.info(f"oast_poll returned {len(result.interactions)} interactions")
             return result
-        await asyncio.sleep(min(time_step, time_end - time.time()))
+        sleep_time = min(time_step, time_end - time.time())
+        if sleep_time <= 0:
+            break
+        if sleep_time < time_step:
+            last_check = True
+        else:
+            last_check = False
+        await asyncio.sleep(sleep_time)
     logger.info("oast_poll returned 0 interactions")
     return PollOutput()
 
