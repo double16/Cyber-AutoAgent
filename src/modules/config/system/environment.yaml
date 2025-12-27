@@ -16,8 +16,6 @@ cyber_tools:
   # Web app scanners (GUI/CLI)
   zaproxy:
     description: "OWASP ZAP web scanner (CLI/API)"
-  burpsuite:
-    description: "Burp Suite (Community) web scanner"
 
   # GraphQL-specific tools
   clairvoyance:
@@ -146,6 +144,8 @@ cyber_tools:
   net-tools:
     description: "Provides classic networking utilities (netstat, ifconfig, route, etc.)"
     command: "netstat"
+  tshark:
+    description: "Captures and analyzes packets off the wire or pcap files supporting too many protocols to list."
 
   # Basics
   netcat:

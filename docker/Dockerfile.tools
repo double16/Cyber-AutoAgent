@@ -84,6 +84,7 @@ RUN set -eux; \
     net-tools \
     traceroute \
     openvpn \
+    tshark \
     # Additional essential tools
     jq \
     yq \
@@ -98,7 +99,6 @@ RUN set -eux; \
     whatweb \
     wafw00f \
     zaproxy \
-    burpsuite \
     # Recon and DNS
     amass \
     subfinder \
@@ -113,6 +113,7 @@ RUN set -eux; \
     wapiti \
     wfuzz \
     wpscan \
+    wordlists \
     # Network scanning
     masscan \
     naabu \
@@ -138,6 +139,7 @@ RUN set -eux; \
     commix \
     xsser \
     hashid \
+    html2text \
     # ProjectDiscovery vuln scanner
     nuclei \
     # Auth/bruteforce
