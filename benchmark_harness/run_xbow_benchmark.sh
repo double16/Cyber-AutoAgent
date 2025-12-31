@@ -277,7 +277,7 @@ run_benchmark() {
     if grep -qF "${flag}" "${output_dir}/security_assessment_report.md" "${output_dir}/cyber_operations.log" 2>/dev/null; then
       echo "[*] cyber-autoagent ${bench_id}: SOLVED"
       result="solved"
-    elif grep -qF '[SIGINT] received' \
+    elif grep -qE '.SIG[A-Z0-9]+.\s+received' \
       "${output_dir}/cyber_operations.log" 2>/dev/null; then
       echo "[!] cyber-autoagent ${bench_id}: CANCELLED"
       exit 130
