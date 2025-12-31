@@ -20,6 +20,7 @@ from strands_tools.editor import editor
 from strands_tools.load_tool import load_tool
 from strands_tools.shell import shell
 from strands_tools.sleep import sleep
+from strands_tools.tavily import tavily_search
 
 # These tools are modules, not functions, the following imports MUST import the module
 from strands_tools import (
@@ -55,7 +56,7 @@ from modules.handlers.react import ReactBridgeHandler
 from modules.handlers.tool_router import ToolRouterHook
 from modules.config.models.capabilities import get_capabilities
 from modules.handlers.utils import print_status, sanitize_target_name
-from modules.tools import swarm
+from modules.tools import swarm, web_search
 
 from modules.tools.mcp import (
     discover_mcp_tools,
@@ -809,6 +810,11 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         oast_register_http_response,
         oast_clear_http_responses,
     ]
+
+    if os.getenv("TAVILY_API_KEY"):
+        tools_list.append(tavily_search)
+    else:
+        tools_list.append(web_search)
 
     if enable_prompt_optimization:
         tools_list.append(prompt_optimizer)

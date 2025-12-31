@@ -96,6 +96,9 @@ services:
       - HTB_API_TOKEN=${HTB_API_TOKEN}
       - HTB_CTF_TOKEN=${HTB_CTF_TOKEN}
 
+      # Tavily Search API, https://www.tavily.com/
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+
     volumes:
       # Unified output structure persistence
       # Use :delegated for Docker Desktop on macOS to fix permission issues

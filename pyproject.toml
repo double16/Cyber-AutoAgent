@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "caa"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cyber-AutoAgent: Autonomous AI agent for ethical security assessments"
 readme = "README.md"
 authors = [
@@ -33,7 +33,7 @@ dependencies = [
     "strands-agents-tools>=0.2.17",
     "mem0ai>=1.0.1",
     "google-genai>=1.49.0",
-    "litellm==1.80.0",
+    "litellm>=1.80.0",
     "azure-identity>=1.15.0",
     "boto3>=1.42.4",
     "botocore>=1.42.4",
@@ -63,6 +63,7 @@ dependencies = [
     "standard-distutils>=3.11.9",
     "guppy3~=3.1.5",
     "validators>=0.35.0",
+    "ddgs~=9.6.1",
 ]
 
 [project.optional-dependencies]

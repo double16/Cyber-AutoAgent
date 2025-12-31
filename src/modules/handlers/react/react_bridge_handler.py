@@ -1887,6 +1887,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             if not s:
                 return s
             # Grab segments ending with . ! ? : (plus following whitespace) or the tail
+            # TODO: "reasoning" text becomes confusing
             parts = re.findall(r".*?(?:[\.!\?:](?=\s)|$)\s*", s, flags=re.S)
             out = []
             prev_norm = None

@@ -725,6 +725,7 @@ def main():
 
                     # Ensure step is incremented and detect lack of progress
                     if callback_handler and callback_handler.current_step == last_step:
+                        # TODO: Re-consider incrementing the step, do something different to avoid infinite looping
                         tool_total_count = sum(callback_handler.tool_counts.values())
                         logger.debug("Incrementing step because agent returned but callback_handler did not, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
                                      str(callback_handler.pending_step_header),
