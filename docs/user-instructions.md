@@ -376,6 +376,12 @@ the number of requests. Providing the API key has unlimited requests and allows 
 To effectively use the private address implementation, the agent must be able to bind a listener on the private network. If a VPN
 is used, run the VPN in the `cyber-autoagent` container or use the python CLI in the same host where the VPN is connected.
 
+## Web Search Configuration
+
+The `web_search` tool uses public search engines to query for known vulnerabilities. [Tavily](https://www.tavily.com) is
+a search engine designed for agent use. It requires an API key in the environment variable `TAVILY_API_KEY`. If this
+variable is set, the `tavily_search` tool is used instead of `web_search`.
+
 ## Docker Management
 
 ```bash

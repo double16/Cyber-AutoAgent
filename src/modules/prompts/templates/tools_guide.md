@@ -97,7 +97,12 @@
     port to the target.
   - The channel ID *must* be kept for further `channel_*` tools.
 
-**sleep**
+**web_search** or **tavily_search**
+- Purpose: Search the web for known vulnerabilities in found software versions
+- When to use: Software product and version have been identified with high confidence
+- NOT for: Do not run published proof-of-concepts, use for learning how to write own exploit
+
+- **sleep**
 - Purpose: Wait for external processes to complete
 - When to use: An external process is running on the target, a tool reports to try again later
 - When NOT: Waiting for an oast_poll response (use timeout argument instead)
