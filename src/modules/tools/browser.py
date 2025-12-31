@@ -7,11 +7,12 @@ import functools
 import json
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from http.cookies import SimpleCookie
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, get_origin, get_args
 from urllib.parse import urlparse, parse_qs
 from modules import __version__
 
@@ -29,6 +30,7 @@ from pymitter import EventEmitter
 from six import StringIO
 from stagehand import StagehandConfig, Stagehand, StagehandPage
 from stagehand.context import StagehandContext
+from stagehand.llm.client import LLMClient
 from strands import tool
 from tldextract import tldextract
 
@@ -101,6 +103,188 @@ class InteractionCollector:
             dialogs=self.dialogs,
             logs=self.logs
         )
+
+
+class LLMClientJSONResponsePatch(LLMClient):
+    """
+    Response content is expected to be in JSON format when response_format is specified, but the model doesn't always
+    do so.
+    """
+    codeblock_re = re.compile(
+        r"```(?:json|JSON)?\s*(.*?)\s*```",
+        re.DOTALL,
+    )
+
+    def __init__(self, inner_llm: LLMClient):
+        self._inner_llm = inner_llm
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner_llm, name)
+
+    def extract_json_block(self, text: str) -> str:
+        """
+        If there's a ```json ...``` code block, return its payload.
+        If multiple blocks exist, pick the first that parses as JSON after cleaning.
+        Otherwise return the original text.
+        """
+        blocks = [m.group(1) for m in self.codeblock_re.finditer(text)]
+        if not blocks:
+            return text
+
+        # Prefer a block that becomes valid JSON after comment stripping.
+        for b in blocks:
+            candidate = self.strip_js_comments(b).strip()
+            try:
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                continue
+
+        # fallback: first block raw
+        return blocks[0].strip()
+
+    def strip_js_comments(self, text: str) -> str:
+        """
+        Remove // and /* */ comments while preserving content inside strings.
+        """
+        out: list[str] = []
+        i = 0
+        n = len(text)
+        in_str = False
+        str_ch = ""
+        esc = False
+
+        while i < n:
+            ch = text[i]
+
+            if in_str:
+                out.append(ch)
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == str_ch:
+                    in_str = False
+                    str_ch = ""
+                i += 1
+                continue
+
+            # start string?
+            if ch in ("'", '"'):
+                in_str = True
+                str_ch = ch
+                out.append(ch)
+                i += 1
+                continue
+
+            # line comment //
+            if ch == "/" and i + 1 < n and text[i + 1] == "/":
+                i += 2
+                while i < n and text[i] not in ("\n", "\r"):
+                    i += 1
+                continue
+
+            # block comment /* ... */
+            if ch == "/" and i + 1 < n and text[i + 1] == "*":
+                i += 2
+                while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                    i += 1
+                i = min(i + 2, n)  # skip closing */
+                continue
+
+            out.append(ch)
+            i += 1
+
+        return "".join(out)
+
+    def response_format_has_root_elements_model(self, response_format: Any) -> bool:
+        """
+        True if response_format *looks like* a Pydantic model that has an `elements` field at the root.
+
+        Supports:
+          - Pydantic v2 model class (preferred)
+          - Pydantic v1 model class (fallback)
+          - Optional[T] / Union[T, None] wrappers
+        """
+        if response_format is None:
+            return False
+
+        # Unwrap Optional/Union wrappers (e.g., Optional[MyModel])
+        origin = get_origin(response_format)
+        if origin is not None:
+            args = [a for a in get_args(response_format) if a is not type(None)]  # noqa: E721
+            if len(args) == 1:
+                response_format = args[0]
+
+        # Must be a class/type (Pydantic models are classes)
+        if not isinstance(response_format, type):
+            return False
+
+        # Pydantic v2: model_fields
+        model_fields = getattr(response_format, "model_fields", None)
+        if isinstance(model_fields, dict):
+            return "elements" in model_fields
+
+        # Pydantic v1: __fields__
+        fields = getattr(response_format, "__fields__", None)
+        if isinstance(fields, dict):
+            return "elements" in fields
+
+        return False
+
+    async def create_response(
+            self,
+            *,
+            messages: list[dict[str, str]],
+            model: Optional[str] = None,
+            function_name: Optional[str] = None,
+            **kwargs: Any,
+    ) -> dict[str, Any]:
+        if "response_format" in kwargs:
+            messages = messages.copy() if messages else []
+            if hasattr(kwargs["response_format"], "model_json_schema"):
+                result_schema = json.dumps(kwargs["response_format"].model_json_schema())
+            else:
+                result_schema = str(kwargs["response_format"])
+            messages.insert(1, {"role": "system",
+                                "content": f"Format results as valid JSON matching this schema:\n{result_schema}"})
+
+        response = await self._inner_llm.create_response(
+            messages=messages,
+            model=model,
+            function_name=function_name,
+            **kwargs,
+        )
+
+        if "response_format" not in kwargs:
+            return response
+        if "choices" not in response:
+            return response
+        if not isinstance(response.choices, list):
+            return response
+        choices = response.choices
+        if not choices:
+            return response
+        for choice in choices:
+            content = choice.message.content
+            if not isinstance(content, str) or not content.strip():
+                continue
+
+            extracted = self.extract_json_block(content)
+            cleaned = self.strip_js_comments(extracted).strip()
+
+            # If it's valid JSON, replace content with a normalized JSON string
+            try:
+                obj = json.loads(cleaned)
+                if self.response_format_has_root_elements_model(kwargs["response_format"]) and isinstance(obj, list):
+                    obj = {"elements": obj}
+            except Exception:
+                # leave as-is if we can't safely make it valid JSON
+                continue
+
+            choice.message.content = json.dumps(obj, ensure_ascii=False)
+
+        return response
 
 
 class BrowserService(EventEmitter):
@@ -191,6 +375,8 @@ class BrowserService(EventEmitter):
 
         # Stagehand instance will be used exclusively from the dedicated event loop
         self.stagehand = Stagehand(self.stagehand_config)
+        if self.stagehand.llm:
+            self.stagehand.llm = LLMClientJSONResponsePatch(self.stagehand.llm)
 
     async def run_in_browser_loop(self, coro_factory):
         """Run the coroutine produced by coro_factory on the dedicated browser event loop."""
@@ -1059,7 +1245,7 @@ async def browser_goto_url(url: str):
                                 "bytes": len(text_body)
                                 if isinstance(text_body, str)
                                 else 0,
-                                "artifact": os.path.basename(artifact_path),
+                                "artifact": artifact_path,
                             }
                         )
                     except Exception as fetch_exc:

@@ -32,6 +32,7 @@ set -euo pipefail
 # Optional environment variables:
 #   CYBER_AGENT_PROVIDER  - LLM provider, if given overrides docker environment
 #   CYBER_AGENT_LLM_MODEL - LLM model name, if given overrides docker environment
+#   MODULE                - Cyber-AutoAgent module: general, ctf (default: general)
 #   XBOW_ROOT             - Path to xbow validation-benchmarks repo (default: current dir)
 #   TARGET_HOST           - Hostname for agent to reach the benchmark (default: host.docker.internal)
 #   FLAG                  - Flag override; default: FLAG{sha256(caa_<BENCHMARK_ID>)}
@@ -49,6 +50,8 @@ MODEL_UNDER_TEST="${CYBER_AGENT_LLM_MODEL:-}"
 if [[ -z "${MODEL_UNDER_TEST}" ]]; then
   MODEL_UNDER_TEST="$(docker exec cyber-autoagent /bin/bash -c 'echo $CYBER_AGENT_LLM_MODEL')"
 fi
+
+MODULE=${MODULE:-general}
 
 usage() {
   cat <<EOF
@@ -144,7 +147,7 @@ build_benchmark() {
   local flag="$2"
   pushd "${XBOW_ROOT}" >/dev/null
   echo "[*] Building benchmark ${bench_id}..."
-  BENCHMARK="${bench_id}" make build FLAG="${flag}"
+  BENCHMARK="${bench_id}" make FLAG="${flag}" build
   retval=$?
   popd >/dev/null
   return $retval
@@ -257,7 +260,7 @@ run_benchmark() {
       cyber-autoagent \
       python3 /app/src/cyberautoagent.py \
         --target "${target}" \
-        --module ctf \
+        --module "${MODULE}" \
         --objective "${objective}" \
         --iterations 200 \
         --verbose
@@ -268,11 +271,22 @@ run_benchmark() {
 
     echo "[*] cyber-autoagent exit code for ${bench_id}: ${agent_exit}"
 
+    local output_dir
+    output_dir="../outputs/${bench_id}/$(ls -t ../outputs/${bench_id} | grep OP_ | head -n 1)"
     local result
-    if grep -qF "${flag}" "../outputs/${bench_id}/$(ls -t | grep OP_ | head -n 1)/security_assessment_report.md" 2>/dev/null; then
+    if grep -qF "${flag}" "${output_dir}/security_assessment_report.md" "${output_dir}/cyber_operations.log" 2>/dev/null; then
       echo "[*] cyber-autoagent ${bench_id}: SOLVED"
       result="solved"
-    elif grep -qF "EventLoopException" "../outputs/${bench_id}/$(ls -t | grep OP_ | head -n 1)/cyber_operations.log" 2>/dev/null; then
+    elif grep -qF '[SIGINT] received' \
+      "${output_dir}/cyber_operations.log" 2>/dev/null; then
+      echo "[!] cyber-autoagent ${bench_id}: CANCELLED"
+      exit 130
+    elif grep -qi 'timeout detected\|litellm.notfounderror\|"termination_reason",\s*"reason":\s*"network_timeout"' \
+      "${output_dir}/cyber_operations.log" 2>/dev/null; then
+      echo "[!] cyber-autoagent ${bench_id}: NETWORK"
+      exit 1
+    elif grep -q 'EventLoopException' \
+      "${output_dir}/cyber_operations.log" 2>/dev/null; then
       echo "[!] cyber-autoagent ${bench_id}: ERROR"
       result="error"
     else
@@ -280,7 +294,7 @@ run_benchmark() {
       result="unsolved"
     fi
 
-    echo "$(date -Iseconds),${DURATION},${VERSION},${bench_id},${PROVIDER_UNDER_TEST},${MODEL_UNDER_TEST},${result}" >> results.csv
+    echo "$(date -Iseconds),${DURATION},${VERSION},${bench_id},${PROVIDER_UNDER_TEST},${MODEL_UNDER_TEST},${MODULE},${result}" >> results.csv
 
     if [[ "${KEEP_RUNNING:-0}" != "1" ]]; then
       stop_benchmark "${bench_id}"
@@ -292,7 +306,7 @@ run_benchmark() {
   return "${agent_exit}"
 }
 
-  run_all_benchmarks() {
+run_all_benchmarks() {
   ensure_benchmarks_dir
 
   local remaining=""
@@ -317,7 +331,7 @@ run_benchmark() {
     local id="${d%/}"
 
     if [[ -n "${remaining}" ]] && [[ -s "results.csv" ]]; then
-      if grep -v ",error" results.csv | grep -qE ".*?,.*?,${VERSION},${id},${PROVIDER_UNDER_TEST},${MODEL_UNDER_TEST},.*"; then
+      if grep -v ",error" results.csv | grep -qE ".*?,.*?,${VERSION},${id},${PROVIDER_UNDER_TEST},${MODEL_UNDER_TEST},${MODULE},.*"; then
         echo "[*] Found ${id} in results, skipping"
         continue
       fi
