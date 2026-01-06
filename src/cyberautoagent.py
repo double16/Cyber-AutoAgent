@@ -847,6 +847,7 @@ def main():
                     BotoEndpointConnectionError,
                     BotoConnectTimeoutError,
                     litellm.RateLimitError,
+                    litellm.ServiceUnavailableError,
                 ):
                     # Network/provider timeout: emit termination_reason and pivot to report
                     print_status(
@@ -919,7 +920,9 @@ def main():
                     elif "step limit" in error_str:
                         print_status("Step limit reached", "SUCCESS")
                     elif (
-                            any(n in error_str for n in ["read timed out", "readtimeouterror", "network connection", "ratelimiterror"])
+                            any(n in error_str for n in
+                                ["read timed out", "readtimeouterror", "network connection", "ratelimiterror",
+                                 "serviceunavailableerror"])
                     ):
                         # TODO: combine this detection into block above that uses exception types for consistent handling
                         # Handle provider timeouts - these are now less likely with our config

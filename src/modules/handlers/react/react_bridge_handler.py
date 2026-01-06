@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from datetime import datetime
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from strands.handlers import PrintingCallbackHandler
@@ -25,6 +26,12 @@ from .tool_emitters import ToolEventEmitter
 from modules.config.system.logger import get_logger
 
 logger = get_logger("Handlers.ReactBridge")
+
+
+@dataclass
+class _ReasoningSeenHolder:
+    """Mutable per-callback holder to dedupe reasoning extraction without shared instance state."""
+    seen: bool = False
 
 
 class ReactBridgeHandler(PrintingCallbackHandler):
@@ -324,7 +331,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         tool_result = kwargs.get("toolResult")
 
         # Track whether we saw explicit reasoning in this callback to avoid duplicate extraction
-        self._recent_reasoning_seen = False
+        recent_reasoning_seen = _ReasoningSeenHolder()
 
         # Metrics from AgentResult
         agent_result = kwargs.get("result")
@@ -336,16 +343,18 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         skip_message_reasoning = False
         if reasoning_text:
             self._handle_reasoning(reasoning_text)
-            self._recent_reasoning_seen = True
+            recent_reasoning_seen.seen = True
             skip_message_reasoning = True
         elif data and not complete:
             self._handle_streaming_reasoning(data)
-            self._recent_reasoning_seen = True
+            recent_reasoning_seen.seen = True
 
         # 2) Message (tool blocks, result blocks, and optional swarm reasoning extraction)
         if message and isinstance(message, dict):
             self._process_message(
-                message, skip_reasoning_extraction=skip_message_reasoning
+                message,
+                skip_reasoning_extraction=skip_message_reasoning,
+                recent_reasoning_seen=recent_reasoning_seen,
             )
 
         # 3) Tool lifecycle
@@ -374,9 +383,6 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         # 5) Metrics
         if event_loop_metrics:
             self.process_metrics(event_loop_metrics)
-
-        # Reset duplicate guard at end of processing for this callback
-        self._recent_reasoning_seen = False
 
         agent = kwargs.get("agent")
         if agent and hasattr(agent, "event_loop_metrics"):
@@ -447,7 +453,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         if detected and detected != self.current_swarm_agent:
             # In swarm mode, do NOT flush reasoning on agent switches; keep rationale
             # buffered and let it flush after the next tool_end to preserve ordering.
-            if (not self.in_swarm_operation) and self.reasoning_buffer:
+            if self.reasoning_buffer:
                 self._emit_accumulated_reasoning()
             self.current_swarm_agent = detected
             if detected not in self.swarm_agent_steps:
@@ -543,7 +549,10 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             self._process_tool_result_from_message(result_data)
 
     def _process_message(
-        self, message: Dict[str, Any], skip_reasoning_extraction: bool = False
+            self,
+            message: Dict[str, Any],
+            skip_reasoning_extraction: bool = False,
+            recent_reasoning_seen: Optional[_ReasoningSeenHolder] = None,
     ) -> None:
         """Process message objects to track steps and extract content.
 
@@ -551,8 +560,12 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             message: The SDK message dict
             skip_reasoning_extraction: When True, do not extract reasoning text from message content
                                       (used to avoid duplication when reasoningText is provided)
+            recent_reasoning_seen: Mutable per-callback holder used to mark that reasoning was already handled
+                                   earlier in this callback (dataclass holder pattern to avoid shared state).
         """
         content = message.get("content", [])
+        if recent_reasoning_seen is None:
+            recent_reasoning_seen = _ReasoningSeenHolder()
 
         # Check if message contains tool usage
         has_tool_use = any(
@@ -612,7 +625,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         if (
             self.in_swarm_operation
             and message.get("role") == "assistant"
-            and not getattr(self, "_recent_reasoning_seen", False)
+                and not recent_reasoning_seen.seen
             and not skip_reasoning_extraction
         ):
             try:
@@ -628,7 +641,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                             # Reuse existing reasoning pipeline (adds swarm_agent metadata and flushes appropriately)
                             self._handle_reasoning(text_val)
                             # Mark so we don't double-extract within same callback
-                            self._recent_reasoning_seen = True
+                            recent_reasoning_seen.seen = True
             except Exception:
                 # Never allow parsing issues to break streaming
                 pass
@@ -639,7 +652,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             self.in_swarm_operation
             and message.get("role") == "assistant"
             and has_tool_use
-            and not getattr(self, "_recent_reasoning_seen", False)
+                and not recent_reasoning_seen.seen
             and not skip_reasoning_extraction
         ):
             try:
@@ -659,7 +672,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                         # Skip JSON-like blocks and empty
                         if txt and not txt.startswith("{") and not txt.startswith("["):
                             self._handle_reasoning(txt)
-                            self._recent_reasoning_seen = True
+                            recent_reasoning_seen.seen = True
                             break
             except Exception:
                 pass
@@ -703,7 +716,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         For swarm agents: We handle events here since they lack hooks.
         """
         tool_name = tool_use.get("name", "")
-        tool_id = tool_use.get("toolUseId", "")
+        tool_id = tool_use.get("toolUseId", "") or tool_use.get("id", "")
         raw_input = tool_use.get("input", {})
         tool_input = self._parse_tool_input_from_stream(raw_input)
 
@@ -743,9 +756,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 self._tools_in_current_step.append(tool_id)
 
             # Emit step header ONLY if pending (i.e., this is the first tool in the response)
-            if self.pending_step_header and (
-                self.current_step == 0 or self.pending_step_header
-            ):
+            if self.current_step == 0 or self.pending_step_header:
                 if self.current_step == 0:
                     # First tool ever - increment step
                     if not self.in_swarm_operation:
@@ -764,7 +775,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                     # Emit notification about step limit before raising exception
                     self.emit_termination(
                         "step_limit",
-                        f"Completed maximum allowed steps ({self.max_steps}/{self.max_steps}). Operation will now generate final report.",
+                        f"Completed maximum allowed steps ({self.current_step}/{self.max_steps}). Operation will now generate final report.",
                     )
                     from modules.handlers.base import StepLimitReached
 
@@ -786,9 +797,8 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 # Defensive: never allow metrics to break streaming
                 logger.debug("Incrementing tool_counts", exc_info=e)
             self.tool_input_buffer[tool_id] = tool_input
-            self.tool_name_buffer[tool_id] = (
-                tool_name  # Track tool name for correct attribution
-            )
+            # Track tool name for correct attribution
+            self.tool_name_buffer[tool_id] = tool_name
 
             # Intelligently detect which swarm agent is active based on tool usage
             if self.in_swarm_operation and tool_name != "swarm":
@@ -1068,12 +1078,6 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                             raw_input,
                         )
                         self._track_swarm_start(new_input, tool_id)
-                    except Exception as e:
-                        logger.warning(
-                            "SWARM_START streaming update parsing failed: %s; input=%s",
-                            e,
-                            raw_input,
-                        )
 
     def _synthesize_swarm_tool_start(
         self, tool_name: str, buffered_output: str = None
@@ -1781,7 +1785,8 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 {
                     "type": "output",
                     "content": "Command completed",
-                    "metadata": {"fromToolBuffer": True, "tool": self.last_tool_name},
+                    "metadata": {"fromToolBuffer": True,
+                                 "tool": self.tool_name_buffer.get(tool_use_id, "unknown_tool")},
                 }
             )
             if tool_use_id:
@@ -1789,7 +1794,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             return
 
         # Check if we already processed this exact output
-        output_key = f"{tool_use_id or self.last_tool_id}:{hash(output_text.strip())}"
+        output_key = f"{tool_use_id}:{hash(output_text.strip())}"
         if (
             hasattr(self, "_processed_outputs")
             and output_key in self._processed_outputs
@@ -1836,7 +1841,8 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 {
                     "type": "output",
                     "content": "Request completed",
-                    "metadata": {"fromToolBuffer": True, "tool": self.last_tool_name},
+                    "metadata": {"fromToolBuffer": True,
+                                 "tool": self.tool_name_buffer.get(tool_use_id, "unknown_tool")},
                 }
             )
             if tool_use_id:
@@ -1844,7 +1850,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             return
 
         # Check if we already processed this exact output
-        output_key = f"{tool_use_id or self.last_tool_id}:{hash(output_text.strip())}"
+        output_key = f"{tool_use_id}:{hash(output_text.strip())}"
         if (
             hasattr(self, "_processed_outputs")
             and output_key in self._processed_outputs
@@ -2119,7 +2125,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 # Emit termination before raising
                 self.emit_termination(
                     "step_limit",
-                    f"Completed maximum allowed steps ({self.max_steps}/{self.max_steps}). Operation will now finalize.",
+                    f"Completed maximum allowed steps ({self.current_step}/{self.max_steps}). Operation will now finalize.",
                 )
                 from modules.handlers.base import StepLimitReached
 
@@ -2206,8 +2212,8 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         if not self.in_swarm_operation and self.current_step == 0:
             return
         # Reset per-step reasoning gate for the new step and flush buffered reasoning before header
+        flushed_here = False
         try:
-            flushed_here = False
             # In swarm mode, do NOT pre-flush at headers; flush occurs after tool_end for proper ordering
             if (not self.in_swarm_operation) and self.reasoning_buffer:
                 # Flush accumulated reasoning for the upcoming step (appears above header)
@@ -2221,7 +2227,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                     self._reasoning_emitted_since_last_step_header = False
         except Exception:
             pass
-        event = {
+        event: Dict[str, Any] = {
             "type": "step_header",
             "operation": self.operation_id,
             "duration": self._format_duration(time.time() - self.start_time),

@@ -935,10 +935,12 @@ class TestToolPairPreservation:
         # Apply management - should trigger pruning at boundary (>=, not >)
         manager.apply_management(agent)
 
-        # Verify pruning occurred (target is 90% = 9 messages)
-        assert len(agent.messages) < 10, (
-            f"Window overflow should trigger at boundary: expected <10, got {len(agent.messages)}"
-        )
+        # Verify pruning reached the clamped 90% target
+        assert len(agent.messages) == 9
+
+        # Sanity: first and last messages should remain
+        assert agent.messages[0]["content"][0]["text"] == "Message 0"
+        assert agent.messages[-1]["content"][0]["text"] == "Message 9"
 
 
 # ============================================================================

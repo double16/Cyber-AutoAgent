@@ -658,6 +658,8 @@ def get_system_prompt(
         memory_overview=memory_overview,
     )
     if plan_snapshot:
+        if len(plan_snapshot) > 1000:
+            logger.warning(f"Plan snapshot is {len(plan_snapshot)} characters")
         memory_context_text += f"\n\n## PLAN SNAPSHOT\n{plan_snapshot}"
 
     # 4. Load Tools Guide

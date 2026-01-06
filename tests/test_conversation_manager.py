@@ -20,11 +20,10 @@ def _make_message(text: str) -> dict[str, Any]:
 
 
 def test_pruning_conversation_manager_sliding_trims_messages():
-    """Test that conversation manager prunes to target when window exceeded.
+    """Test that conversation manager prunes to the configured target when window exceeded.
 
-    NOTE: The manager targets 90% of window_size, not 100%.
-    With window_size=3, target is int(3 * 0.9) = 2 messages.
-    Also, preserve_last is capped at 50% of window, so preserve_last=1 -> 0 for window=3.
+    NOTE: The manager targets 90% of window_size, but will not prune below the
+    preservation minimum (preserve_first + preserve_last + 1).
     """
     manager = MappingConversationManager(
         window_size=3, summary_ratio=0.5, preserve_recent_messages=1
@@ -33,12 +32,13 @@ def test_pruning_conversation_manager_sliding_trims_messages():
 
     manager.apply_management(agent)
 
-    # Target is 90% of window=3 → 2 messages
-    # With preserve_first=1, preserve_last=0 (capped at 50% of window=3)
-    # We keep message 0 (first) and message 4 (most recent)
     assert len(agent.messages) == 2
-    # First message preserved (index 0) and most recent message (index 4)
-    assert [block["content"][0]["text"] for block in agent.messages] == ["0", "4"]
+
+    # Always preserve the first message
+    assert agent.messages[0]["content"][0]["text"] == "0"
+
+    # The last message should be retained (either via preserve_last or the +1 minimum)
+    assert agent.messages[-1]["content"][0]["text"] == "4"
 
 
 def test_pruning_conversation_manager_falls_back_to_summary(monkeypatch):
@@ -155,20 +155,20 @@ def test_tool_result_compressor_summarizes_json():
     result = mapper(message, 1, [message])
     assert result is not None
 
-    # New format: [note, text_indicator, json_indicator]
+    # New format includes a human-readable text indicator and a structured JSON indicator.
     tool_content = result["content"][0]["toolResult"]["content"]
-    assert len(tool_content) >= 2
 
-    # Check text indicator (human-readable)
-    text_block = tool_content[1]["text"]
-    assert "Compressed:" in text_block
-    assert "keys" in text_block
+    text_blocks = [b["text"] for b in tool_content if isinstance(b, dict) and "text" in b]
+    json_blocks = [b["json"] for b in tool_content if isinstance(b, dict) and "json" in b]
 
-    # Check structured JSON indicator (for LLM comprehension)
-    json_block = tool_content[2]["json"]
-    assert json_block["_compressed"] is True
+    assert any("Compressed:" in t for t in text_blocks), "Expected compression text indicator"
+    assert any("keys" in t for t in text_blocks), "Expected key count in text indicator"
+
+    assert json_blocks, "Expected structured JSON compression indicator"
+    json_block = json_blocks[0]
+    assert json_block.get("_compressed") is True
     assert "_n_original_keys" in json_block
-    assert json_block["_type"] == "json"
+    assert json_block.get("_type") == "json"
 
 
 def test_reduce_context_records_event(monkeypatch):

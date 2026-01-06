@@ -362,11 +362,9 @@ class TestToolRouterThreadSafety:
         artifact_files = list(tmp_path.glob("*.log"))
 
         # With thread safety, we should have exactly num_threads artifacts
-        # Without thread safety, race conditions may cause fewer due to overwrites
-        # or counter issues
-        assert len(artifact_files) >= num_threads - 2, (
-            f"Expected ~{num_threads} artifacts, got {len(artifact_files)}.\n"
-            "Race condition may have caused artifact loss."
+        assert len(artifact_files) == num_threads, (
+            f"Expected {num_threads} artifacts, got {len(artifact_files)}.\n"
+            "Artifacts should not be overwritten; each thread should produce exactly one artifact."
         )
 
     def test_concurrent_cleanup_safety(self, tmp_path):
@@ -679,5 +677,82 @@ class TestToolRouterIntegration:
             # Verify artifact created
             artifacts = list(tmp_path.glob("*.log"))
             assert len(artifacts) == 1, "Artifact should be created"
+
+        asyncio.run(_test())
+
+    def test_image_does_not_crash_when_artifacts_disabled(self):
+        """Verify image blocks don't crash when artifacts_dir is None.
+
+        This covers the prior bug where _persist_artifact() returned None and the code
+        tried to call .stat() / relpath() on it.
+        """
+
+        async def _test():
+            hook = ToolRouterHook(
+                shell_tool=object(),
+                max_result_chars=10000,
+                artifacts_dir=None,
+                artifact_threshold=10000,
+            )
+
+            image_data = b"\x47\x49\x46\x38\x39\x61"
+            result = {
+                "status": "success",
+                "toolUseId": "test_id",
+                "content": [
+                    {
+                        "image": {
+                            "format": "gif",
+                            "source": {"bytes": image_data},
+                        }
+                    }
+                ],
+            }
+            event = MockAfterToolCallEvent(result, {"name": "test_tool"})
+
+            # Should not raise
+            await hook._truncate_large_results_async(event)
+
+            # Should replace the binary payload with a text summary noting disabled persistence
+            assert isinstance(event.result.get("content"), list)
+            assert event.result["content"], "Expected non-empty content"
+            text = event.result["content"][0].get("text", "")
+            assert "Artifact persistence disabled" in text
+
+        asyncio.run(_test())
+
+    def test_document_does_not_crash_when_artifacts_disabled(self):
+        """Verify document blocks don't crash when artifacts_dir is None."""
+
+        async def _test():
+            hook = ToolRouterHook(
+                shell_tool=object(),
+                max_result_chars=10000,
+                artifacts_dir=None,
+                artifact_threshold=10000,
+            )
+
+            pdf_data = b"%PDF-1.4\n%..."
+            result = {
+                "status": "success",
+                "toolUseId": "test_id",
+                "content": [
+                    {
+                        "document": {
+                            "format": "pdf",
+                            "source": {"bytes": pdf_data},
+                        }
+                    }
+                ],
+            }
+            event = MockAfterToolCallEvent(result, {"name": "test_tool"})
+
+            # Should not raise
+            await hook._truncate_large_results_async(event)
+
+            assert isinstance(event.result.get("content"), list)
+            assert event.result["content"], "Expected non-empty content"
+            text = event.result["content"][0].get("text", "")
+            assert "Artifact persistence disabled" in text
 
         asyncio.run(_test())

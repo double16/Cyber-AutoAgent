@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from strands.experimental.hooks.events import BeforeModelInvocationEvent
+from strands.hooks.events import BeforeToolCallEvent
 from strands.hooks import HookProvider, HookRegistry
 
 from modules.config.system.logger import get_logger
@@ -68,7 +68,7 @@ class PromptRebuildHook(HookProvider):
         self.config = config
         self.target = target
         self.objective = objective
-        self.operation_id = operation_id
+        self.operation_id = str(operation_id)
         self.max_steps = max_steps
         self.module = module
 
@@ -87,12 +87,11 @@ class PromptRebuildHook(HookProvider):
             from modules.handlers.utils import sanitize_target_name
 
             target_name = sanitize_target_name(target)
-            operation_id_str = str(operation_id)
-            if operation_id_str.startswith("OP_"):
-                self.operation_folder = output_dir / target_name / operation_id_str
+            if self.operation_id.startswith("OP_"):
+                self.operation_folder = output_dir / target_name / self.operation_id
             else:
                 self.operation_folder = (
-                    output_dir / target_name / f"OP_{operation_id_str}"
+                        output_dir / target_name / f"OP_{self.operation_id}"
                 )
 
         self.exec_prompt_path = self.operation_folder / "execution_prompt_optimized.txt"
@@ -105,19 +104,19 @@ class PromptRebuildHook(HookProvider):
         logger.info(
             "PromptRebuildHook initialized: interval=%d, operation=%s",
             rebuild_interval,
-            operation_id,
+            self.operation_id,
         )
 
     def register_hooks(self, registry: HookRegistry):
-        """Register BeforeModelInvocationEvent callback."""
-        registry.add_callback(BeforeModelInvocationEvent, self.check_if_rebuild_needed)
-        logger.debug("PromptRebuildHook registered for BeforeModelInvocationEvent")
+        """Register BeforeToolCallEvent callback."""
+        registry.add_callback(BeforeToolCallEvent, self.check_if_rebuild_needed)
+        logger.debug("PromptRebuildHook registered for BeforeToolCallEvent")
 
-    def check_if_rebuild_needed(self, event: BeforeModelInvocationEvent):
+    def check_if_rebuild_needed(self, event: BeforeToolCallEvent):
         """Check triggers and rebuild prompt if needed.
 
         Args:
-            event: BeforeModelInvocationEvent from Strands SDK
+            event: BeforeToolCallEvent from Strands SDK
         """
         current_step = self.callback_handler.current_step
 
@@ -430,10 +429,10 @@ Without category='finding', your work will NOT appear in the final report.
         try:
             # Use get_active_plan if available (more direct)
             if hasattr(self.memory, "get_active_plan"):
-                active_plan = self.memory.get_active_plan(user_id="cyber_agent")
+                active_plan = self.memory.get_active_plan(user_id="cyber_agent", operation_id=self.operation_id)
                 if active_plan:
                     # Return raw memory content for LLM interpretation
-                    return str(active_plan.get("memory", ""))[:500]
+                    return str(active_plan.get("memory", ""))
 
             # Otherwise, search for any plan-like memory
             results = self.memory.search_memories(
@@ -442,7 +441,7 @@ Without category='finding', your work will NOT appear in the final report.
 
             if results:
                 # Return first plan-like memory content
-                return str(results[0].get("memory", ""))[:500]
+                return str(results[0].get("memory", ""))
 
         except Exception as e:
             logger.debug("Plan query failed: %s", e)

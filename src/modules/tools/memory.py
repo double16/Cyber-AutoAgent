@@ -933,7 +933,11 @@ class Mem0ServiceClient:
             raise
 
     def search_memories(
-        self, query: str, user_id: Optional[str] = None, agent_id: Optional[str] = None
+            self,
+            query: str,
+            user_id: Optional[str] = None,
+            agent_id: Optional[str] = None,
+            run_id: Optional[str] = None,
     ):
         """Search memories using semantic search."""
         if not user_id and not agent_id:
@@ -946,6 +950,7 @@ class Mem0ServiceClient:
             limit=20,
             user_id=user_id or "cyber_agent",
             agent_id=agent_id,
+            run_id=run_id,
         )
 
     def search(

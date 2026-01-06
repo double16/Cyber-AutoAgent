@@ -9,7 +9,8 @@
 **Core Rule**: Native tools > Command line > custom. Save all artifacts to OPERATION ARTIFACTS DIRECTORY (path injected above).
 
 **shell**
-- Usage: Non-interactive, parallel execution. Default timeout: 300s, heavy operations ≤600s
+- Usage: Non-interactive, parallel execution. Default timeout: 300s, heavy operations ≤600s.
+- The command, arguments and shell constructs must all be in a single string. An array of strings is used for running multiple commands.
 - Large outputs (>10KB expected: sqlmap --dump, nmap -A, nikto full scan):
   - Pipe to file: `sqlmap ... 2>&1 | tee <artifacts_path>/sqlmap_output.txt`
   - Extract relevant: `grep -E "password|hash|Database:" <artifacts_path>/sqlmap_output.txt`

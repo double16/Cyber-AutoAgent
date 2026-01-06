@@ -13,12 +13,12 @@ import os
 import sys
 import threading
 from contextlib import contextmanager
-from typing import List, TextIO
+from typing import List, TextIO, Dict, Any
 
 from .utils import CyberEvent
 
 # Global state for tool execution and output buffering
-_in_tool_execution = False
+_in_tool_execution = 0
 _tool_execution_lock = threading.Lock()
 _tool_output_buffer: List[str] = []
 _tool_error_buffer: List[str] = []
@@ -28,18 +28,21 @@ def set_tool_execution_state(is_executing: bool):
     """Set global tool execution state and manage buffer when tool starts/ends."""
     global _in_tool_execution, _tool_output_buffer, _tool_error_buffer
     with _tool_execution_lock:
-        _in_tool_execution = is_executing
-        if is_executing:
+        if is_executing and _in_tool_execution == 0:
             # Starting tool execution - clear buffers
             _tool_output_buffer = []
             _tool_error_buffer = []
         # When ending tool execution, buffers are returned by getters
+        if is_executing:
+            _in_tool_execution += 1
+        else:
+            _in_tool_execution = max(0, _in_tool_execution - 1)
 
 
 def is_in_tool_execution() -> bool:
     """Check if we're currently executing a tool."""
     with _tool_execution_lock:
-        return _in_tool_execution
+        return _in_tool_execution > 0
 
 
 def get_buffered_output() -> str:
@@ -138,7 +141,7 @@ class OutputInterceptor(io.TextIOBase):
                 event_type = self.event_type
 
             # Add metadata to prevent truncation if this is during tool execution
-            metadata = {"source": "python_backend"}
+            metadata: Dict[str, Any] = {"source": "python_backend"}
             if is_in_tool_execution():
                 metadata["fromToolBuffer"] = True
                 metadata["tool"] = "shell"  # Most tool outputs are from shell

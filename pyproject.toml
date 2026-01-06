@@ -63,7 +63,7 @@ dependencies = [
     "standard-distutils>=3.11.9",
     "guppy3~=3.1.5",
     "validators>=0.35.0",
-    "ddgs~=9.6.1",
+    "ddgs~=9.10.0",
 ]
 
 [project.optional-dependencies]

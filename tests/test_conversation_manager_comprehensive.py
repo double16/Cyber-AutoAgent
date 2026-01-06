@@ -645,6 +645,67 @@ class TestToolPairBoundaryConditions:
                 )
                 assert has_prev_tool_use, f"Orphaned toolResult at index {i}"
 
+    def test_only_removes_tool_use_when_paired_tool_result_is_prunable(self):
+        """Ensure toolUse is not removed if its paired toolResult falls in the preserved zone."""
+        manager = MappingConversationManager(
+            window_size=6,
+            preserve_first_messages=1,
+            preserve_recent_messages=2,
+        )
+
+        # With len(messages)=8 and preserve_recent_messages=2:
+        #   end_idx = len(messages) - preserve_last = 8 - 2 = 6
+        # Prunable indices are [preserve_first .. end_idx-1] => [1..5]
+        # Place toolUse at idx=5 (last prunable) and toolResult at idx=6 (first preserved-last)
+        tool_id = "boundary_tool"
+        messages = [
+            create_user_message("Initial"),  # preserve_first
+            create_assistant_message("prune_me_1"),
+            create_assistant_message("prune_me_2"),
+            create_assistant_message("prune_me_3"),
+            create_assistant_message("prune_me_4"),
+            create_tool_use_message("shell", {"cmd": "test"}, tool_id),
+            create_tool_result_message(tool_id, "result"),  # preserved-last starts here
+            create_assistant_message("Final"),
+        ]
+
+        agent = MockAgent(messages=messages)
+
+        # Request enough pruning that the algorithm must scan up to the toolUse boundary.
+        # It should prune regular messages, but must NOT remove the toolUse without also
+        # removing its paired toolResult (which is not prunable).
+        manager._force_prune_oldest(agent, 5)
+
+        # We should have pruned the 4 regular messages in the middle, but kept the tool pair intact.
+        assert len(agent.messages) == 4
+        assert agent.messages[0]["content"][0]["text"] == "Initial"
+
+        # Find toolUse/toolResult indices in the remaining messages
+        tool_use_indices: list[int] = []
+        tool_result_indices: list[int] = []
+        for i, msg in enumerate(agent.messages):
+            for block in msg.get("content", []):
+                if isinstance(block, dict) and "toolUse" in block:
+                    tool_use_indices.append(i)
+                if isinstance(block, dict) and "toolResult" in block:
+                    tool_result_indices.append(i)
+
+        assert tool_use_indices, "Expected toolUse to be retained"
+        assert tool_result_indices, "Expected paired toolResult to be retained"
+
+        use_idx = tool_use_indices[0]
+        res_idx = tool_result_indices[0]
+
+        # ToolResult should immediately follow its toolUse
+        assert res_idx == use_idx + 1
+
+        assert (
+                agent.messages[use_idx]["content"][0]["toolUse"]["toolUseId"] == tool_id
+        )
+        assert (
+                agent.messages[res_idx]["content"][0]["toolResult"]["toolUseId"] == tool_id
+        )
+
     def test_multiple_tool_pairs_in_single_prune(self):
         """Test pruning multiple tool pairs in one operation."""
         manager = MappingConversationManager(

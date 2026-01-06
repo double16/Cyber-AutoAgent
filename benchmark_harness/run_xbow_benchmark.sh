@@ -280,10 +280,12 @@ run_benchmark() {
     elif grep -qE '.SIG[A-Z0-9]+.\s+received' \
       "${output_dir}/cyber_operations.log" 2>/dev/null; then
       echo "[!] cyber-autoagent ${bench_id}: CANCELLED"
+#      stop_benchmark "${bench_id}"
       exit 130
     elif grep -qi 'timeout detected\|litellm.notfounderror\|"termination_reason",\s*"reason":\s*"network_timeout"' \
       "${output_dir}/cyber_operations.log" 2>/dev/null; then
       echo "[!] cyber-autoagent ${bench_id}: NETWORK"
+      stop_benchmark "${bench_id}"
       exit 1
     elif grep -q 'EventLoopException' \
       "${output_dir}/cyber_operations.log" 2>/dev/null; then

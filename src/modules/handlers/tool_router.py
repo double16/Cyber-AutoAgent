@@ -12,9 +12,9 @@ import os
 import re
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional
 
 from strands.hooks import BeforeToolCallEvent  # type: ignore
 from strands.types.tools import ToolResultContent
@@ -161,59 +161,114 @@ class ToolRouterHook:
                 new_content.append(block)
                 continue
 
-            summary_lines = []
+            # We may expand a single input block into multiple output blocks
+            summary_lines: list[str] = []
+            passthrough_blocks: list[dict[str, Any]] = []
+            block_modified = False
 
+            # ----------------------------
+            # Externalize binary-like blocks
+            # ----------------------------
             for file_type in ["document", "image"]:
                 if file_type not in block:
                     continue
-                document: TypedDict = block.get(file_type)
-                ext = sanitize_target_name(document.get("format", "bin"))
-                artifact_path = self._persist_artifact(tool_name, document.get("source", {}).get("bytes", b''), ext)
-                try:
-                    relative_path = os.path.relpath(artifact_path, os.getcwd())
-                except Exception:
-                    relative_path = str(artifact_path)
-                summary_lines.extend([
-                    f"[Tool output: {artifact_path.stat().st_size} bytes | File: {relative_path}]"
-                ])
-                logger.debug("saved tool output file to %s", artifact_path)
 
+                document_obj = block.get(file_type)
+                if not isinstance(document_obj, dict):
+                    logger.warning("%s block is not a dictionary: %s", file_type, type(document_obj))
+                    block_modified = True
+                    continue
+
+                ext = sanitize_target_name(document_obj.get("format", "bin"))
+                source = document_obj.get("source", {})
+                payload_bytes: bytes = b""
+                if isinstance(source, dict):
+                    maybe_bytes = source.get("bytes", b"")
+                    if isinstance(maybe_bytes, bytes):
+                        payload_bytes = maybe_bytes
+                    elif isinstance(maybe_bytes, str):
+                        payload_bytes = maybe_bytes.encode("utf-8", errors="ignore")
+
+                artifact_path = self._persist_artifact(tool_name, payload_bytes, ext)
+
+                if artifact_path is not None:
+                    try:
+                        relative_path = os.path.relpath(artifact_path, os.getcwd())
+                    except Exception:
+                        relative_path = str(artifact_path)
+                    summary_lines.append(
+                        f"[Tool output: {artifact_path.stat().st_size} bytes | File: {relative_path}]"
+                    )
+                    logger.debug("saved tool output file to %s", artifact_path)
+                else:
+                    # Artifact persistence disabled or failed; keep a useful note without crashing
+                    summary_lines.append(
+                        f"[Tool output: {len(payload_bytes)} bytes | Artifact persistence disabled]"
+                    )
+
+                # We never want to keep the original binary payload inline
+                block_modified = True
+
+            # ----------------------------
+            # Handle text/json blocks
+            # ----------------------------
             for file_type in ["text", "json"]:
                 if file_type not in block:
                     continue
+
                 logger.debug("processing tool output type %s", file_type)
-                text = block.get(file_type)
-                if isinstance(text, bytes):
-                    text = text.decode(encoding="utf-8", errors="ignore")
-                elif not isinstance(text, str):
-                    text = str(text)
+                raw_val = block.get(file_type)
+
+                # Normalize to string for size checks and previews
+                if isinstance(raw_val, bytes):
+                    text = raw_val.decode(encoding="utf-8", errors="ignore")
+                elif isinstance(raw_val, str):
+                    text = raw_val
+                else:
+                    text = str(raw_val)
 
                 original_size = len(text)
                 needs_externalization = original_size > self._artifact_threshold
                 needs_truncation = original_size > self._max_result_chars
 
-                # Skip if no action needed - preserve original block
+                # If no action needed and we don't already have a summary to emit, preserve original block unchanged
                 if not needs_externalization and not needs_truncation and not summary_lines:
-                    # Assume only one type of result per block, original block will be appended later
                     continue
 
-                artifact_path = None
+                # If no action needed but we DO have summary lines (e.g., we externalized an image/document),
+                # preserve this small text/json content as an additional block.
+                if not needs_externalization and not needs_truncation and summary_lines:
+                    pt_block = ToolResultContent()
+                    pt_block[file_type] = text
+                    passthrough_blocks.append(pt_block)
+                    block_modified = True
+                    continue
 
-                # Always externalize large outputs to preserve full evidence
+                artifact_path: Optional[Path] = None
+                externalized = False
+
+                # Try to externalize large outputs to preserve full evidence
                 if needs_externalization:
-                    artifact_path = self._persist_artifact(tool_name, text, "json" if file_type == "json" else "log")
+                    artifact_path = self._persist_artifact(
+                        tool_name,
+                        text,
+                        "json" if file_type == "json" else "log",
+                    )
+                    externalized = artifact_path is not None
+                    if not externalized:
+                        summary_lines.append(
+                            "[Tool output too large for full inline; artifact persistence disabled]"
+                        )
 
-                # Calculate actual truncation target
-                # When externalizing, use smaller inline preview (artifact_threshold)
-                # When just truncating, use max_result_chars
-                if artifact_path is not None:
+                # Decide inline preview size
+                if externalized:
                     # Externalized: use smaller inline preview to save context
                     truncate_target = min(self._artifact_threshold, self._max_result_chars)
                 else:
                     truncate_target = self._max_result_chars
 
-                # Only log "Truncating" if we're actually reducing size
                 actual_truncated_size = min(truncate_target, original_size)
+
                 if actual_truncated_size < original_size:
                     logger.warning(
                         "Truncating large tool result: tool=%s, original_size=%d chars, truncated_to=%d",
@@ -221,8 +276,7 @@ class ToolRouterHook:
                         original_size,
                         actual_truncated_size,
                     )
-                elif artifact_path is not None:
-                    # Just externalized, not truncated
+                elif externalized:
                     logger.info(
                         "Externalized tool result to artifact: tool=%s, size=%d chars, artifact=%s",
                         tool_name,
@@ -230,29 +284,53 @@ class ToolRouterHook:
                         artifact_path,
                     )
 
-                # Build new text content (DO NOT mutate original block)
                 snippet = text[:truncate_target]
-                if artifact_path is not None:
+
+                if externalized and artifact_path is not None:
                     try:
                         relative_path = os.path.relpath(artifact_path, os.getcwd())
                     except Exception:
                         relative_path = str(artifact_path)
-                    # Build concise summary with artifact reference
-                    summary_lines.extend([
-                        f"[Tool output: {original_size:,} chars | Inline: {len(snippet):,} chars | Full: {relative_path}]",
-                        "",
-                        snippet,
-                        "",
-                        f"[Complete output saved to: {relative_path}]"
-                    ])
-                else:
-                    summary_lines.extend([f"[Truncated: {original_size:,} chars total]", "", snippet])
 
-            if summary_lines:
-                # Create NEW block with modified text (SDK compliant - no mutation)
-                new_block = ToolResultContent()
-                new_block["text"] = "\n".join(summary_lines)
-                new_content.append(new_block)
+                    summary_lines.extend(
+                        [
+                            f"[Tool output: {original_size:,} chars | Inline: {len(snippet):,} chars | Full: {relative_path}]",
+                            "",
+                            snippet,
+                            "",
+                            f"[Complete output saved to: {relative_path}]",
+                        ]
+                    )
+                else:
+                    # Only claim truncation if we actually truncated
+                    if actual_truncated_size < original_size:
+                        summary_lines.extend(
+                            [
+                                f"[Truncated: {original_size:,} chars total]",
+                                "",
+                                snippet,
+                            ]
+                        )
+                    else:
+                        # We changed the block only because we must emit a summary (e.g., artifact note)
+                        # or attempted (but failed) to externalize. Include inline content without claiming truncation.
+                        summary_lines.extend(
+                            [
+                                f"[Inline: {original_size:,} chars]",
+                                "",
+                                snippet,
+                            ]
+                        )
+
+                block_modified = True
+
+            if block_modified:
+                if summary_lines:
+                    new_block = ToolResultContent()
+                    new_block["text"] = "\n".join(summary_lines)
+                    new_content.append(new_block)
+                if passthrough_blocks:
+                    new_content.extend(passthrough_blocks)
                 modified = True
             else:
                 new_content.append(block)
@@ -299,7 +377,7 @@ class ToolRouterHook:
                 pass
 
             safe_tool = re.sub(r"[^a-zA-Z0-9_.-]", "_", tool_name or "tool")
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = (
                 f"{safe_tool[:40] or 'tool'}_{timestamp}_{uuid.uuid4().hex[:6]}.artifact.{extension}"
             )
@@ -312,11 +390,14 @@ class ToolRouterHook:
 
             # Use atomic write with exclusive creation to prevent race conditions
             # If file already exists (UUID collision or concurrent write), we'll get FileExistsError
-            def write_payload(path: Path):
+            def write_payload(path: Path) -> None:
                 if isinstance(payload, str):
-                    path.write_text(payload, encoding="utf-8", errors="ignore")
+                    # Exclusive create to avoid clobbering artifacts in rare collisions/concurrency
+                    with open(path, "x", encoding="utf-8", errors="ignore") as f:
+                        f.write(payload)
                 else:
-                    with open(path, "wb") as f:
+                    # Exclusive create to avoid clobbering artifacts in rare collisions/concurrency
+                    with open(path, "xb") as f:
                         f.write(payload)
 
             try:
