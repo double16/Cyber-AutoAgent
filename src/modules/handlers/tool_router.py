@@ -54,6 +54,8 @@ class ToolRouterHook:
         self._artifact_count = 0
         # Thread safety for artifact counting
         self._artifact_lock = threading.Lock()
+        if self._artifact_threshold > self._max_result_chars:
+            logger.warning("artifact_threshold > max_result_chars, truncation will occur without persisting output")
 
     def register_hooks(self, registry) -> None:  # type: ignore[no-untyped-def]
         from strands.hooks import AfterToolCallEvent
@@ -261,12 +263,7 @@ class ToolRouterHook:
                         )
 
                 # Decide inline preview size
-                if externalized:
-                    # Externalized: use smaller inline preview to save context
-                    truncate_target = min(self._artifact_threshold, self._max_result_chars)
-                else:
-                    truncate_target = self._max_result_chars
-
+                truncate_target = self._max_result_chars
                 actual_truncated_size = min(truncate_target, original_size)
 
                 if actual_truncated_size < original_size:

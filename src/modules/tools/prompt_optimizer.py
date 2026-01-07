@@ -36,14 +36,43 @@ def _overlay_path() -> str:
     return os.path.join(_operation_root(), OVERLAY_FILENAME)
 
 
+def _quarantine_overlay_file(path: str, *, reason: str) -> None:
+    """Move a corrupted/invalid overlay file aside so the system can recover gracefully."""
+    try:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        quarantine_path = f"{path}.corrupt.{ts}"
+        shutil.move(path, quarantine_path)
+        logger.warning(
+            "Overlay file %s is invalid (%s). Moved to %s",
+            path,
+            reason,
+            quarantine_path,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Overlay file %s is invalid (%s) and could not be quarantined: %s",
+            path,
+            reason,
+            exc,
+        )
+
+
 def _load_overlay(path: str) -> Optional[dict[str, Any]]:
     if not os.path.exists(path):
         return None
+
     try:
         with open(path, "r", encoding="utf-8") as file_obj:
-            return json.load(file_obj)
-    except json.JSONDecodeError as exc:  # pragma: no cover - corrupted file
-        raise PromptOptimizerError(f"Overlay file is not valid JSON: {exc}")
+            payload = json.load(file_obj)
+    except (json.JSONDecodeError, OSError) as exc:  # pragma: no cover
+        _quarantine_overlay_file(path, reason=str(exc))
+        return None
+
+    if not isinstance(payload, dict):
+        _quarantine_overlay_file(path, reason="Overlay JSON must describe an object")
+        return None
+
+    return payload
 
 
 def _dump_overlay(path: str, payload: dict[str, Any]) -> None:
@@ -153,6 +182,26 @@ def _clean_optional(
     return trimmed or fallback
 
 
+def _get_overlay_cooldown_state(overlay_record: dict[str, Any]) -> tuple[Optional[str], Optional[int]]:
+    """Return (operation_id, last_step) for cooldown enforcement.
+
+    Backward compatible with older overlays that only stored `operation_id` and `current_step`.
+    """
+    cooldown = overlay_record.get("cooldown")
+    if isinstance(cooldown, dict):
+        op_id = cooldown.get("operation_id")
+        last_step = cooldown.get("last_step")
+        if isinstance(op_id, str) and isinstance(last_step, int):
+            return op_id, last_step
+
+    op_id = overlay_record.get("operation_id")
+    last_step = overlay_record.get("current_step")
+    return (
+        op_id if isinstance(op_id, str) else None,
+        last_step if isinstance(last_step, int) else None,
+    )
+
+
 @tool
 def prompt_optimizer(
     action: str,
@@ -208,8 +257,9 @@ def prompt_optimizer(
         "append",
         "extend",
         "optimize_execution",
+        "reset",
     }
-    non_mutating_actions = {"reset", "refresh", "view"}
+    non_mutating_actions = {"refresh", "view"}
     allowed_actions = mutating_actions | non_mutating_actions
 
     if action_normalised not in allowed_actions:
@@ -232,12 +282,9 @@ def prompt_optimizer(
 
     if action_normalised == "view":
         if existing_overlay:
-            payload = (
-                existing_overlay.get("payload")
-                if isinstance(existing_overlay, dict)
-                else {}
-            )
-            preview = _format_directives_preview(payload or {}, limit=6)
+            payload = existing_overlay.get("payload")
+            payload_dict = payload if isinstance(payload, dict) else {}
+            preview = _format_directives_preview(payload_dict, limit=6)
             summary = ["Adaptive overlay is currently active."]
             if preview:
                 summary.append(f"Directives: {preview}")
@@ -288,16 +335,22 @@ def prompt_optimizer(
         }
 
     # Mutating paths beyond this point
-    if current_step is not None:
-        last_step_raw = os.environ.get("CYBER_PROMPT_OVERLAY_LAST_STEP")
-        try:
-            if last_step_raw is not None and current_step - int(last_step_raw) < 8:
+    cooldown_steps = 8
+    if current_step is not None and existing_overlay and operation_id:
+        last_op_id, last_step = _get_overlay_cooldown_state(existing_overlay)
+        if last_op_id == operation_id and isinstance(last_step, int):
+            # If steps go backwards, treat as a reset/new timeline.
+            if current_step < last_step:
+                logger.debug(
+                    "Cooldown reset: current_step %s < last_step %s for operation %s",
+                    current_step,
+                    last_step,
+                    operation_id,
+                )
+            elif current_step - last_step < cooldown_steps:
                 raise PromptOptimizerError(
                     "Adaptive overlay recently updated; wait a few steps before applying another change."
                 )
-        except ValueError:
-            pass
-        os.environ["CYBER_PROMPT_OVERLAY_LAST_STEP"] = str(current_step)
 
     overlay_payload: Optional[Dict[str, Any]] = None
 
@@ -375,7 +428,17 @@ def prompt_optimizer(
         "payload": overlay_payload,
         "applied_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "current_step": current_step,
+        "cooldown": {
+            "operation_id": operation_id,
+            "last_step": current_step,
+            "cooldown_steps": 8,
+        }
+        if (operation_id and isinstance(operation_id, str) and isinstance(current_step, int))
+        else None,
     }
+
+    if record.get("cooldown") is None:
+        record.pop("cooldown", None)
 
     if expires_after_steps is not None:
         record["expires_after_steps"] = expires_after_steps
@@ -511,6 +574,41 @@ def _optimize_execution_prompt(
         "removed": remove_dead_ends,
         "focused": focus_areas,
     }
+
+
+def _extract_protected_blocks(text: str) -> List[str]:
+    """Extract protected blocks (including markers) to ensure they remain unchanged."""
+    start_marker = "<!-- PROTECTED -->"
+    end_markers = (
+        "<!-- /PROTECTED -->",
+        "<!-- END PROTECTED -->",
+        "<!-- PROTECTED END -->",
+    )
+
+    blocks: List[str] = []
+    idx = 0
+    while True:
+        start = text.find(start_marker, idx)
+        if start == -1:
+            break
+
+        end_pos = -1
+        end_marker_used: Optional[str] = None
+        for end_marker in end_markers:
+            pos = text.find(end_marker, start + len(start_marker))
+            if pos != -1 and (end_pos == -1 or pos < end_pos):
+                end_pos = pos
+                end_marker_used = end_marker
+
+        if end_pos == -1 or end_marker_used is None:
+            # Unmatched start marker: treat remainder of file as protected.
+            blocks.append(text[start:])
+            break
+
+        blocks.append(text[start: end_pos + len(end_marker_used)])
+        idx = end_pos + len(end_marker_used)
+
+    return blocks
 
 
 def _llm_rewrite_execution_prompt(
@@ -812,13 +910,19 @@ Return ONLY the optimized prompt text (no explanation, no preamble, no commentar
 Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
 </output_format>"""
 
-    if not hasattr(_llm_rewrite_execution_prompt, "_failure_count"):
-        _llm_rewrite_execution_prompt._failure_count = 0
+    operation_id = os.getenv("CYBER_OPERATION_ID") or "unknown"
 
-    if _llm_rewrite_execution_prompt._failure_count >= 3:
+    if not hasattr(_llm_rewrite_execution_prompt, "_failure_counts"):
+        _llm_rewrite_execution_prompt._failure_counts = {}
+
+    failure_counts: dict[str, int] = _llm_rewrite_execution_prompt._failure_counts
+    current_failures = int(failure_counts.get(operation_id, 0))
+
+    if current_failures >= 3:
         logger.warning(
-            "Too many rewrite failures (%d), using original prompt",
-            _llm_rewrite_execution_prompt._failure_count,
+            "Too many rewrite failures (%d) for operation %s, using original prompt",
+            current_failures,
+            operation_id,
         )
         return current_prompt
 
@@ -841,7 +945,30 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
                 min_allowed,
                 max_allowed,
             )
-            _llm_rewrite_execution_prompt._failure_count += 1
+            failure_counts[operation_id] = current_failures + 1
+            return current_prompt
+
+        # Enforce line-count non-growth
+        current_lines = current_prompt.splitlines()
+        rewritten_lines = rewritten.splitlines()
+        if len(rewritten_lines) > len(current_lines):
+            logger.warning(
+                "Prompt optimizer rejected rewrite: line count increased %d → %d",
+                len(current_lines),
+                len(rewritten_lines),
+            )
+            failure_counts[operation_id] = current_failures + 1
+            return current_prompt
+
+        # Enforce protected blocks unchanged
+        protected_current = _extract_protected_blocks(current_prompt)
+        protected_rewritten = _extract_protected_blocks(rewritten)
+        if protected_current != protected_rewritten:
+            logger.warning(
+                "Prompt optimizer rejected rewrite: protected blocks were modified (%d blocks)",
+                len(protected_current),
+            )
+            failure_counts[operation_id] = current_failures + 1
             return current_prompt
 
         # Check if actually changed
@@ -859,9 +986,13 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
             len(rewritten) - len(current_prompt),
             change_pct,
         )
-        _llm_rewrite_execution_prompt._failure_count = 0
+        failure_counts[operation_id] = 0
+        # Prevent unbounded growth
+        if len(failure_counts) > 128:  # pragma: no cover
+            for key in list(failure_counts.keys())[:-64]:
+                failure_counts.pop(key, None)
         return rewritten
     except Exception as e:
         logger.error("LLM rewrite failed: %s", e)
-        _llm_rewrite_execution_prompt._failure_count += 1
+        failure_counts[operation_id] = current_failures + 1
         return current_prompt

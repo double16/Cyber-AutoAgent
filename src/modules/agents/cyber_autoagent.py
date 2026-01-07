@@ -286,6 +286,7 @@ def create_agent(
 
     # Get memory overview for system prompt enhancement and UI display
     memory_overview = None
+    memory_client = None
     if has_existing_memories or config.memory_path:
         try:
             memory_client = get_memory_client()
@@ -498,7 +499,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     try:
         memory_client = get_memory_client(silent=True)
         if memory_client:
-            active_plan = memory_client.get_active_plan(user_id="cyber_agent")
+            active_plan = memory_client.get_active_plan(user_id="cyber_agent", operation_id=operation_id)
             if active_plan:
                 # First try to get JSON from metadata
                 plan_json = active_plan.get("metadata", {}).get("plan_json")
@@ -537,11 +538,11 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
 
                 # Fallback to text extraction if no JSON
                 if not plan_snapshot:
+                    phase_line = None
+                    criteria_line = None
                     raw = active_plan.get("memory") or active_plan.get("content", "")
                     if isinstance(raw, str) and raw:
                         # Best-effort extraction: find first active/pending phase and any criteria line
-                        phase_line = None
-                        criteria_line = None
                         for line in raw.split("\n"):
                             ls = line.strip()
                             # Look for phase lines in format: "Phase X [STATUS]: title - criteria"
@@ -868,7 +869,11 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         summary_ratio=0.3,
         preserve_recent_messages=PRESERVE_LAST_DEFAULT,  # Env default: 5 (reduced from 12)
         preserve_first_messages=PRESERVE_FIRST_DEFAULT,  # Env default: 1 (scripts often use 3)
-        tool_result_mapper=LargeToolResultMapper(max_tool_chars=ceil(artifact_threshold/2), truncate_at=ceil(max_result_chars/2)),
+        tool_result_mapper=LargeToolResultMapper(
+            # never compress output less than artifact_threshold, or we'll lose information
+            max_tool_chars=max(ceil(artifact_threshold*1.1), ceil(max_result_chars*0.5)),
+            truncate_at=max(artifact_threshold, ceil(max_result_chars*0.4))
+        ),
     )
     register_conversation_manager(conversation_manager)
     agent_logger.info(

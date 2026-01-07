@@ -167,8 +167,8 @@ def _sanitize_toon_value(value: Any) -> str:
 def _format_plan_as_toon(plan_content: Dict[str, Any]) -> str:
     objective = _sanitize_toon_value(plan_content.get("objective", "Unknown objective"))
     current_phase = plan_content.get("current_phase", 1)
-    total_phases = plan_content.get("total_phases", len(plan_content.get("phases", [])))
     phases = plan_content.get("phases", [])
+    total_phases = plan_content.get("total_phases", len(phases))
 
     overview_lines = [
         "plan_overview[1]{objective,current_phase,total_phases}:",
@@ -813,6 +813,8 @@ class Mem0ServiceClient:
         if user_id and not agent_id:
             agent_id = user_id
 
+        metadata = metadata or {}
+
         # Get operation ID for native session scoping
         op_id = os.getenv("CYBER_OPERATION_ID")
 
@@ -832,6 +834,7 @@ class Mem0ServiceClient:
             # Add run_id for native operation scoping (mem0 1.0.0 API)
             if op_id:
                 add_kwargs["run_id"] = op_id
+                metadata["operation_id"] = op_id
 
             # Debug: Log metadata BEFORE storage
             logger.debug(
@@ -902,7 +905,11 @@ class Mem0ServiceClient:
         )
 
         # Build base kwargs
-        base_kwargs = {"user_id": user_id, "agent_id": agent_id}
+        base_kwargs = {}
+        if user_id:
+            base_kwargs["user_id"] = user_id
+        if agent_id:
+            base_kwargs["agent_id"] = agent_id
         if run_id:
             base_kwargs["run_id"] = run_id
 
@@ -919,7 +926,15 @@ class Mem0ServiceClient:
                         **base_kwargs, limit=eff_limit
                     )
                 except TypeError:
-                    result = self.mem0.get_all(**base_kwargs)
+                    try:
+                        result = self.mem0.get_all(**base_kwargs)
+                    except TypeError as te:
+                        if "run_id" in base_kwargs:
+                            no_run_id = base_kwargs.copy()
+                            no_run_id.pop("run_id")
+                            result = self.mem0.get_all(**no_run_id)
+                        else:
+                            raise te
             logger.debug("mem0.get_all returned type: %s", type(result))
             # Normalize structures
             normalised = self._normalise_results_list(result)
@@ -1245,7 +1260,7 @@ class Mem0ServiceClient:
 
         # Warn if extending plan after marking complete
         try:
-            prev = self.get_active_plan(user_id)
+            prev = self.get_active_plan(user_id, operation_id=op_id)
             if prev:
                 prev_json = prev.get("metadata", {}).get("plan_json", {})
                 new_total = int(
@@ -1265,12 +1280,14 @@ class Mem0ServiceClient:
 
         # Deactivate previous plans
         try:
+            # TODO: change query to filters
             previous_plans = self.search_memories(
-                "category:plan active:true", user_id=user_id
+                "category:plan active:true", user_id=user_id, run_id=op_id
             )
             if isinstance(previous_plans, list):
                 for plan in previous_plans:
                     if plan.get("id"):
+                        logger.debug(f"Deactivating plan {plan.get('id')}")
                         # Mark as inactive
                         self.store_memory(
                             content=plan.get("memory", ""),
@@ -1280,22 +1297,26 @@ class Mem0ServiceClient:
         except Exception as e:
             logger.debug(f"Could not deactivate previous plans: {e}")
 
+        # Check if all phases complete and add reminder
+        all_done = all(
+            p.get("status") == "done" for p in plan_content.get("phases", [])
+        )
+        add_stop_reminder = False
+        if all_done and not plan_content.get("assessment_complete"):
+            plan_content["assessment_complete"] = True
+            add_stop_reminder = True
+            logger.info("All phases complete - set assessment_complete=true")
+
         result = self.store_memory(
             content=f"[PLAN] {plan_content_str}",
             user_id=user_id,
             metadata=plan_metadata,
         )
 
-        # Check if all phases complete and add reminder
-        all_done = all(
-            p.get("status") == "done" for p in plan_content.get("phases", [])
-        )
-        if all_done and not plan_content.get("assessment_complete"):
-            plan_content["assessment_complete"] = True
+        if add_stop_reminder:
             result["_reminder"] = (
                 "All phases complete. Call stop('Assessment complete: X phases done, Y findings')"
             )
-            logger.info("All phases complete - set assessment_complete=true")
 
         return result
 
@@ -1390,7 +1411,7 @@ class Mem0ServiceClient:
 
             # Sort by created_at (desc). If missing, keep original order.
             def _dt(x: Dict[str, Any]) -> str:
-                return str(x.get("created_at", ""))
+                return str(x.get("metadata", {}).get("created_at", ""))
 
             plan_items.sort(key=_dt, reverse=True)
 
@@ -1521,7 +1542,8 @@ Include: objective, current_phase=1, phases with clear criteria for each.
                                 if len(memory.get("memory", "")) > 100
                                 else memory.get("memory", "")
                             ),
-                            "created_at": memory.get("created_at", "Unknown"),
+                            "created_at": memory.get("created_at",
+                                                     memory.get("metadata", {}).get("created_at", "Unknown")),
                         }
                     )
 
@@ -1550,8 +1572,8 @@ def format_get_response(memory: Dict) -> Panel:
     """Format get memory response."""
     memory_id = memory.get("id", "unknown")
     content = memory.get("memory", "No content available")
-    metadata = memory.get("metadata")
-    created_at = memory.get("created_at", "Unknown")
+    metadata = memory.get("metadata", {})
+    created_at = memory.get("created_at", metadata.get("created_at", "Unknown"))
     user_id = memory.get("user_id", "Unknown")
 
     result = [
@@ -1588,11 +1610,11 @@ def format_list_response(memories: List[Dict]) -> Panel:
     table.add_column("Metadata", style="magenta")
 
     for memory in memories:
+        metadata = memory.get("metadata", {})
         memory_id = memory.get("id", "unknown")
         content = memory.get("memory", "No content available")
-        created_at = memory.get("created_at", "Unknown")
+        created_at = memory.get("created_at", metadata.get("created_at", "Unknown"))
         user_id = memory.get("user_id", "Unknown")
-        metadata = memory.get("metadata", {})
 
         # Truncate content if too long
         content_preview = (
@@ -1636,12 +1658,12 @@ def format_retrieve_response(memories: List[Dict]) -> Panel:
     table.add_column("Metadata", style="white")
 
     for memory in memories:
+        metadata = memory.get("metadata", {})
         memory_id = memory.get("id", "unknown")
         content = memory.get("memory", "No content available")
         score = memory.get("score", 0)
-        created_at = memory.get("created_at", "Unknown")
+        created_at = memory.get("created_at", metadata.get("created_at", "Unknown"))
         user_id = memory.get("user_id", "Unknown")
-        metadata = memory.get("metadata", {})
 
         # Truncate content if too long
         content_preview = (
@@ -1982,7 +2004,9 @@ def mem0_memory(
                 # Must be valid JSON string
                 try:
                     plan_dict = json.loads(content)
-                except json.JSONDecodeError as e:
+                    if not isinstance(plan_dict, dict):
+                        raise ValueError("JSON is not an object")
+                except ValueError as e:
                     raise ValueError(
                         f"store_plan requires JSON object/dict with fields: objective, current_phase, total_phases, phases. "
                         f"Got string that is not valid JSON: {str(e)}"
@@ -1993,6 +2017,9 @@ def mem0_memory(
                 raise ValueError(
                     f"store_plan content must be object/dict or JSON string, got {type(content).__name__}"
                 )
+
+            if isinstance(plan_dict.get("phases", None), list) and not "total_phases" in plan_dict:
+                plan_dict["total_phases"] = len(plan_dict.get("phases"))
 
             results = _MEMORY_CLIENT.store_plan(plan_dict, user_id or "cyber_agent")
             if not strands_dev:

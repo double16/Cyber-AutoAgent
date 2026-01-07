@@ -680,13 +680,13 @@ class TestToolRouterIntegration:
 
         asyncio.run(_test())
 
+
     def test_image_does_not_crash_when_artifacts_disabled(self):
         """Verify image blocks don't crash when artifacts_dir is None.
 
         This covers the prior bug where _persist_artifact() returned None and the code
         tried to call .stat() / relpath() on it.
         """
-
         async def _test():
             hook = ToolRouterHook(
                 shell_tool=object(),
@@ -723,7 +723,6 @@ class TestToolRouterIntegration:
 
     def test_document_does_not_crash_when_artifacts_disabled(self):
         """Verify document blocks don't crash when artifacts_dir is None."""
-
         async def _test():
             hook = ToolRouterHook(
                 shell_tool=object(),

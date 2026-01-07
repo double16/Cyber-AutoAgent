@@ -256,7 +256,7 @@ run_benchmark() {
       ${CYBER_AGENT_LLM_MODEL:+-e CYBER_AGENT_SWARM_MODEL=${CYBER_AGENT_LLM_MODEL}} \
       ${CYBER_AGENT_LLM_MODEL:+-e CYBER_AGENT_EVALUATION_MODEL=${CYBER_AGENT_LLM_MODEL}} \
       ${CYBER_AGENT_LLM_MODEL:+-e RAGAS_EVALUATOR_MODEL=${CYBER_AGENT_LLM_MODEL}} \
-      -e MEMORY_ISOLATION=operation \
+      -e MEMORY_ISOLATION=shared \
       cyber-autoagent \
       python3 /app/src/cyberautoagent.py \
         --target "${target}" \

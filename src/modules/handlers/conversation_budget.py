@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -154,7 +155,7 @@ PROMPT_TELEMETRY_THRESHOLD = max(
 PROMPT_CACHE_RELAX = max(0.0, min(_get_env_float("CYBER_PROMPT_CACHE_RELAX", 0.1), 0.3))
 NO_REDUCTION_WARNING_RATIO = 0.8  # Warn when at 80% of limit with no reductions
 
-# Compression threshold - aligned with ToolRouterHook externalization threshold (10K)
+# Compression threshold - aligned with ToolRouterHook externalization threshold
 _TOOL_ARTIFACT_THRESHOLD = 10000
 TOOL_COMPRESS_THRESHOLD = _TOOL_ARTIFACT_THRESHOLD
 TOOL_COMPRESS_TRUNCATE = _get_env_int("CYBER_TOOL_COMPRESS_TRUNCATE", 8000)
@@ -259,6 +260,8 @@ class LargeToolResultMapper:
         self.sample_limit = sample_limit
         logger.info("Created LargeToolResultMapper with max_tool_chars=%d, truncate_at=%d, sample_limit=%d",
                     self.max_tool_chars, self.truncate_at, self.sample_limit)
+        if self.max_tool_chars < self.truncate_at:
+            logger.warning("LargeToolResultMapper expecting max_tool_chars >= truncate_at")
 
     def __call__(
         self, message: Message, index: int, messages: list[Message]
@@ -399,12 +402,28 @@ class LargeToolResultMapper:
             if "text" in block:
                 content_types.append("text")
                 text = block["text"]
-                # TODO: If already truncated, modify truncated messages instead of treating as original output
                 if len(text) > self.truncate_at:
-                    truncated = (
-                        text[: self.truncate_at]
-                        + f"... [truncated from {len(text)} chars]"
-                    )
+                    if " chars | Inline: " in text:
+                        # previously truncated
+                        # [Tool output: {original_size:,} chars | Inline: {len(snippet):,} chars | Full: {relative_path}]
+                        text_lines = text.splitlines()
+                        inline_count = self.truncate_at - len(text_lines[0])
+                        last_snippet_line = len(text_lines)
+                        if text_lines[-1].startswith("[Complete output saved"):
+                            inline_count -= len(text_lines[-1])
+                            last_snippet_line -= 1
+                        text_lines[0] = re.sub(r' Inline: ([0-9,.]+) chars ', f" Inline: {inline_count:,} chars ",
+                                               text_lines[0])
+                        truncated = (text_lines[0]
+                                     + "\n"
+                                     + ("\n".join(text_lines[1:last_snippet_line]))[:inline_count]
+                                     + "\n"
+                                     + "\n".join(text_lines[last_snippet_line:]))
+                    else:
+                        truncated = (
+                                text[: self.truncate_at]
+                                + f"... [truncated from {len(text)} chars]"
+                        )
                     compressed_blocks.append({"text": truncated})
                 else:
                     compressed_blocks.append(block)
@@ -417,7 +436,6 @@ class LargeToolResultMapper:
 
                 if payload_len > self.truncate_at:
                     # Create structured compression metadata
-                    # TODO: If already truncated, modify truncated messages instead of treating as original output
                     if isinstance(json_data, dict):
                         json_original_keys = len(json_data)
                         # Sample first few keys with size check (Strands pattern)
@@ -502,7 +520,6 @@ class LargeToolResultMapper:
         # Compress input fields
         for key, value in input_data.items():
             value_str = str(value)
-            # TODO: If already truncated, modify truncated messages instead of treating as original output
             if len(value_str) > self.truncate_at:
                 compressed_input[key] = (
                     value_str[: self.truncate_at]

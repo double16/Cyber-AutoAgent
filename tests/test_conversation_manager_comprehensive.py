@@ -457,18 +457,24 @@ class TestLayerCascadeIntegration:
             "[Tool output: 500,000 chars | Inline: 12,000 chars | "
             f"Full: artifacts/tool_{uuid.uuid4().hex[:8]}.log]\n\n"
         )
+        footer = (
+            f"\n[Complete output saved to:  artifacts/tool_{uuid.uuid4().hex[:8]}.log]"
+        )
         # Create content that clearly exceeds 10K threshold
-        externalized_content = header + "X" * (TOOL_COMPRESS_THRESHOLD + 1000)
+        externalized_content = header + "X" * (TOOL_COMPRESS_THRESHOLD + 1000) + footer
 
         message = create_tool_result_message("ext_tool", externalized_content)
         result = mapper(message, 0, [message])
 
         # Content exceeding threshold should trigger compression
-        result_text = result["content"][0]["toolResult"]["content"][0]["text"]
-        assert len(result_text) < len(externalized_content), (
+        note = result["content"][0]["toolResult"]["content"][0]["text"]
+        assert len(note) < len(externalized_content), (
             f"Content ({len(externalized_content)} chars) exceeding threshold "
             f"({TOOL_COMPRESS_THRESHOLD}) should be compressed"
         )
+        result_text = result["content"][0]["toolResult"]["content"][1]["text"]
+        assert "12,000 chars" not in result_text
+        assert result_text.endswith(footer)
 
     def test_layer_2_compression_triggers(self):
         """Test Layer 2 (LargeToolResultMapper) compression."""
@@ -700,10 +706,10 @@ class TestToolPairBoundaryConditions:
         assert res_idx == use_idx + 1
 
         assert (
-                agent.messages[use_idx]["content"][0]["toolUse"]["toolUseId"] == tool_id
+            agent.messages[use_idx]["content"][0]["toolUse"]["toolUseId"] == tool_id
         )
         assert (
-                agent.messages[res_idx]["content"][0]["toolResult"]["toolUseId"] == tool_id
+            agent.messages[res_idx]["content"][0]["toolResult"]["toolUseId"] == tool_id
         )
 
     def test_multiple_tool_pairs_in_single_prune(self):
