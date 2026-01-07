@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 from modules.config.manager import align_mem0_config
 from modules.config.models.factory import (
     _parse_context_window_fallbacks,
-    _split_model_prefix,
 )
+from modules.config.providers import split_litellm_model_id
 
 
 def test_parse_context_window_fallbacks_valid():
@@ -41,6 +41,18 @@ def testalign_mem0_config_sets_expected_provider():
 
 
 def test_split_model_prefix_handles_no_prefix():
-    prefix, remainder = _split_model_prefix("claude-3")
+    prefix, remainder = split_litellm_model_id("claude-3")
     assert prefix == ""
     assert remainder == "claude-3"
+
+
+def test_split_model_prefix_handles_prefix_variant():
+    prefix, remainder = split_litellm_model_id("openrouter/openai/gpt-oss-120b:free")
+    assert prefix == "openrouter"
+    assert remainder == "openai/gpt-oss-120b"
+
+
+def test_split_model_prefix_handles_prefix():
+    prefix, remainder = split_litellm_model_id("openrouter/openai/gpt-oss-120b")
+    assert prefix == "openrouter"
+    assert remainder == "openai/gpt-oss-120b"

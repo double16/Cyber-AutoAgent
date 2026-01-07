@@ -36,8 +36,10 @@ def split_litellm_model_id(model_id: str) -> Tuple[str, str]:
         Tuple of (provider_prefix, base_model_id)
         Returns ("", model_id) if no prefix found
     """
-    if not model_id:
+    if not model_id or not isinstance(model_id, str):
         return "", ""
+    if ":" in model_id:
+        model_id, variant = model_id.split(":", maxsplit=1)
     if "/" in model_id:
         prefix, base = model_id.split("/", 1)
         # Special handling for Gemini "models/" prefix

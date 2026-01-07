@@ -725,18 +725,16 @@ def main():
 
                     # Ensure step is incremented and detect lack of progress
                     if callback_handler and callback_handler.current_step == last_step:
-                        # TODO: Re-consider incrementing the step, do something different to avoid infinite looping
+                        actionless_step_count += 1
                         tool_total_count = sum(callback_handler.tool_counts.values())
-                        logger.debug("Incrementing step because agent returned but callback_handler did not, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
-                                     str(callback_handler.pending_step_header),
-                                     tool_total_count,
-                                     str(getattr(callback_handler, '_reasoning_emitted_since_last_step_header', None))
-                                     )
+                        logger.debug(
+                            "Incrementing step because agent returned but callback_handler did not, actionless_step_count=%d, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
+                            actionless_step_count,
+                            str(callback_handler.pending_step_header),
+                            tool_total_count,
+                            str(getattr(callback_handler, '_reasoning_emitted_since_last_step_header', None))
+                        )
                         callback_handler.current_step += 1
-                        if callback_handler.pending_step_header:
-                            actionless_step_count += 1
-                        else:
-                            actionless_step_count = 0
                     else:
                         actionless_step_count = 0
 
@@ -769,7 +767,7 @@ def main():
                         step0_retry -= 1
                     # If agent hasn't done anything substantial for a while, break to avoid infinite loop
                     elif actionless_step_count > 2:
-                        print_status("No actions taken - completing", "SUCCESS")
+                        print_status(f"No actions taken after {actionless_step_count} attempts - completing", "SUCCESS")
                         break
 
                     # Generate continuation prompt
@@ -848,7 +846,8 @@ def main():
                     BotoConnectTimeoutError,
                     litellm.RateLimitError,
                     litellm.ServiceUnavailableError,
-                ):
+                ) as timeout_exc:
+                    logger.debug("Network/provider timeout exception", exc_info=timeout_exc)
                     # Network/provider timeout: emit termination_reason and pivot to report
                     print_status(
                         "Network/provider timeout - generating final report", "WARNING"

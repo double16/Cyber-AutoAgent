@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -188,15 +188,20 @@ class ModelsDevClient:
         """
         data = self._get_data()
 
-        # Try direct lookup
-        info = self._lookup_model(data, model_id)
-        if info:
-            return info
+        variants = [model_id]
+        if ":" in model_id:
+            variants.append(model_id.split(":", maxsplit=1)[0])
 
-        # Try fuzzy matching for common aliases
-        info = self._fuzzy_lookup(data, model_id)
-        if info:
-            return info
+        for variant in variants:
+            # Try direct lookup
+            info = self._lookup_model(data, variant)
+            if info:
+                return self._apply_variant(info, model_id)
+
+            # Try fuzzy matching for common aliases
+            info = self._fuzzy_lookup(data, variant)
+            if info:
+                return self._apply_variant(info, model_id)
 
         logger.debug(f"Model not found: {model_id}")
         return None
@@ -234,6 +239,15 @@ class ModelsDevClient:
         Returns:
             ModelPricing per million tokens (USD), or None if not available
         """
+        if model_id.endswith(":free"):
+            return ModelPricing(
+                input=0,
+                output=0,
+                cache_read=0,
+                cache_write=0,
+                reasoning=0,
+            )
+
         info = self.get_model_info(model_id)
         return info.pricing if info else None
 
@@ -545,6 +559,23 @@ class ModelsDevClient:
         except (KeyError, TypeError) as e:
             logger.debug(f"Failed to parse model {provider}/{model}: {e}")
             return None
+
+    def _apply_variant(self, info: ModelInfo, model_id: str) -> ModelInfo:
+        if not info:
+            return info
+        if ":" not in model_id:
+            return info
+        _, variant = model_id.split(":", maxsplit=1)
+        if variant == "free":
+            info_free = replace(info, pricing=ModelPricing(
+                input=0,
+                output=0,
+                cache_read=0,
+                cache_write=0,
+                reasoning=0,
+            ))
+            return info_free
+        return info
 
 
 # Global singleton instance

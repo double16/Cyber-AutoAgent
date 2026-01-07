@@ -22,7 +22,7 @@ from langchain_ollama import ChatOllama
 from langchain_litellm import ChatLiteLLM
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from modules.config.providers import get_ollama_host
+from modules.config.providers import get_ollama_host, split_litellm_model_id
 from modules.config.providers.ollama_config import get_ollama_timeout
 from modules.config.system import EnvironmentReader
 from modules.config.system.logger import get_logger
@@ -51,23 +51,6 @@ def _get_config_manager():
 # === Helper Functions ===
 
 
-def _split_model_prefix(model_id: str) -> Tuple[str, str]:
-    """Split model ID into provider prefix and remainder.
-
-    Args:
-        model_id: Full model ID (e.g., "bedrock/claude-3", "openai/gpt-4")
-
-    Returns:
-        Tuple of (prefix, remainder). Returns ("", model_id) if no prefix found.
-    """
-    if not isinstance(model_id, str):
-        return "", ""
-    if "/" in model_id:
-        prefix, remainder = model_id.split("/", 1)
-        return prefix.lower(), remainder
-    return "", model_id
-
-
 def _get_prompt_limit_from_model(model_id: Optional[str]) -> Optional[int]:
     """Get INPUT token limit (context window) from LiteLLM registry.
 
@@ -84,7 +67,7 @@ def _get_prompt_limit_from_model(model_id: Optional[str]) -> Optional[int]:
     try:
         import litellm
 
-        prefix, remainder = _split_model_prefix(model_id)
+        prefix, remainder = split_litellm_model_id(model_id)
         candidates: List[str] = []
         # Common forms to try with LiteLLM's registry
         if remainder:

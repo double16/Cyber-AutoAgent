@@ -271,8 +271,8 @@ def create_agent(
         logger.info("Artifact threshold %d, max tool result chars %d", artifact_threshold, max_result_chars)
 
     global TOOL_COMPRESS_THRESHOLD, TOOL_COMPRESS_TRUNCATE
-    TOOL_COMPRESS_THRESHOLD = ceil(artifact_threshold/2)
-    TOOL_COMPRESS_TRUNCATE = ceil(max_result_chars/2)
+    TOOL_COMPRESS_THRESHOLD = max(ceil(artifact_threshold*1.1), ceil(max_result_chars*0.5))
+    TOOL_COMPRESS_TRUNCATE = max(artifact_threshold, ceil(max_result_chars*0.4))
 
     initialize_browser(
         provider=config.provider,
