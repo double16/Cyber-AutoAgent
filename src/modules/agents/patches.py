@@ -1,5 +1,20 @@
 """
 These are monkey patches to handle inconsistencies in some providers.
+
+We require a unique ID per tool call. There `toolUseId` and `id` properties are candidates. `toolUseId` is used by
+some providers for the tool name and strands ignores the `id` property. We modify the flow such that before a tool is
+processed we detect this case and replace `toolUseId` with a unique value. Before sending the result back to the model,
+we revert this or the model will do strange things like think the unique ID is a tool name that can be called. The
+important parts of the flow are:
+
+1. prompt sent to model
+2. streaming response starts  <-- we need to patch the ID here by modifying the events
+3. SDK event received by our handler
+4. BeforeToolCallEvent hooks processed
+5. AfterToolCallEvent hooks processed  <-- we need to revert here because hooks are allowed to change response content
+6. SDK event received by our handler  <-- additional property _toolUseId is accepted here because it doesn't interfere with the model
+7. Tool results sent to model
+
 """
 from __future__ import annotations
 
@@ -7,6 +22,8 @@ import functools
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Callable, Optional, Type
 from uuid import uuid4
+from strands.hooks.events import AfterToolCallEvent
+from strands.hooks import HookProvider, HookRegistry
 
 
 @dataclass
@@ -75,11 +92,8 @@ def patch_model_class_tool_use_id(
                         if is_bad_id(tuid, name):
                             if not name:
                                 tool_use["name"] = tuid
-                            elif name.startswith("tooluse_"):
-                                # there is a bizarre hallucination where the command name is a tooluse_* ID that wasn't seen before
-                                tool_use["name"] = "shell"
                             tuid = id_factory()
-                            tool_use["toolUseId"] = tuid
+                            tool_use["_toolUseId"] = tool_use["toolUseId"] = tuid
                         state.current_tool_use_id = tuid
 
             # --- Pattern B: contentBlockDelta -> toolUse (keep consistent) ---
@@ -92,7 +106,7 @@ def patch_model_class_tool_use_id(
                         name = dtu.get("name")
                         tuid = dtu.get("toolUseId")
                         if (name or tuid) and is_bad_id(tuid, name) and state.current_tool_use_id:
-                            dtu["toolUseId"] = state.current_tool_use_id
+                            dtu["_toolUseId"] = dtu["toolUseId"] = state.current_tool_use_id
 
             # --- Pattern C: Strands convenience field current_tool_use ---
             ctu = ev.get("current_tool_use")
@@ -103,7 +117,7 @@ def patch_model_class_tool_use_id(
                     if not name:
                         ctu["name"] = tuid
                     tuid = state.current_tool_use_id or id_factory()
-                    ctu["toolUseId"] = tuid
+                    ctu["_toolUseId"] = ctu["toolUseId"] = tuid
                 state.current_tool_use_id = tuid
 
             yield ev
@@ -126,3 +140,23 @@ def unpatch_model_class_tool_use_id(
         setattr(model_cls, "stream", getattr(model_cls, orig_attr))
         setattr(model_cls, enabled_attr, False)
     return model_cls
+
+
+class ToolUseIdHook(HookProvider):
+    def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
+        registry.add_callback(AfterToolCallEvent, self.revert_tool_use_id)
+
+    def revert_tool_use_id(self, event: AfterToolCallEvent):
+        tool_use = getattr(event, "tool_use", {})
+        tool_name = tool_use.get("name", "")
+        tool_use_id = tool_use.get("toolUseId", "")
+
+        if tool_use_id.startswith("tooluse_") and tool_name:
+            # reverse the patch that set a generated ID because some models use toolUseId as the tool name !?!
+            tool_use["_toolUseId"] = tool_use_id
+            tool_use["toolUseId"] = tool_name
+
+            result = getattr(event, "result", None)
+            if isinstance(result, dict) and "toolUseId" in result:
+                result["_toolUseId"] = tool_use_id
+                result["toolUseId"] = tool_name

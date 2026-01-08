@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from strands.hooks import BeforeToolCallEvent  # type: ignore
+from strands.hooks import BeforeToolCallEvent, HookProvider  # type: ignore
 from strands.types.tools import ToolResultContent
 
 from modules.handlers import sanitize_target_name
@@ -24,7 +24,7 @@ from modules.handlers import sanitize_target_name
 logger = logging.getLogger(__name__)
 
 
-class ToolRouterHook:
+class ToolRouterHook(HookProvider):
     """BeforeToolCall hook that maps unknown tool names to shell and truncates large results.
 
     SDK Contract:

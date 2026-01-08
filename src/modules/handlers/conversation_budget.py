@@ -19,7 +19,7 @@ from strands.agent.conversation_manager import (
 )
 from strands.types.content import Message
 from strands.types.exceptions import ContextWindowOverflowException
-from strands.hooks import BeforeModelCallEvent, AfterModelCallEvent  # type: ignore
+from strands.hooks import BeforeModelCallEvent, AfterModelCallEvent, HookProvider  # type: ignore
 
 from modules.config.models.dev_client import get_models_client
 
@@ -1590,7 +1590,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
             )
 
 
-class PromptBudgetHook:
+class PromptBudgetHook(HookProvider):
     """Hook provider that enforces prompt budget around model calls.
 
     Registers to production SDK events to ensure provider-agnostic behavior:

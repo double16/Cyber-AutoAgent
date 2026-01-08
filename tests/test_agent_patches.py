@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.agents.patches import patch_model_class_tool_use_id, unpatch_model_class_tool_use_id
+from strands.hooks.events import AfterToolCallEvent
+from modules.agents.patches import patch_model_class_tool_use_id, unpatch_model_class_tool_use_id, ToolUseIdHook
 
 
 def _list_id_factory(ids: list[str]):
@@ -140,18 +141,6 @@ async def test_state_is_per_stream_call_new_id_each_time():
 
 
 @pytest.mark.asyncio
-async def test_hallucinated_tooluse_name_rewritten_to_shell():
-    patch_model_class_tool_use_id(FakeModelHallucinatedName, id_factory=_list_id_factory(["fixed-1"]))
-
-    m = FakeModelHallucinatedName()
-    out = [ev async for ev in m.stream()]
-
-    tool_use = out[0]["contentBlockStart"]["start"]["toolUse"]
-    assert tool_use["name"] == "shell"
-    assert tool_use["toolUseId"] == "fixed-1"
-
-
-@pytest.mark.asyncio
 async def test_delta_with_no_name_and_no_id_is_not_rewritten():
     patch_model_class_tool_use_id(FakeModelDeltaNoNameNoId, id_factory=_list_id_factory(["fixed-1"]))
 
@@ -233,3 +222,103 @@ def test_patch_raises_if_no_stream_method():
 
     with pytest.raises(TypeError):
         patch_model_class_tool_use_id(NoStream)
+
+
+def test_tooluseid_hook_registers_after_tool_call_callback():
+    hook = ToolUseIdHook()
+
+    calls = []
+
+    class RegistryStub:
+        def add_callback(self, event_type, callback):
+            calls.append((event_type, callback))
+
+    registry = RegistryStub()
+    hook.register_hooks(registry)
+
+    assert len(calls) == 1
+    event_type, callback = calls[0]
+
+    assert event_type is AfterToolCallEvent
+    # Bound method should be on this instance
+    assert getattr(callback, "__self__", None) is hook
+    assert getattr(callback, "__func__", None) is ToolUseIdHook.revert_tool_use_id
+
+
+def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present():
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_deadbeef"}
+            self.result = {"toolUseId": "tooluse_deadbeef", "ok": True}
+
+    ev = Event()
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    # tool_use reverted
+    assert ev.tool_use["toolUseId"] == "mem0_memory"
+    assert ev.tool_use["_toolUseId"] == "tooluse_deadbeef"
+
+    # result reverted
+    assert ev.result["toolUseId"] == "mem0_memory"
+    assert ev.result["_toolUseId"] == "tooluse_deadbeef"
+
+
+@pytest.mark.parametrize(
+    "tool_name,tool_use_id",
+    [
+        ("mem0_memory", "mem0_memory"),   # not generated
+        ("mem0_memory", ""),              # empty id
+        ("", "tooluse_deadbeef"),         # missing tool name => guard should prevent changes
+        ("mem0_memory", "abc123"),        # doesn't start with tooluse_
+    ],
+)
+def test_tooluseid_hook_noop_when_not_generated_or_missing_name(tool_name, tool_use_id):
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.tool_use = {"name": tool_name, "toolUseId": tool_use_id}
+            self.result = {"toolUseId": tool_use_id, "ok": True}
+
+    ev = Event()
+    before_tool_use = dict(ev.tool_use)
+    before_result = dict(ev.result)
+
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    assert ev.tool_use == before_tool_use
+    assert ev.result == before_result
+
+
+def test_tooluseid_hook_ignores_non_dict_result():
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.tool_use = {"name": "shell", "toolUseId": "tooluse_deadbeef"}
+            self.result = "not a dict"
+
+    ev = Event()
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    assert ev.tool_use["toolUseId"] == "shell"
+    assert ev.tool_use["_toolUseId"] == "tooluse_deadbeef"
+    assert ev.result == "not a dict"
+
+
+def test_tooluseid_hook_handles_event_without_tool_use_attr():
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.result = {"toolUseId": "tooluse_deadbeef"}
+
+    ev = Event()
+    before_result = dict(ev.result)
+
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    # With no tool_use (and thus no tool_name), hook should do nothing.
+    assert ev.result == before_result

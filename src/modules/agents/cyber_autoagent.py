@@ -13,6 +13,7 @@ from typing import Any, List, Optional, Tuple
 from strands import Agent
 from strands import tool
 from strands.types.tools import AgentTool
+from strands.hooks import HookProvider
 from strands.tools.executors import ConcurrentToolExecutor
 
 # These tools have the @tool decorator, the function is to be imported
@@ -30,6 +31,7 @@ from strands_tools import (
 )
 
 from modules import prompts, __version__
+from modules.agents.patches import ToolUseIdHook
 from modules.config import (
     AgentConfig,
     align_mem0_config,
@@ -270,9 +272,11 @@ def create_agent(
     else:
         logger.info("Artifact threshold %d, max tool result chars %d", artifact_threshold, max_result_chars)
 
+    # we're setting these globals because at the moment, these variables are used by other code
     global TOOL_COMPRESS_THRESHOLD, TOOL_COMPRESS_TRUNCATE
-    TOOL_COMPRESS_THRESHOLD = max(ceil(artifact_threshold*1.1), ceil(max_result_chars*0.5))
-    TOOL_COMPRESS_TRUNCATE = max(artifact_threshold, ceil(max_result_chars*0.4))
+    # never compress output less than artifact_threshold, or we'll lose information
+    TOOL_COMPRESS_THRESHOLD = min(10000, max(ceil(artifact_threshold*1.1), ceil(max_result_chars*0.5)))
+    TOOL_COMPRESS_TRUNCATE = min(8000, max(artifact_threshold, ceil(max_result_chars*0.4)))
 
     initialize_browser(
         provider=config.provider,
@@ -750,22 +754,17 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         artifact_threshold=artifact_threshold,
     )
 
-    # Create prompt rebuild hook for intelligent prompt updates
-    from modules.handlers.prompt_rebuild_hook import PromptRebuildHook
 
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
-    hooks = [tool_router_hook, react_hooks, prompt_budget_hook]
-    swarm_hooks = [tool_router_hook, prompt_budget_hook]
-    agent_logger.info(
-        "HOOK REGISTRATION: Created PromptBudgetHook, will register %d hooks total",
-        len(hooks),
-    )
+    hooks: List[HookProvider] = [tool_router_hook, react_hooks, prompt_budget_hook]
+    swarm_hooks: List[HookProvider] = [tool_router_hook, prompt_budget_hook]
 
     enable_prompt_optimization = (
         os.getenv("CYBER_ENABLE_PROMPT_OPTIMIZATION", "false").lower() == "true"
     )
-
     if enable_prompt_optimization:
+        # Create prompt rebuild hook for intelligent prompt updates
+        from modules.handlers.prompt_rebuild_hook import PromptRebuildHook
         prompt_rebuild_hook = PromptRebuildHook(
             callback_handler=callback_handler,
             memory_instance=memory_client,
@@ -870,9 +869,9 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         preserve_recent_messages=PRESERVE_LAST_DEFAULT,  # Env default: 5 (reduced from 12)
         preserve_first_messages=PRESERVE_FIRST_DEFAULT,  # Env default: 1 (scripts often use 3)
         tool_result_mapper=LargeToolResultMapper(
-            # never compress output less than artifact_threshold, or we'll lose information
-            max_tool_chars=max(ceil(artifact_threshold*1.1), ceil(max_result_chars*0.5)),
-            truncate_at=max(artifact_threshold, ceil(max_result_chars*0.4))
+            # computed previously
+            max_tool_chars=TOOL_COMPRESS_THRESHOLD,
+            truncate_at=TOOL_COMPRESS_TRUNCATE
         ),
     )
     register_conversation_manager(conversation_manager)
@@ -892,6 +891,16 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
             trace_attributes_tool_names.append(tool.tool_name)
         except AttributeError:
             trace_attributes_tool_names.append(tool.__name__)
+
+    # Register toolUseId hook for patching toolUseId, must be last
+    tool_use_id_hook = ToolUseIdHook()
+    hooks.append(tool_use_id_hook)
+    swarm_hooks.append(tool_use_id_hook)
+
+    agent_logger.info(
+        "HOOK REGISTRATION: will register %d hooks total (%d shared with swarm agents)",
+        len(hooks), len(swarm_hooks)
+    )
 
     agent_kwargs = {
         "model": model,

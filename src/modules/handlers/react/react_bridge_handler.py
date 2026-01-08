@@ -498,6 +498,9 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         if data and not data.startswith("[") and not data.startswith("{"):
             self._accumulate_reasoning_text(data)
 
+    def _tool_use_id(self, tool_use: Dict[str, Any]) -> str:
+        return tool_use.get("_toolUseId") or tool_use.get("id") or tool_use.get("toolUseId")
+
     def _handle_tool_announcement(self, tool_use: Dict[str, Any]) -> None:
         # Swarm context agent inference
         if self.in_swarm_operation:
@@ -716,7 +719,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         For swarm agents: We handle events here since they lack hooks.
         """
         tool_name = tool_use.get("name", "")
-        tool_id = tool_use.get("toolUseId", "") or tool_use.get("id", "")
+        tool_id = self._tool_use_id(tool_use)
         raw_input = tool_use.get("input", {})
         tool_input = self._parse_tool_input_from_stream(raw_input)
 
@@ -1154,7 +1157,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             }
 
         # Extract tool_use_id and get correct tool name early for proper attribution
-        tool_use_id = tool_result_dict.get("toolUseId") or tool_result_dict.get("id")
+        tool_use_id = self._tool_use_id(tool_result_dict)
         if not tool_use_id:
             # Drop tool results that cannot be safely attributed to a specific tool invocation
             logger.warning(
