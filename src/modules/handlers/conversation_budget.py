@@ -163,7 +163,8 @@ TOOL_COMPRESS_TRUNCATE = _get_env_int("CYBER_TOOL_COMPRESS_TRUNCATE", 8000)
 # Token estimation overhead constants for content not in agent.messages
 # TODO: This could be estimated once the initial system prompt is built, then updated after prompt optimization.
 SYSTEM_PROMPT_OVERHEAD_TOKENS = 8000
-TOOL_DEFINITIONS_OVERHEAD_TOKENS = 3000
+# TODO: Calculate based on configured tools
+TOOL_DEFINITIONS_OVERHEAD_TOKENS = 15_000
 MESSAGE_METADATA_OVERHEAD_TOKENS = 50
 
 # Proactive compression threshold (percentage of window capacity)
