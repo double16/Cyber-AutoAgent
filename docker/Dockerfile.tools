@@ -31,6 +31,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY docker/apt_proxy_configure.sh docker/apt_proxy_clean.sh /tmp/
 
 RUN set -eux; \
+    touch /root/.hushlogin && \
     /tmp/apt_proxy_configure.sh && \
     mirrors="ftp.acc.umu.se/mirror/kali.org/kali mirror.math.princeton.edu/pub/kali kali.mirror.garr.it/mirrors/kali mirror.pit.teraswitch.com/kali"; \
     success=0; \

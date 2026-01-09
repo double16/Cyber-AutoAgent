@@ -143,7 +143,7 @@ def _get_prompt_limit_from_model(model_id: Optional[str]) -> Optional[int]:
 
 
 def _resolve_prompt_token_limit(
-    provider: str, server_config: Any, model_id: Optional[str]
+    provider: str, model_id: Optional[str]
 ) -> Optional[int]:
     """
     Resolve INPUT token limit (context window capacity) for the model.
@@ -157,7 +157,6 @@ def _resolve_prompt_token_limit(
 
     Args:
         provider: Provider name ("bedrock", "ollama", "litellm", "gemini")
-        server_config: Server configuration object
         model_id: Model identifier
 
     Returns:

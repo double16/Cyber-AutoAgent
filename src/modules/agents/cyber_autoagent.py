@@ -244,7 +244,7 @@ def create_agent(
 
     # Create agent with telemetry for token tracking
     prompt_token_limit = _resolve_prompt_token_limit(
-        config.provider, server_config, config.model_id
+        config.provider, config.model_id
     )
 
     # Tool router to prevent unknown-tool failures by routing to shell before execution

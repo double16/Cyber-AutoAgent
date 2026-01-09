@@ -981,6 +981,16 @@ htop  # Check CPU/Memory during execution
 # - Using GPU acceleration if available
 ```
 
+#### macOS duplicate dynamic library loading errors
+```bash
+# Accept for embedding libraries
+export KMP_DUPLICATE_LIB_OK=TRUE
+
+# Diagnose which libraries are loading
+export DYLD_PRINT_LIBRARIES=1
+export DYLD_PRINT_RPATHS=1
+```
+
 ## Contributing
 
 1. Fork the repository

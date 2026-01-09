@@ -144,7 +144,7 @@ def _get_context_limit() -> int:
             return int(new_val)
         except ValueError:
             pass
-    return 200000  # Default
+    return 100000  # Default
 
 CONTEXT_LIMIT = _get_context_limit()
 # Legacy alias for backward compatibility
@@ -1069,7 +1069,7 @@ def _get_prompt_token_limit(agent: Agent) -> Optional[int]:
         logger.debug("Invalid prompt token limit on agent", exc_info=True)
     if PROMPT_TOKEN_FALLBACK_LIMIT > 0:
         setattr(agent, "_prompt_token_limit", PROMPT_TOKEN_FALLBACK_LIMIT)
-        logger.info(
+        logger.warning(
             "Prompt token limit unavailable; using fallback limit of %d tokens",
             PROMPT_TOKEN_FALLBACK_LIMIT,
         )

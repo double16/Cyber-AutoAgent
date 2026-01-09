@@ -426,12 +426,12 @@ class TestSpecialistFlowIntegration:
             )
 
             # Specialist with swarm model (should get safe limit that accounts for overhead)
-            # Overhead = 8000 + 3000 + 50 = 11050 tokens just for system/tools/metadata
+            # Overhead = 8000 + 15000 + 50 = 23050 tokens just for system/tools/metadata
             # So safe limit must exceed overhead to allow any content
             specialist = AgentStub(
                 messages=[make_message("specialist task")],
                 model="azure/gpt-4o",
-                limit=20000  # Safe limit that accounts for overhead
+                limit=30000  # Safe limit that accounts for overhead
             )
 
             # Estimate tokens for specialist

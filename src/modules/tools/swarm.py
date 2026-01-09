@@ -85,7 +85,8 @@ from strands.multiagent import Swarm
 from strands_tools.utils import console_util
 
 from modules.config import get_config_manager
-from modules.config.models.factory import create_strands_model, get_model_timeout
+from modules.config.models import get_capabilities
+from modules.config.models.factory import create_strands_model, get_model_timeout, _resolve_prompt_token_limit
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,27 @@ def _create_custom_agents(
     if not agent_specs:
         raise ValueError("At least one agent specification is required")
 
+    config_manager = get_config_manager()
+    provider = config_manager.get_provider()
+    swarm_model_id = config_manager.get_swarm_model_id(provider)
+
+    try:
+        caps = get_capabilities(provider, swarm_model_id)
+        allow_reasoning_content = bool(caps.supports_reasoning)
+    except Exception:
+        allow_reasoning_content = False
+
+    prompt_token_limit = _resolve_prompt_token_limit(
+        provider, swarm_model_id
+    )
+
+    if parent_agent is None:
+        logger.error("Parent agent not given, swarm agents will lack intended functionality")
+
+    swarm_hooks = []
+    if parent_agent and hasattr(parent_agent, "swarm_hooks"):
+        swarm_hooks = getattr(parent_agent, "swarm_hooks")
+
     agents = []
     used_names = set()
 
@@ -204,27 +226,50 @@ def _create_custom_agents(
             # Get actual tool objects from parent agent's registry
             agent_tools = [parent_agent.tool_registry.registry[tool_name] for tool_name in filtered_tool_names]
 
-        swarm_hooks = []
-        if parent_agent and hasattr(parent_agent, "swarm_hooks"):
-            swarm_hooks = getattr(parent_agent, "swarm_hooks")
+        if parent_agent:
+            trace_attributes_tool_names = []
+            for tool in agent_tools:
+                try:
+                    trace_attributes_tool_names.append(tool.tool_name)
+                except AttributeError:
+                    trace_attributes_tool_names.append(tool.__name__)
 
-        config_manager = get_config_manager()
-        provider = config_manager.get_provider()
-
-        if parent_agent is None:
-            logger.error("Parent agent not given, swarm agents will lack intended functionality")
+            trace_attributes = parent_agent.trace_attributes | {
+                "langfuse.agent.type": "swarm_agent",
+                "langfuse.capabilities.swarm": False,
+                # Model configuration
+                "model.provider": provider,
+                "model.id": swarm_model_id,
+                "gen_ai.request.model": swarm_model_id,
+                # Tool configuration
+                "tools.available": len(trace_attributes_tool_names),
+                "tools.names": trace_attributes_tool_names,
+            }
+        else:
+            trace_attributes = None
 
         # Create agent
         swarm_agent = Agent(
-            model=create_strands_model(provider, config_manager.get_swarm_model_id(provider)),
+            model=create_strands_model(provider, swarm_model_id),
             name=agent_name,
             system_prompt=system_prompt,
             tools=agent_tools,
             callback_handler=parent_agent.callback_handler if parent_agent else None,
-            trace_attributes=parent_agent.trace_attributes if parent_agent else None,
+            trace_attributes=trace_attributes,
             conversation_manager=parent_agent.conversation_manager if parent_agent else None,
             hooks=swarm_hooks,
+            load_tools_from_directory=parent_agent.load_tools_from_directory if parent_agent else False,
         )
+
+        if prompt_token_limit:
+            setattr(swarm_agent, "_prompt_token_limit", prompt_token_limit)
+        elif parent_agent:
+            if hasattr(parent_agent, "_prompt_token_limit"):
+                prompt_token_limit = getattr(parent_agent, "_prompt_token_limit")
+                if prompt_token_limit:
+                    setattr(swarm_agent, "_prompt_token_limit", prompt_token_limit)
+
+        setattr(swarm_agent, "_allow_reasoning_content", allow_reasoning_content)
 
         agents.append(swarm_agent)
         logger.debug(f"Created agent '{agent_name}' with {len(agent_tools or [])} tools")
