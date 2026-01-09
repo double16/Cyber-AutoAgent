@@ -266,19 +266,19 @@ class ToolRouterHook(HookProvider):
                 truncate_target = self._max_result_chars
                 actual_truncated_size = min(truncate_target, original_size)
 
-                if actual_truncated_size < original_size:
-                    logger.warning(
-                        "Truncating large tool result: tool=%s, original_size=%d chars, truncated_to=%d",
-                        tool_name,
-                        original_size,
-                        actual_truncated_size,
-                    )
-                elif externalized:
+                if externalized:
                     logger.info(
                         "Externalized tool result to artifact: tool=%s, size=%d chars, artifact=%s",
                         tool_name,
                         original_size,
                         artifact_path,
+                    )
+                elif actual_truncated_size < original_size:
+                    logger.warning(
+                        "Truncating large tool result: tool=%s, original_size=%d chars, truncated_to=%d",
+                        tool_name,
+                        original_size,
+                        actual_truncated_size,
                     )
 
                 snippet = text[:truncate_target]
