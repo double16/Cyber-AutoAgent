@@ -7,7 +7,7 @@ FROM cyber-autoagent-tools:latest
 
 LABEL org.opencontainers.image.title="Cyber-AutoAgent"
 LABEL org.opencontainers.image.description="Autonomous AI agent for ethical security assessments"
-LABEL org.opencontainers.image.version="0.3.0"
+LABEL org.opencontainers.image.version="0.3.1"
 LABEL org.opencontainers.image.source="https://github.com/double16/cyber-autoagent"
 LABEL org.opencontainers.image.licenses="MIT"
 
