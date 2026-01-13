@@ -126,7 +126,8 @@ services:
     tty: true
     
     depends_on:
-      - langfuse-web
+      langfuse-web:
+        condition: service_started
 
   # Langfuse observability service (self-hosted) 
   langfuse-web:
@@ -141,6 +142,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_started
+      langfuse-worker:
         condition: service_started
     ports:
       - "0.0.0.0:3000:3000"

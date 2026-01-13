@@ -1139,6 +1139,9 @@ def main():
         else:
             logger.warning("No callback_handler available for evaluation trigger")
 
+        if "agent" in locals():
+            agent.cleanup()
+
         # Clean up resources
         should_cleanup = not args.keep_memory and not args.memory_path
 

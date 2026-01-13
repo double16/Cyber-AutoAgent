@@ -13,9 +13,11 @@ import time
 import threading
 import json
 
-from typing import Any, Optional, Type, TypeVar, Callable
+from typing import Any, Optional, Type, TypeVar, Callable, Dict, List
 
+from modules.config.models.factory import get_model_id_from_model
 from modules.config.types import RateLimitConfig
+from modules.handlers.conversation_budget import estimate_prompt_tokens
 
 T = TypeVar("T")
 
@@ -125,108 +127,13 @@ class ThreadSafeRateLimiter:
         return release
 
 
-# ----------------------------
-# Token estimation (cheap/rough)
-# ----------------------------
-
-def _json_to_compact_str(v: Any) -> str:
-    # Compact + stable-ish (sort keys) so estimates don’t fluctuate as much.
-    try:
-        return json.dumps(v, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
-    except Exception:
-        return str(v)
-
-
-def _extract_text_from_content(content: Any) -> str:
-    # Strings
-    if isinstance(content, str):
-        return content
-
-    # Dict “blocks”
-    if isinstance(content, dict):
-        # Common text block
-        if isinstance(content.get("text"), str):
-            return content["text"]
-
-        # Common JSON block patterns:
-        # 1) {"json": {...}} or {"json": [...]}
-        if "json" in content:
-            return _json_to_compact_str(content["json"])
-
-        # 2) {"type": "json", "value": {...}} or {"type":"json","content":...}
-        if content.get("type") == "json":
-            for k in ("value", "content", "data", "object"):
-                if k in content:
-                    return _json_to_compact_str(content[k])
-
-        # Sometimes blocks are nested
-        for k in ("content", "value", "data"):
-            if k in content:
-                return _extract_text_from_content(content[k])
-
-        return ""
-
-    # List of blocks
-    if isinstance(content, list):
-        return "".join(_extract_text_from_content(x) for x in content)
-
-    # Fallback (numbers, bools, etc.)
-    if content is None:
-        return ""
-    return str(content)
-
-
-def estimate_tokens_rough(messages: Any, system_prompt: Any, system_prompt_content: Any,
-                          assume_output_tokens: int) -> int:
-    # Very rough heuristic: ~4 chars/token for English-ish text.
-    text = ""
-    if system_prompt:
-        text += _extract_text_from_content(system_prompt)
-    if system_prompt_content:
-        text += _extract_text_from_content(system_prompt_content)
-    if messages:
-        text += _extract_text_from_content(messages)
-
-    # clamp
-    chars = len(text)
-    approx_in = max(1 if chars else 0, chars // 4)
-    return int(approx_in + max(0, assume_output_tokens))
-
-
-def _lc_message_text(msg: Any) -> str:
-    """
-    Best-effort extraction for LangChain BaseMessage-like objects.
-    Includes:
-      - msg.content
-      - msg.additional_kwargs (tool_calls/function_call/etc) as JSON
-    """
-    if msg is None:
-        return ""
-
-    # BaseMessage-like: content
-    content = getattr(msg, "content", None)
-    text = _extract_text_from_content(content) if content is not None else ""
-
-    # BaseMessage-like: additional kwargs (tool calls, function call, etc)
-    ak = getattr(msg, "additional_kwargs", None)
-    if isinstance(ak, dict) and ak:
-        # Avoid exploding size too much; still count common payloads
-        # (keeps your JSON counting behavior).
-        text += _json_to_compact_str(ak)
-
-    return text
-
-
-def _estimate_tokens_for_batch_messages(
+def _batch_messages_to_strands_messages(
         batch_messages: Any,
-        *,
-        assume_output_tokens: int = 0,
-) -> int:
+) -> List[Dict[str, Any]]:
     """
     LangChain ChatModel.generate/agenerate signature typically uses:
       generate(messages: list[list[BaseMessage]], ...)
       agenerate(messages: list[list[BaseMessage]], ...)
-    We estimate across the whole batch.
     """
     # Accept a single conversation list as a convenience.
     # If user passes list[BaseMessage], treat as one item batch.
@@ -235,18 +142,25 @@ def _estimate_tokens_for_batch_messages(
     else:
         batch = batch_messages or []
 
-    text = ""
+    messages = []
     if isinstance(batch, list):
         for conv in batch:
             if not isinstance(conv, list):
                 continue
             for msg in conv:
-                text += _lc_message_text(msg)
+                strands_msg = {}
+                content = getattr(msg, "content", None)
+                if content is not None:
+                    strands_msg["content"] = content
 
-    # Same heuristic as your estimate_tokens_rough: chars//4 (+ clamp)
-    chars = len(text)
-    approx_in = max(1 if chars else 0, chars // 4)
-    return int(approx_in + max(0, int(assume_output_tokens or 0)))
+                # BaseMessage-like: additional kwargs (tool calls, function call, etc)
+                ak = getattr(msg, "additional_kwargs", None)
+                if isinstance(ak, dict) and ak:
+                    strands_msg["json"] = ak
+
+                messages.append(strands_msg)
+
+    return messages
 
 
 # ----------------------------
@@ -284,12 +198,13 @@ def patch_model_provider_class(model_cls: Type[Any], limiter: ThreadSafeRateLimi
             system_prompt_content=None,
             **kwargs: Any,
     ):
-        token_cost = estimate_tokens_rough(
+        token_cost = estimate_prompt_tokens(
+            model_id=get_model_id_from_model(self),
             messages=messages,
             system_prompt=system_prompt,
-            system_prompt_content=system_prompt_content,
-            assume_output_tokens=limiter.cfg.assume_output_tokens,
+            tool_specs=tool_specs,
         )
+        token_cost += limiter.cfg.assume_output_tokens
 
         release = await asyncio.to_thread(limiter.acquire_blocking, token_cost)
         try:
@@ -322,12 +237,12 @@ def patch_model_provider_class(model_cls: Type[Any], limiter: ThreadSafeRateLimi
                 system_prompt: Optional[str] = None,
                 **kwargs: Any,
         ):
-            token_cost = estimate_tokens_rough(
-                messages=prompt,
+            token_cost = estimate_prompt_tokens(
+                model_id=get_model_id_from_model(self),
+                extra_content=prompt,
                 system_prompt=system_prompt,
-                system_prompt_content=None,
-                assume_output_tokens=limiter.cfg.assume_output_tokens,
             )
+            token_cost += limiter.cfg.assume_output_tokens
 
             release = await asyncio.to_thread(limiter.acquire_blocking, token_cost)
             try:
@@ -376,10 +291,11 @@ def patch_langchain_chat_class_generate(model_cls: Type[Any], limiter: ThreadSaf
         orig_generate = getattr(model_cls, _ORIG_GENERATE_ATTR)
 
         def generate(self, messages, *args: Any, **kwargs: Any) -> Any:
-            token_cost = _estimate_tokens_for_batch_messages(
-                messages,
-                assume_output_tokens=limiter.cfg.assume_output_tokens,
+            token_cost = estimate_prompt_tokens(
+                model_id=get_model_id_from_model(self),
+                messages=_batch_messages_to_strands_messages(messages),
             )
+            token_cost += limiter.cfg.assume_output_tokens
             release = limiter.acquire_blocking(token_cost)
             try:
                 return orig_generate(self, messages, *args, **kwargs)
@@ -403,10 +319,11 @@ def patch_langchain_chat_class_generate(model_cls: Type[Any], limiter: ThreadSaf
         orig_agenerate = getattr(model_cls, _ORIG_AGENERATE_ATTR)
 
         async def agenerate(self, messages, *args: Any, **kwargs: Any) -> Any:
-            token_cost = _estimate_tokens_for_batch_messages(
-                messages,
-                assume_output_tokens=limiter.cfg.assume_output_tokens,
+            token_cost = estimate_prompt_tokens(
+                model_id=get_model_id_from_model(self),
+                messages=_batch_messages_to_strands_messages(messages),
             )
+            token_cost += limiter.cfg.assume_output_tokens
             release = await asyncio.to_thread(limiter.acquire_blocking, token_cost)
             try:
                 result = orig_agenerate(self, messages, *args, **kwargs)
