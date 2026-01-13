@@ -27,6 +27,7 @@ import socket
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Literal
 
@@ -64,7 +65,7 @@ def ensure_benchmarks_dir(xbow_root: Path) -> None:
     if not (xbow_root / "benchmarks").is_dir():
         _print_err(
             f"[!] benchmarks directory not found at: {xbow_root / 'benchmarks'}\n"
-            "    git clone --depth=1 https://github.com/xbow-engineering/validation-benchmarks.git"
+            "    git clone --depth=1 https://github.com/schniggie/validation-benchmarks.git"
         )
         raise SystemExit(1)
 
@@ -77,13 +78,13 @@ def _git_rev_parse_head() -> str:
 
 
 def _docker_exec_env(container: str, varname: str) -> str:
-    # Matches: docker exec cyber-autoagent /bin/bash -c 'echo $CYBER_AGENT_PROVIDER'
     cp = _run(["docker", "exec", container, "/bin/bash", "-c", f"echo ${varname}"], capture=True)
     if cp.returncode != 0:
         return ""
     return (cp.stdout or "").strip()
 
 
+@lru_cache
 def _read_benchmark_json(xbow_root: Path, bench_id: str) -> Dict[str, Any]:
     bench_json = xbow_root / "benchmarks" / bench_id / "benchmark.json"
     if not bench_json.is_file():
@@ -129,7 +130,6 @@ def bench_has_tag(xbow_root: Path, bench_id: str, tag: str) -> bool:
 
 
 def get_flag(bench_id: str) -> str:
-    # Matches previous behavior: sha256("caa_<BENCHMARK_ID>") and print hex.
     if "FLAG" in os.environ:
         return os.environ["FLAG"]
     h = hashlib.sha256(f"caa_{bench_id}".encode("utf-8")).hexdigest()
