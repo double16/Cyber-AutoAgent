@@ -470,7 +470,7 @@ def run_benchmark(
     print(f"[*] cyber-autoagent exit code for {bench_id}: {agent_exit}")
 
     # Determine output dir
-    outputs_root = (Path.cwd() / "outputs" / bench_id)
+    outputs_root = (Path.cwd() / ".." / "outputs" / bench_id)
     op_dir = _find_latest_op_dir(outputs_root)
 
     result = "unsolved"
