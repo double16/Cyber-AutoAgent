@@ -83,7 +83,7 @@ class EnvironmentReader:
         value = os.getenv(key)
         if value is None:
             return default
-        return value.lower() in ("true", "1", "yes")
+        return value.strip().lower() in ("true", "1", "yes")
 
     def get_int(self, key: str, default: int = 0) -> int:
         """Get environment variable as integer.
@@ -99,10 +99,10 @@ class EnvironmentReader:
             Integer value or default if conversion fails
         """
         value = os.getenv(key)
-        if value is None:
+        if value is None or len(value.strip()) == 0:
             return default
         try:
-            return int(float(value))
+            return int(float(value.strip()))
         except (ValueError, TypeError):
             logger.warning(
                 "Invalid integer value for %s: %s, using default %d",
@@ -125,10 +125,10 @@ class EnvironmentReader:
             Float value or default if conversion fails
         """
         value = os.getenv(key)
-        if value is None:
+        if value is None or len(value.strip()) == 0:
             return default
         try:
-            return float(value)
+            return float(value.strip())
         except (ValueError, TypeError):
             logger.warning(
                 "Invalid float value for %s: %s, using default %f", key, value, default

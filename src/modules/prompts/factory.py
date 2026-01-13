@@ -195,7 +195,7 @@ def _lf_ensure_seeded() -> None:
                     if created:
                         logger.info("Seeded Langfuse prompt: %s", rname)
         except Exception as e:  # pragma: no cover
-            logger.debug("Langfuse seed error: %s", e)
+            logger.warning("Langfuse seed error: %s", e)
         finally:
             _LF_SEEDED = True
 

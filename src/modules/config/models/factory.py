@@ -889,6 +889,33 @@ def create_strands_model(provider: Optional[str] = None, model_id: Optional[str]
         raise
 
 
+def get_model_id_from_agent(agent) -> str:
+    model_id = ""
+    model = getattr(agent, "model", None)
+    if model is not None:
+        model_id = get_model_id_from_model(model)
+    return model_id
+
+
+def get_model_id_from_model(model) -> str:
+    model_id = ""
+    for attr_name in ["model_id", "model"]:
+        if hasattr(model, "config"):
+            config = getattr(model, "config", None)
+            if isinstance(config, dict):
+                model_id = config.get(attr_name, "")
+            elif config is not None:
+                # config might be an object with attributes
+                model_id = getattr(config, attr_name, "")
+        if not model_id and hasattr(model, attr_name):
+            model_id = getattr(model, attr_name, "")
+        if model_id:
+            break
+    if not model_id:
+        logger.warning(f"Could not get model from {model.__class__.__name__}")
+    return model_id
+
+
 def get_model_timeout(model: Optional[Model] = None, default_timeout: Optional[int] = None) -> Optional[int]:
     if model is None:
         return default_timeout

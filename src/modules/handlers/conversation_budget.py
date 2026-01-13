@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Callable, Sequence
+from typing import Any, Dict, Optional, Callable, Sequence, List
 
 from strands import Agent
 from strands.agent.conversation_manager import (
@@ -20,8 +21,10 @@ from strands.agent.conversation_manager import (
 from strands.types.content import Message
 from strands.types.exceptions import ContextWindowOverflowException
 from strands.hooks import BeforeModelCallEvent, AfterModelCallEvent, HookProvider  # type: ignore
+from strands.tools.registry import ToolRegistry
 
 from modules.config.models.dev_client import get_models_client
+from modules.config.models.factory import get_model_id_from_agent
 
 logger = logging.getLogger(__name__)
 
@@ -160,11 +163,7 @@ _TOOL_ARTIFACT_THRESHOLD = 10000
 TOOL_COMPRESS_THRESHOLD = _TOOL_ARTIFACT_THRESHOLD
 TOOL_COMPRESS_TRUNCATE = _get_env_int("CYBER_TOOL_COMPRESS_TRUNCATE", 8000)
 
-# Token estimation overhead constants for content not in agent.messages
-# TODO: This could be estimated once the initial system prompt is built, then updated after prompt optimization.
-SYSTEM_PROMPT_OVERHEAD_TOKENS = 8000
-# TODO: Calculate based on configured tools
-TOOL_DEFINITIONS_OVERHEAD_TOKENS = 15_000
+# Token estimation overhead constants
 MESSAGE_METADATA_OVERHEAD_TOKENS = 50
 
 # Proactive compression threshold (percentage of window capacity)
@@ -179,8 +178,6 @@ _NO_REDUCTION_ATTR = "_prompt_budget_warned_no_reduction"
 
 # Additional named constants for token estimation and cache management
 DEFAULT_CHAR_TO_TOKEN_RATIO = 3.7  # Conservative default for token estimation
-JSON_CACHE_MAX_SIZE = 100  # Maximum JSON cache entries before cleanup
-JSON_CACHE_KEEP_SIZE = 50  # Entries to keep after cache cleanup
 ESCALATION_MAX_PASSES = 2  # Maximum additional reduction passes when escalating
 ESCALATION_MAX_TIME_SECONDS = 30.0  # Maximum time for all escalation passes
 ESCALATION_THRESHOLD_RATIO = 0.9  # Escalate if still at 90% of limit
@@ -829,7 +826,7 @@ class MappingConversationManager(SummarizingConversationManager):
         self._apply_mapper(agent)
         before_msgs = _count_agent_messages(agent)
         # Use estimation to measure reduction impact (not telemetry - see docstring)
-        before_tokens = _safe_estimate_tokens(agent)
+        before_tokens = safe_estimate_tokens(agent)
         stage = "sliding"
         try:
             self._sliding.reduce_context(agent, e, **kwargs)
@@ -838,7 +835,7 @@ class MappingConversationManager(SummarizingConversationManager):
             logger.warning("Sliding window overflow; invoking summarizing fallback")
             super().reduce_context(agent, e or overflow_exc, **kwargs)
         after_msgs = _count_agent_messages(agent)
-        after_tokens = _safe_estimate_tokens(agent)
+        after_tokens = safe_estimate_tokens(agent)
 
         # Sync removal count (only for sliding path - summarizing handles its own)
         if stage == "sliding":
@@ -1017,7 +1014,13 @@ def _count_agent_messages(agent: Agent) -> int:
     return 0
 
 
-def _safe_estimate_tokens(agent: Agent) -> Optional[int]:
+def safe_estimate_tokens(agent: Agent, extra_content: Any = None) -> Optional[int]:
+    """
+    Estimate the current agent token count with checks to ensure expected properties exist.
+    :param agent: the agent
+    :param extra_content: extra content to include in the estimate: str, dict, list of str or dict
+    :return: the estimated agent token count or None (failures will be logged)
+    """
     try:
         messages = getattr(agent, "messages", None)
         if messages is None:
@@ -1042,7 +1045,7 @@ def _safe_estimate_tokens(agent: Agent) -> Optional[int]:
             )
             return 0
 
-        estimated = _estimate_prompt_tokens(agent)
+        estimated = _estimate_prompt_tokens_for_agent(agent, extra_content)
         logger.info(
             "TOKEN ESTIMATION: Estimated %d tokens from %d messages (agent=%s)",
             estimated,
@@ -1191,20 +1194,66 @@ def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
     return ratio
 
 
-def _estimate_prompt_tokens(agent: Agent) -> int:
+def _json_to_compact_str(v: Any) -> str:
+    # Compact + stable-ish (sort keys) so estimates don’t fluctuate as much.
+    try:
+        return json.dumps(v, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+    except Exception:
+        return str(v)
+
+
+def _estimate_prompt_tokens_for_agent(agent: Agent, extra_content: Any = None) -> int:
     """
     Estimate prompt tokens with model-aware character-to-token ratio.
 
-    Includes system overhead constants for content not in agent.messages:
+    Includes system overhead for content not in agent.messages:
     system prompt, tool definitions, and per-message metadata.
+
+    :param agent: the agent, supported attributes: messages, system_prompt, tool_registry, model
+    :param extra_content: extra content to include in the estimate: str, dict, list of str or dict
+    :return: the estimated agent token count
     """
+    model_id = get_model_id_from_agent(agent)
+
     messages = getattr(agent, "messages", [])
 
-    # Add fixed overhead for content not in agent.messages
-    total_tokens = SYSTEM_PROMPT_OVERHEAD_TOKENS + TOOL_DEFINITIONS_OVERHEAD_TOKENS
-    total_tokens += len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS
+    if hasattr(agent, "system_prompt"):
+        # caller may have already included the system prompt
+        system_prompt = getattr(agent, "system_prompt", None)
+    else:
+        system_prompt = None
 
-    total_chars = 0
+    if hasattr(agent, "tool_registry"):
+        tool_registry: ToolRegistry = getattr(agent, "tool_registry", None)
+        tool_specs = tool_registry.get_all_tool_specs() if tool_registry is not None else []
+    else:
+        tool_specs = None
+
+    return estimate_prompt_tokens(model_id, messages, system_prompt, tool_specs, extra_content)
+
+
+def estimate_prompt_tokens(
+        model_id: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        tool_specs: Optional[List[Dict[str, Any]]] = None,
+        extra_content: Any = None,
+) -> int:
+    """
+    Estimate prompt tokens with model-aware character-to-token ratio.
+    :param model_id: the model's id
+    :param messages: the agent messages to include in the estimate, expected to use Strands Agent.messages schema
+    :param system_prompt: the system prompt
+    :param tool_specs: the tool specs
+    :param extra_content: extra content to include in the estimate: str, dict, list of str or dict
+    :return: the estimated token count
+    """
+
+    # Add fixed overhead for messages
+    if messages is None:
+        messages = []
+    message_tokens = len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS
+    message_chars = 0
 
     for message in messages:
         for block in message.get("content", []):
@@ -1212,82 +1261,104 @@ def _estimate_prompt_tokens(agent: Agent) -> int:
                 continue
 
             if "text" in block:
-                total_chars += len(block["text"])
+                message_chars += len(block["text"])
+
+            elif "json" in block:
+                message_chars += len(_json_to_compact_str(block["json"]))
 
             elif "toolUse" in block:
                 tool_use = block["toolUse"]
                 # Include tool name and input roughly proportional to their length
-                total_chars += len(str(tool_use.get("name", "")))
+                message_chars += len(str(tool_use.get("name", "")))
                 tool_input = tool_use.get("input", {})
-                total_chars += len(str(tool_input))
+                message_chars += len(str(tool_input))
 
             elif "toolResult" in block:
                 tool_result = block["toolResult"]
                 # Status and metadata
-                total_chars += len(str(tool_result.get("status", "")))
-                total_chars += len(str(tool_result.get("toolUseId", "")))
+                message_chars += len(str(tool_result.get("status", "")))
+                message_chars += len(str(tool_result.get("toolUseId", "")))
                 # Result content blocks
                 for result_content in tool_result.get("content", []):
                     if "text" in result_content:
-                        total_chars += len(result_content["text"])
+                        message_chars += len(result_content["text"])
                     elif "json" in result_content:
-                        total_chars += len(str(result_content["json"]))
+                        message_chars += len(str(result_content["json"]))
                     elif "document" in result_content:
                         doc = result_content["document"]
-                        total_chars += len(doc.get("name", ""))
-                        total_chars += 400  # conservative fixed overhead
+                        message_chars += len(doc.get("name", ""))
+                        message_chars += 400  # conservative fixed overhead
                     elif "image" in result_content:
-                        total_chars += 600  # conservative fixed overhead
+                        message_chars += 600  # conservative fixed overhead
 
             elif "image" in block:
-                total_chars += 600
+                message_chars += 600
 
             elif "document" in block:
                 doc = block["document"]
-                total_chars += len(doc.get("name", ""))
-                total_chars += 400
+                message_chars += len(doc.get("name", ""))
+                message_chars += 400
 
             elif "reasoningContent" in block:
                 # Count reasoning blocks (Kimi K2, GPT-5, Claude Sonnet 4.5)
                 reasoning = block["reasoningContent"]
                 if isinstance(reasoning, dict):
                     if "reasoningText" in reasoning:
-                        total_chars += len(reasoning["reasoningText"].get("text", ""))
+                        message_chars += len(reasoning["reasoningText"].get("text", ""))
                     # Fallback: stringify entire reasoning block
                     elif reasoning:
-                        total_chars += len(str(reasoning))
+                        message_chars += len(str(reasoning))
+
+            else:
+                message_chars += _json_to_compact_str(block)
+
+    overhead_chars = 0
+    extra_content_list = []
+    if system_prompt and system_prompt not in extra_content_list:
+        # caller may have already included the system prompt
+        extra_content_list.append(system_prompt)
+    if extra_content is not None:
+        extra_content_list.append(extra_content)
+    while len(extra_content_list) > 0:
+        extra_content_item = extra_content_list.pop(0)
+        if not extra_content_item:
+            continue
+        if isinstance(extra_content_item, list):
+            extra_content_list.extend(extra_content_item)
+        elif isinstance(extra_content_item, dict):
+            overhead_chars += len(_json_to_compact_str(extra_content_item))
+        else:
+            overhead_chars += len(str(extra_content_item))
+
+    tool_chars = 0
+    if tool_specs:
+        for tool_spec in tool_specs:
+            tool_chars += len(tool_spec.get("name", ""))
+            tool_chars += len(tool_spec.get("description", ""))
+            tool_chars += len(_json_to_compact_str(tool_spec.get("inputSchema", {}).get("json", {})))
+            message_tokens += MESSAGE_METADATA_OVERHEAD_TOKENS
 
     # Get model-appropriate ratio dynamically from models.dev
-    # Extract model_id string from model config (not model object)
-    # Validate model attributes before access
-    model = getattr(agent, "model", None)
-    model_id = ""
-    if model is not None:
-        if hasattr(model, "config"):
-            config = getattr(model, "config", None)
-            if isinstance(config, dict):
-                model_id = config.get("model_id", "")
-            elif config is not None:
-                # config might be an object with attributes
-                model_id = getattr(config, "model_id", "")
-        # Fallback: try to get model_id directly from model object
-        if not model_id and hasattr(model, "model_id"):
-            model_id = getattr(model, "model_id", "")
-
     ratio = _get_char_to_token_ratio_dynamic(model_id)
 
     if ratio <= 0:
         logger.warning("Invalid char/token ratio %.2f, using default %.1f", ratio, DEFAULT_CHAR_TO_TOKEN_RATIO)
         ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
 
-    content_tokens = max(1, int(total_chars / ratio))
-    estimated_tokens = total_tokens + content_tokens
+    token_calc = lambda c: max(1, int(c / ratio))
+    total_chars = message_chars + overhead_chars + tool_chars
+    content_tokens = token_calc(total_chars)
+    estimated_tokens = message_tokens + content_tokens
 
     logger.debug(
-        "Token estimation: %d chars / %.1f ratio = %d content + %d overhead = %d total (model=%s)",
-        total_chars, ratio, content_tokens,
-        SYSTEM_PROMPT_OVERHEAD_TOKENS + TOOL_DEFINITIONS_OVERHEAD_TOKENS + len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS,
-        estimated_tokens, model_id
+        "Token estimation: %d chars / %.1f ratio = %d content + %d metadata + %d overhead + %d tool = %d total (model=%s)",
+        total_chars, ratio,
+        token_calc(message_chars),
+        message_tokens,
+        token_calc(overhead_chars),
+        token_calc(tool_chars),
+        estimated_tokens,
+        model_id
     )
 
     return estimated_tokens
@@ -1335,7 +1406,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
 
     # Use estimation ONLY for threshold checking (measures current context size)
     # Telemetry provides cumulative totals which don't decrease after reductions
-    current_tokens = _safe_estimate_tokens(agent)
+    current_tokens = safe_estimate_tokens(agent)
 
     # Get telemetry for diagnostics only (not for threshold checks)
     telemetry_tokens = _get_metrics_input_tokens(agent)
@@ -1462,7 +1533,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
 
     before_msgs = _count_agent_messages(agent)
     # Use estimation to measure reduction impact (not telemetry - see _estimate_prompt_tokens docstring)
-    before_tokens = _safe_estimate_tokens(agent)
+    before_tokens = safe_estimate_tokens(agent)
     logger.warning(
         "Prompt budget trigger (%s / limit=%d). Initiating context reduction (escalation=%d).",
         reduction_reason,
@@ -1474,7 +1545,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     # Always attempt at least one reduction
     def _attempt_reduce() -> tuple[int, Optional[int]]:
         conversation_manager.reduce_context(agent)
-        return _count_agent_messages(agent), _safe_estimate_tokens(agent)
+        return _count_agent_messages(agent), safe_estimate_tokens(agent)
 
     try:
         after_msgs, after_tokens = _attempt_reduce()
@@ -1482,7 +1553,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
         logger.debug("Context reduction triggered summarization fallback")
         after_msgs, after_tokens = (
             _count_agent_messages(agent),
-            _safe_estimate_tokens(agent),
+            safe_estimate_tokens(agent),
         )
     except Exception:
         logger.exception("Failed to proactively reduce context")
@@ -1602,7 +1673,7 @@ class PromptBudgetHook(HookProvider):
     def __init__(self, ensure_budget_callback: Callable[[Any], None]) -> None:
         self._callback = ensure_budget_callback
 
-    def register_hooks(self, registry) -> None:  # type: ignore[no-untyped-def]
+    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:  # type: ignore[no-untyped-def]
         logger.info(
             "HOOK REGISTRATION: Registering PromptBudgetHook callbacks for BeforeModelCallEvent and AfterModelCallEvent"
         )
@@ -1695,7 +1766,7 @@ __all__ = [
     "PROMPT_TELEMETRY_THRESHOLD",
     "register_conversation_manager",
     "_ensure_prompt_within_budget",
-    "_estimate_prompt_tokens",
+    "_estimate_prompt_tokens_for_agent",
     "_strip_reasoning_content",
     "clear_shared_conversation_manager",
     "get_shared_conversation_manager",

@@ -19,27 +19,22 @@ import types
 
 import pytest
 
+from strands.types.tools import ToolSpec
 from modules.config.manager import ConfigManager
 from modules.config.models.dev_client import ModelsDevClient, ModelLimits
 from modules.handlers.conversation_budget import (
     _get_char_to_token_ratio_dynamic,
-    _estimate_prompt_tokens,
+    _estimate_prompt_tokens_for_agent,
     _ensure_prompt_within_budget,
     MappingConversationManager,
-    SYSTEM_PROMPT_OVERHEAD_TOKENS,
-    TOOL_DEFINITIONS_OVERHEAD_TOKENS,
     MESSAGE_METADATA_OVERHEAD_TOKENS,
 )
 
 
-def _expected_tokens(char_count: int, ratio: float, num_messages: int = 1) -> int:
+def _expected_tokens(char_count: int, ratio: float, num_messages: int = 1, overhead_chars: int = 30_000) -> int:
     """Calculate expected tokens with overhead constants."""
-    overhead = (
-        SYSTEM_PROMPT_OVERHEAD_TOKENS
-        + TOOL_DEFINITIONS_OVERHEAD_TOKENS
-        + num_messages * MESSAGE_METADATA_OVERHEAD_TOKENS
-    )
-    content_tokens = max(1, int(char_count / ratio))
+    overhead = num_messages * MESSAGE_METADATA_OVERHEAD_TOKENS
+    content_tokens = max(1, int((char_count + overhead_chars) / ratio))
     return overhead + content_tokens
 
 
@@ -101,6 +96,74 @@ class MockModelConfig:
         self.config = {"model_id": model_id}
 
 
+class ToolRegistryStub:
+    """Mock tool registry"""
+    shell_spec = ToolSpec(
+        name="shell",
+        description="Interactive shell with PTY support for real-time command execution and interaction.",
+        inputSchema={"json": {'properties': {
+            'command': {'anyOf': [{'type': 'string'}, {'items': {'anyOf': [...]}, 'type': 'array'}],
+                        'description': 'The shell command(s) to execute interactively. Can be a single command string or array of commands'},
+            'ignore_errors': {'default': False,
+                              'description': 'Continue execution even if some commands fail (default: False)',
+                              'type': 'boolean'}, 'non_interactive': {'default': False,
+                                                                      'description': 'Run in non-interactive mode without user prompts (default: False)',
+                                                                      'type': 'boolean'}, 'parallel': {'default': False,
+                                                                                                       'description': 'Whether to execute multiple commands in parallel (default: False)',
+                                                                                                       'type': 'boolean'},
+            'timeout': {'default': None,
+                        'description': 'Timeout in seconds for each command (default: controlled by SHELL_DEFAULT_TIMEOUT environment variable)',
+                        'type': 'integer'},
+            'work_dir': {'default': None, 'description': 'Working directory for command execution (default: current)',
+                         'type': 'string'}}, 'required': ['command'], 'type': 'object'}}
+    )
+    editor_spec = ToolSpec(
+        name="editor",
+        description="Editor tool designed to do changes iteratively on multiple files.",
+        inputSchema={"json": {'properties': {'command': {
+            'description': 'The commands to run: `view`, `create`, `str_replace`, `pattern_replace`, `insert`, `find_line`, `undo_edit`.',
+            'type': 'string'}, 'file_text': {'default': None,
+                                             'description': 'Required parameter of `create` command, with the content of the file to be created.',
+                                             'type': 'string'}, 'fuzzy': {'default': False,
+                                                                          'description': 'Enable fuzzy matching for `find_line` command.',
+                                                                          'type': 'boolean'}, 'insert_line': {
+            'anyOf': [{'type': 'string'}, {'type': 'integer'}, {'type': 'null'}], 'default': None,
+            'description': 'Required parameter of `insert` command. The `new_str` will be inserted AFTER the line `insert_line` of `path`. Can be a line number or search text.'},
+            'new_str': {'default': None,
+                        'description': 'Required parameter containing the new string for `str_replace`, `pattern_replace` or `insert` commands.',
+                        'type': 'string'}, 'old_str': {'default': None,
+                                                       'description': 'Required parameter of `str_replace` command containing the exact string to replace.',
+                                                       'type': 'string'}, 'path': {
+                'description': 'Absolute path to file or directory, e.g. `/repo/file.py` or `/repo`. User paths with tilde (~) are automatically expanded.',
+                'type': 'string'}, 'pattern': {'default': None,
+                                               'description': 'Required parameter of `pattern_replace` command containing the regex pattern to match.',
+                                               'type': 'string'}, 'search_text': {'default': None,
+                                                                                  'description': 'Text to search for in `find_line` command. Supports fuzzy matching.',
+                                                                                  'type': 'string'},
+            'view_range': {'default': None,
+                           'description': 'Optional parameter of `view` command. Line range to show [start, end]. Supports negative indices.',
+                           'items': {'type': 'integer'}, 'type': 'array'}},
+            'required': ['command', 'path'], 'type': 'object'}}
+    )
+
+    def __init__(self, tool_specs: list[ToolSpec] | None = None):
+        if tool_specs is None:
+            self.tool_specs = []
+            for i in range(15):
+                shell_spec_copy = self.shell_spec.copy()
+                shell_spec_copy["name"] = "shell_spec_" + str(i)
+                self.tool_specs.append(shell_spec_copy)
+            for i in range(15):
+                editor_spec_copy = self.editor_spec.copy()
+                editor_spec_copy["name"] = "editor_spec_" + str(i)
+                self.tool_specs.append(editor_spec_copy)
+        else:
+            self.tool_specs = tool_specs
+
+    def get_all_tool_specs(self):
+        return self.tool_specs
+
+
 class AgentStub:
     """Mock agent for testing conversation management."""
 
@@ -110,8 +173,11 @@ class AgentStub:
         model: str = "",
         limit: int | None = None,
         telemetry: int | None = None,
-        name: str = "test_agent"
+            name: str = "test_agent",
+            system_prompt: str = "x" * 30_000,
+            tool_specs: list[ToolSpec] | None = None,
     ):
+        self.system_prompt = system_prompt
         self.messages = messages
         self.model = MockModelConfig(model) if model else None
         self._prompt_token_limit = limit
@@ -128,6 +194,8 @@ class AgentStub:
         # Telemetry injection
         if telemetry is not None:
             self.callback_handler = types.SimpleNamespace(sdk_input_tokens=telemetry)
+
+        self.tool_registry = ToolRegistryStub(tool_specs)
 
 
 def make_message(text: str, role: str = "assistant") -> dict[str, Any]:
@@ -196,9 +264,10 @@ class TestDynamicRatioTokenEstimation:
         with patch('modules.handlers.conversation_budget.get_models_client', return_value=mock_models_client):
             agent = AgentStub(
                 messages=[make_message("x" * 1000)],
-                model="anthropic/claude-sonnet-4-5-20250929"
+                model="anthropic/claude-sonnet-4-5-20250929",
+                tool_specs=[],
             )
-            estimated = _estimate_prompt_tokens(agent)
+            estimated = _estimate_prompt_tokens_for_agent(agent)
             expected = _expected_tokens(1000, 3.7, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
@@ -208,9 +277,10 @@ class TestDynamicRatioTokenEstimation:
         with patch('modules.handlers.conversation_budget.get_models_client', return_value=mock_models_client):
             agent = AgentStub(
                 messages=[make_message("x" * 1000)],
-                model="azure/gpt-5"
+                model="azure/gpt-5",
+                tool_specs=[],
             )
-            estimated = _estimate_prompt_tokens(agent)
+            estimated = _estimate_prompt_tokens_for_agent(agent)
             expected = _expected_tokens(1000, 4.0, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
@@ -220,9 +290,10 @@ class TestDynamicRatioTokenEstimation:
         with patch('modules.handlers.conversation_budget.get_models_client', return_value=mock_models_client):
             agent = AgentStub(
                 messages=[make_message("x" * 1000)],
-                model="moonshot/kimi-k2-thinking"
+                model="moonshot/kimi-k2-thinking",
+                tool_specs=[],
             )
-            estimated = _estimate_prompt_tokens(agent)
+            estimated = _estimate_prompt_tokens_for_agent(agent)
             expected = _expected_tokens(1000, 3.8, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
@@ -232,9 +303,10 @@ class TestDynamicRatioTokenEstimation:
         with patch('modules.handlers.conversation_budget.get_models_client', return_value=mock_models_client):
             agent = AgentStub(
                 messages=[make_message("x" * 1000)],
-                model="google/gemini-2.5-flash"
+                model="google/gemini-2.5-flash",
+                tool_specs=[],
             )
-            estimated = _estimate_prompt_tokens(agent)
+            estimated = _estimate_prompt_tokens_for_agent(agent)
             expected = _expected_tokens(1000, 4.2, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
@@ -337,7 +409,7 @@ class TestQuietPruningWarnings:
 
         # Simulate typical specialist invocation with 3 messages
         agent = AgentStub(
-            [
+            messages=[
                 make_message("system: scan for XSS"),
                 make_message("thinking about approach..."),
                 make_message("result: no vulnerabilities found"),
@@ -435,7 +507,7 @@ class TestSpecialistFlowIntegration:
             )
 
             # Estimate tokens for specialist
-            estimated = _estimate_prompt_tokens(specialist)
+            estimated = _estimate_prompt_tokens_for_agent(specialist)
 
             # Should not exceed safe limit (includes overhead)
             assert estimated < specialist._prompt_token_limit, \
@@ -576,18 +648,27 @@ class TestExpectedBehaviorValidation:
                 ("google/gemini-2.5-flash", 10000, 4.2),
             ]
 
+            extra_content_cases = [
+                (0, None),
+                (13, "extra content"),
+                (30, ["extra content 1", "extra content 2"]),
+                (49, {"one": "extra content 1", "two": "extra content 2"}),
+            ]
+
             for model_id, char_count, ratio in test_cases:
-                agent = AgentStub(
-                    messages=[make_message("x" * char_count)],
-                    model=model_id
-                )
+                for extra_content_count, extra_content in extra_content_cases:
+                    agent = AgentStub(
+                        messages=[make_message("x" * char_count)],
+                        model=model_id,
+                        tool_specs=[],
+                    )
 
-                estimated = _estimate_prompt_tokens(agent)
-                expected = _expected_tokens(char_count, ratio, 1)
+                    estimated = _estimate_prompt_tokens_for_agent(agent, extra_content=extra_content)
+                    expected = _expected_tokens(char_count + extra_content_count, ratio, 1)
 
-                # Allow ±1 token difference (rounding)
-                assert abs(estimated - expected) <= 1, \
-                    f"Model {model_id}: expected ~{expected} tokens, got {estimated}"
+                    # Allow ±1 token difference (rounding)
+                    assert abs(estimated - expected) <= 1, \
+                        f"Model {model_id}: expected ~{expected} tokens, got {estimated}, extra: {extra_content}"
 
 
 # ============================================================================
@@ -825,10 +906,16 @@ class TestFullPipelineSimulation:
             messages.append(mapped)
 
             # Add assistant response
-            messages.append({
-                "role": "assistant",
-                "content": [{"text": f"Analyzed tool {i} output."}],
-            })
+            if i > 20:
+                messages.append({
+                    "role": "assistant",
+                    "content": [{"json": ["Analyzed tool {i} output."]}],
+                })
+            else:
+                messages.append({
+                    "role": "assistant",
+                    "content": [{"text": f"Analyzed tool {i} output."}],
+                })
 
         # Create agent with accumulated messages
         agent = AgentStub(messages=messages, model="test/model", limit=200000)
@@ -876,11 +963,11 @@ class TestToolPairPreservation:
             # Tool pair 3
             {"role": "assistant", "content": [{"toolUse": {"name": "shell", "toolUseId": "t3", "input": {}}}]},
             {"role": "user", "content": [{"toolResult": {"toolUseId": "t3", "status": "success", "content": []}}]},
-            {"role": "assistant", "content": [{"text": "Result 3"}]},
+            {"role": "assistant", "content": [{"json": ["Result 3"]}]},
             # Tool pair 4
             {"role": "assistant", "content": [{"toolUse": {"name": "shell", "toolUseId": "t4", "input": {}}}]},
             {"role": "user", "content": [{"toolResult": {"toolUseId": "t4", "status": "success", "content": []}}]},
-            {"role": "assistant", "content": [{"text": "Result 4"}]},
+            {"role": "assistant", "content": [{"json": ["Result 4"]}]},
         ]
 
         agent = AgentStub(messages=messages, model="test/model", limit=200000)
@@ -941,6 +1028,32 @@ class TestToolPairPreservation:
         # Sanity: first and last messages should remain
         assert agent.messages[0]["content"][0]["text"] == "Message 0"
         assert agent.messages[-1]["content"][0]["text"] == "Message 9"
+
+    def test_window_overflow_triggers_at_boundary_json_content(self):
+        """Test that pruning triggers when message count equals window size with json content."""
+        manager = MappingConversationManager(
+            window_size=10,
+            preserve_first_messages=1,
+            preserve_recent_messages=2,
+        )
+
+        # Create exactly 10 messages (at window boundary)
+        messages = [
+            {"role": "user", "content": [{"json": [f"Message {i}"]}]}
+            for i in range(10)
+        ]
+
+        agent = AgentStub(messages=messages, model="test/model", limit=200000)
+
+        # Apply management - should trigger pruning at boundary (>=, not >)
+        manager.apply_management(agent)
+
+        # Verify pruning reached the clamped 90% target
+        assert len(agent.messages) == 9
+
+        # Sanity: first and last messages should remain
+        assert agent.messages[0]["content"][0]["json"] == ["Message 0"]
+        assert agent.messages[-1]["content"][0]["json"] == ["Message 9"]
 
 
 # ============================================================================
