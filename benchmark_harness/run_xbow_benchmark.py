@@ -209,6 +209,15 @@ def _compose_ps_json(bench_dir: Path) -> Optional[Any]:
     s = (cp.stdout or "").strip()
     if not s:
         return None
+    # JSONL
+    try:
+        lines = s.splitlines()
+        print(str(lines), file=sys.stderr)
+        if all(map(lambda e: e.startswith("{") and e.endswith("}"), lines)):
+            return list(map(lambda e: json.loads(e), lines))
+    except Exception:
+        pass
+    # Proper JSON
     try:
         return json.loads(s)
     except Exception:
@@ -377,6 +386,7 @@ def run_benchmark(
     model_under_test: str,
     module: str,
     keep_running: bool,
+        react_ui: bool = False,
 ) -> int:
     ensure_benchmarks_dir(xbow_root)
 
@@ -434,36 +444,67 @@ def run_benchmark(
 
     start_time = time.time()
 
-    docker_env_args: List[str] = []
-    docker_env_args += ["-e", f"CYBER_AGENT_PROVIDER={provider_under_test}"]
-    docker_env_args += ["-e", f"CYBER_AGENT_LLM_MODEL={model_under_test}"]
-    docker_env_args += ["-e", f"CYBER_AGENT_SWARM_MODEL={model_under_test}"]
-    docker_env_args += ["-e", f"CYBER_AGENT_EVALUATION_MODEL={model_under_test}"]
-    docker_env_args += ["-e", f"RAGAS_EVALUATOR_MODEL={model_under_test}"]
+    if react_ui:
+        # ~/.cyber-autoagent/config.json is processed by "npm start ..."
+        cmd = [
+            "npm",
+            "start",
+            "--",
+            "--auto-run",
+            "--auto-approve",
+            "--headless",
+            "--debug",
+            "--memory-mode",
+            memory_isolation,
+            "--module",
+            module,
+            "--target",
+            target,
+            "--objective",
+            objective,
+            "--iterations",
+            str(iterations),
+        ]
+        if provider_under_test:
+            cmd += ["--provider", provider_under_test]
+        if model_under_test:
+            cmd += ["--model", model_under_test]
+        if _docker_exec_env("cyber-autoagent", "ENABLE_OBSERVABILITY").lower() in ["true", "1"]:
+            cmd.append("--observability")
 
-    cmd = [
-        "docker",
-        "exec",
-        "-it",
-        *docker_env_args,
-        "-e",
-        f"MEMORY_ISOLATION={memory_isolation}",
-        "cyber-autoagent",
-        "python3",
-        "/app/src/cyberautoagent.py",
-        "--target",
-        target,
-        "--module",
-        module,
-        "--objective",
-        objective,
-        "--iterations",
-        str(iterations),
-        "--verbose",
-    ]
+        cp = _run(cmd, cwd=Path.cwd() / ".." / "src" / "modules" / "interfaces" / "react", capture=False)
+        agent_exit = cp.returncode
+    else:
+        docker_env_args: List[str] = []
+        docker_env_args += ["-e", f"CYBER_AGENT_PROVIDER={provider_under_test}"]
+        docker_env_args += ["-e", f"CYBER_AGENT_LLM_MODEL={model_under_test}"]
+        docker_env_args += ["-e", f"CYBER_AGENT_SWARM_MODEL={model_under_test}"]
+        docker_env_args += ["-e", f"CYBER_AGENT_EVALUATION_MODEL={model_under_test}"]
+        docker_env_args += ["-e", f"RAGAS_EVALUATOR_MODEL={model_under_test}"]
 
-    cp = _run(cmd, capture=False)
-    agent_exit = cp.returncode
+        cmd = [
+            "docker",
+            "exec",
+            "-it",
+            *docker_env_args,
+            "-e",
+            f"MEMORY_ISOLATION={memory_isolation}",
+            "cyber-autoagent",
+            "python3",
+            "/app/src/cyberautoagent.py",
+            "--target",
+            target,
+            "--module",
+            module,
+            "--objective",
+            objective,
+            "--iterations",
+            str(iterations),
+            "--verbose",
+        ]
+
+        cp = _run(cmd, capture=False)
+        agent_exit = cp.returncode
 
     duration = int(time.time() - start_time)
 
@@ -486,7 +527,7 @@ def run_benchmark(
             log_text = _read_text(log)
 
             # Cancelled
-            if agent_exit in [130, 137, 143] or re.search(r"\.SIG[A-Z0-9]+\.\s+received", log_text):
+            if agent_exit in [130, 137, 143] or re.search(r".SIG[A-Z0-9]+.\s+received", log_text):
                 print(f"[!] cyber-autoagent {bench_id}: CANCELLED")
                 raise SystemExit(130)
 
@@ -733,6 +774,7 @@ def run_all_benchmarks(
     remaining: bool,
     tag: Optional[str],
     keep_running: bool,
+        react_ui: bool = False,
 ) -> int:
     ensure_benchmarks_dir(xbow_root)
 
@@ -773,6 +815,7 @@ def run_all_benchmarks(
             model_under_test=model_under_test,
             module=module,
             keep_running=keep_running,
+            react_ui=react_ui,
         )
         if rc != 0:
             print(f"[!] Benchmark {bench_id} failed.")
@@ -796,6 +839,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     g.add_argument("--all", action="store_true")
     g.add_argument("--remaining", action="store_true")
 
+    p.add_argument("--react-ui", action="store_true")
     p.add_argument("--tag", dest="tag", default=None)
     p.add_argument("--help", "-h", action="store_true")
     p.add_argument("benchmark_id", nargs="?")
@@ -812,8 +856,8 @@ def main(argv: Sequence[str]) -> int:
             "  run_xbow_benchmark.py --list\n"
             "  run_xbow_benchmark.py --tags\n"
             "  run_xbow_benchmark.py --check [--tag <TAG>]\n"
-            "  run_xbow_benchmark.py --all [--tag <TAG>]\n"
-            "  run_xbow_benchmark.py --remaining [--tag <TAG>]\n"
+            "  run_xbow_benchmark.py --all [--tag <TAG> --react-ui]\n"
+            "  run_xbow_benchmark.py --remaining [--tag <TAG> --react-ui]\n"
             "  run_xbow_benchmark.py --tag <TAG> [--all|--remaining|--check]\n"
             "  run_xbow_benchmark.py <BENCHMARK_ID>\n\n"
             "Examples:\n"
@@ -868,6 +912,7 @@ def main(argv: Sequence[str]) -> int:
             remaining=bool(args.remaining),
             tag=args.tag,
             keep_running=keep_running,
+            react_ui=bool(args.react_ui),
         )
 
     # Single benchmark mode
@@ -883,6 +928,7 @@ def main(argv: Sequence[str]) -> int:
         model_under_test=model_under_test,
         module=module,
         keep_running=keep_running,
+        react_ui=bool(args.react_ui),
     )
 
 
