@@ -1065,7 +1065,7 @@ export class DirectDockerService extends EventEmitter {
     }
 
     // Check for assessment execution prompt and auto-execute (original behavior)
-    // The prompt may have a module prefix like "◆ general > " or similar
+    // The prompt may have a module prefix like "◆ web > " or similar
     // Support multiple variants of the execute prompt (with or without quotes/box UI wording)
     const executePromptPattern = /Press\s+Enter\s+or\s+type\s+["']?execute["']?\s+to\s+start\s+assessment|Type\s+["']?execute["']?\s*\(default\)|^\s*execute\s*:\s*press\s+enter/ims;
 

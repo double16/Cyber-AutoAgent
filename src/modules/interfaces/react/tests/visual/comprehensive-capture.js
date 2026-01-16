@@ -625,7 +625,7 @@ const journeys = [
       await j.capture('Plugin Selected Confirmation');
       
       // Try quick plugin switch with argument
-      await j.input('/plugins general', 'Quick plugin switch');
+      await j.input('/plugins web', 'Quick plugin switch');
       await j.capture('Typing plugin with argument');
       await j.input('\r', 'Execute');
       await j.wait(300);

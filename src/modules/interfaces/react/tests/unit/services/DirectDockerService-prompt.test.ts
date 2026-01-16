@@ -21,7 +21,7 @@ describe('DirectDockerService prompt detection', () => {
     const writes: string[] = [];
     (svc as any).containerStream = { write: (s: string) => { writes.push(s); } };
     // Load buffer with prompt variant
-    (svc as any).streamEventBuffer = 'Some text...\n◆ general > Press Enter or type "execute" to start assessment\n';
+    (svc as any).streamEventBuffer = 'Some text...\n◆ web > Press Enter or type "execute" to start assessment\n';
     // Trigger prompt handling directly
     (svc as any).handleInteractivePrompts();
 

@@ -26,7 +26,7 @@ graph TD
 ```typescript
 // React UI - Module selection
 interface AssessmentParams {
-  module: string;  // 'general'
+  module: string;  // 'web'
   target: string;
   objective?: string;
 }
@@ -50,8 +50,8 @@ const args = [
 parser.add_argument(
     "--module",
     type=str,
-    default="general",
-    help="Security module to use (e.g., general)",
+    default="web",
+    help="Security module to use (e.g., web)",
 )
 ```
 
@@ -59,7 +59,7 @@ parser.add_argument(
 
 ```
 src/modules/operation_plugins/
-├── general/
+├── web/
 │   ├── execution_prompt.md    # Domain-specific system prompt
 │   ├── report_prompt.md       # Report generation guidance
 │   ├── module.yaml            # Module configuration
@@ -81,7 +81,7 @@ configuration:
 ```
 
 **Available Modules**:
-- **general**: Comprehensive web application and network security testing
+- **web**: Comprehensive web application and network security testing
   - Includes the `validation_specialist` tool (invoked via `load_tool("validation_specialist")`) and can be extended with additional specialist agents following the same pattern.
 - **ctf**: CTF challenge solving with flag recognition and success detection
 
@@ -109,18 +109,18 @@ sequenceDiagram
     participant P as Operation Directory
 
     A->>L: get_module_loader()
-    A->>L: load_module_execution_prompt('general', operation_root)
+    A->>L: load_module_execution_prompt('web', operation_root)
     L->>P: Check operation_root/execution_prompt_optimized.txt
     alt Optimized Prompt Exists
         P-->>L: Optimized prompt content
     else No Optimized Prompt
-        L->>F: Read modules/general/execution_prompt.md
+        L->>F: Read modules/web/execution_prompt.md
         F-->>L: Template prompt content
     end
     L-->>A: Module execution prompt
 
-    A->>L: discover_module_tools('general')
-    L->>F: Scan modules/general/tools/*.py
+    A->>L: discover_module_tools('web')
+    L->>F: Scan modules/web/tools/*.py
     F-->>L: Tool file paths
     L-->>A: ['quick_recon.py']
 ```
@@ -133,7 +133,7 @@ The loader checks for operation-specific optimized prompts first (created by the
 
 ```python
 # modules/agents/cyber_autoagent.py - Agent creation
-def create_agent(module: str = "general"):
+def create_agent(module: str = "web"):
     # Load module-specific execution prompt
     module_loader = get_module_loader()
     module_execution_prompt = module_loader.load_module_execution_prompt(module)
@@ -224,7 +224,7 @@ sequenceDiagram
     
     Note over A,S: Agent sees available module tools in system prompt
     A->>T: load_tool(tool_name="quick_recon")
-    T->>M: Import modules/general/tools/quick_recon.py
+    T->>M: Import modules/web/tools/quick_recon.py
     M-->>T: Tool registered
     T-->>A: Tool available for use
     A->>M: quick_recon(target="example.com")
@@ -242,7 +242,7 @@ def build_report_sections(
     operation_id: str,
     target: str,
     objective: str,
-    module: str = "general",
+    module: str = "web",
     steps_executed: int = 0,
     tools_used: List[str] = None,
 ) -> Dict[str, Any]:
@@ -303,7 +303,7 @@ The report generation uses a dedicated `build_report_sections` tool that retriev
 
 ## Module Examples
 
-### General Security Module
+### Web Security Module
 
 **Execution Prompt Features:**
 - Multi-domain security coverage (Network, Web, API, Infrastructure, Cloud)

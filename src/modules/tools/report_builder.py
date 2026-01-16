@@ -128,7 +128,7 @@ def build_report_sections(
     operation_id: str,
     target: str,
     objective: str,
-    module: str = "general",
+    module: str = "web",
     steps_executed: int = 0,
     tools_used: List[str] = None,
 ) -> Dict[str, Any]:
@@ -145,7 +145,7 @@ def build_report_sections(
         operation_id: The operation identifier
         target: Assessment target (URL/system)
         objective: Assessment objective
-        module: Operation module used (default: general)
+        module: Operation module used (default: web)
         steps_executed: Number of steps executed in operation
         tools_used: List of tools used during assessment
 

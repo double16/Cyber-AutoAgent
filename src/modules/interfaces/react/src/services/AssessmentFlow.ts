@@ -7,7 +7,7 @@
  * consistent assessment configuration across all security modules.
  * 
  * Assessment Workflow:
- * 1. Module Selection: Choose security domain (general)
+ * 1. Module Selection: Choose security domain (web)
  * 2. Target Definition: Specify assessment target (IP, domain, URL, etc.)
  * 3. Ready State: Assessment parameters validated and ready for execution
  * 
@@ -49,22 +49,22 @@ export interface FlowResult {
  */
 export class AssessmentFlow {
   /** Default module to use when resetting flow */
-  private defaultModule: string = 'general';
+  private defaultModule: string = 'web';
 
   /** Current assessment configuration state */
   private assessmentState: AssessmentState = {
-    stage: 'target', // Start at target since we default to 'general' module
-    module: 'general', // Default to general module
+    stage: 'target', // Start at target since we default to 'web' module
+    module: 'web', // Default to web module
     target: null,
     objective: null // Auto-generated based on module
   };
 
   /**
    * Dynamically maintained set of supported modules.
-   * Defaults to ['general'] but should be updated by the UI with actual discovered modules.
+   * Defaults to ['web'] but should be updated by the UI with actual discovered modules.
    * If a requested module is not yet in this set (e.g., discovery race), we still accept it to avoid hardcoding.
    */
-  private supportedModules: Set<string> = new Set(['general']);
+  private supportedModules: Set<string> = new Set(['web']);
 
   /**
    * Update the set of supported modules at runtime.
@@ -73,7 +73,7 @@ export class AssessmentFlow {
   public setSupportedModules(modules: string[]): void {
     try {
       const incoming = Array.isArray(modules) ? modules.filter(Boolean) : [];
-      this.supportedModules = new Set(incoming.length > 0 ? incoming : ['general']);
+      this.supportedModules = new Set(incoming.length > 0 ? incoming : ['web']);
     } catch {
       // Keep existing set on error
     }
@@ -84,7 +84,7 @@ export class AssessmentFlow {
    * Ready to guide user through complete assessment setup workflow
    */
   constructor() {
-    // Initialize with 'general' module by default, starting at target stage
+    // Initialize with 'web' module by default, starting at target stage
     // Users can change module with /module command if needed
   }
 
@@ -171,7 +171,7 @@ export class AssessmentFlow {
   resetCompleteWorkflow(): void {
     this.assessmentState = {
       stage: 'target',
-      module: this.defaultModule || 'general',
+      module: this.defaultModule || 'web',
       target: null,
       objective: null
     };
@@ -282,7 +282,7 @@ export class AssessmentFlow {
         success: false,
         message: 'Please specify a security module to load',
         error: 'Usage: module <security_domain>',
-        nextPrompt: 'Enter module name (e.g., general, ctf)'
+        nextPrompt: 'Enter module name (e.g., web, ctf)'
       };
     }
 
@@ -408,10 +408,10 @@ export class AssessmentFlow {
    */
   private generateDefaultObjective(module: string): string {
     const objectives: Record<string, string> = {
-      general: 'general security assessment and reconnaissance'
+      web: 'web security assessment and reconnaissance'
     };
     
-    return objectives[module] || 'general security assessment';
+    return objectives[module] || 'web security assessment';
   }
 
 

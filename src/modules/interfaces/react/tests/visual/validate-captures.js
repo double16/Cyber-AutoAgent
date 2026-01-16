@@ -65,7 +65,7 @@ class CaptureValidator {
     const hasSetupElements = terminalContent.includes('Environment Configuration') || 
                              terminalContent.includes('Setup Progress');
     const hasMainElements = terminalContent.includes('Type target <url>') || 
-                           terminalContent.includes('general: target');
+                           terminalContent.includes('web: target');
     
     if (hasSetupElements && hasMainElements) {
       issues.push({
@@ -369,7 +369,7 @@ class CaptureValidator {
     // Check for modal overlap issues
     const hasConfigModal = content.includes('Configuration') && content.includes('section');
     const hasSafetyModal = content.includes('Safety Warning') || content.includes('authorization');
-    const hasMainInterface = content.includes('Type target') || content.includes('general:');
+    const hasMainInterface = content.includes('Type target') || content.includes('web:');
     
     if ((hasConfigModal || hasSafetyModal) && hasMainInterface) {
       // This might be normal during transitions, so lower severity

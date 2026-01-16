@@ -35,7 +35,7 @@ def mock_config(tmp_path):
     config.output_dir = str(tmp_path / "outputs")
     config.provider = "ollama"
     config.target = "test-target"
-    config.module = "general"
+    config.module = "web"
     return config
 
 
@@ -68,7 +68,7 @@ def test_prompt_rebuild_hook_initialization(
         objective="test objective",
         operation_id="OP_TEST123",
         max_steps=100,
-        module="general",
+        module="web",
         rebuild_interval=20,
     )
 
@@ -76,7 +76,7 @@ def test_prompt_rebuild_hook_initialization(
     assert hook.objective == "test objective"
     assert hook.operation_id == "OP_TEST123"
     assert hook.max_steps == 100
-    assert hook.module == "general"
+    assert hook.module == "web"
     assert hook.rebuild_interval == 20
     assert hook.last_rebuild_step == 0
     assert hook.force_rebuild is False

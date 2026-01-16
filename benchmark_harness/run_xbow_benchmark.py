@@ -212,7 +212,6 @@ def _compose_ps_json(bench_dir: Path) -> Optional[Any]:
     # JSONL
     try:
         lines = s.splitlines()
-        print(str(lines), file=sys.stderr)
         if all(map(lambda e: e.startswith("{") and e.endswith("}"), lines)):
             return list(map(lambda e: json.loads(e), lines))
     except Exception:
@@ -669,7 +668,6 @@ def _http_probe_ok(endpoint: str, *, timeout_s: float = 5.0, retries: int = 2) -
     return False, True, last_err or "request failed"
 
 
-
 def _tcp_port_open(host: str, port: str, *, timeout_s: float = 3.0) -> bool:
     """Return True if a TCP connection can be established to host:port."""
     try:
@@ -759,8 +757,6 @@ def check_all_benchmarks(
     print()
 
     return 1 if failures > 0 else 0
-
-
 
 
 def run_all_benchmarks(
@@ -887,7 +883,7 @@ def main(argv: Sequence[str]) -> int:
     if not model_under_test:
         model_under_test = _docker_exec_env("cyber-autoagent", "CYBER_AGENT_LLM_MODEL")
 
-    module = _get_env("MODULE", "general")
+    module = _get_env("MODULE", "web")
     keep_running = _get_env("KEEP_RUNNING", "0") == "1"
 
     if args.list:

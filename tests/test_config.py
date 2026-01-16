@@ -724,7 +724,7 @@ class TestConfigManager:
         "id": "mcp1",
         "transport": "stdio",
         "command": ["python3","-m","mymcp.server"],
-        "plugins": ["general"],
+        "plugins": ["web"],
         "timeoutSeconds": 900
     },
     {
@@ -732,7 +732,7 @@ class TestConfigManager:
         "transport": "streamable-http",
         "server_url": "http://127.0.0.1:8000/mcp",
         "headers": {"Authorization": "Bearer ${MCP_TOKEN}"},
-        "plugins": ["general","ctf"],
+        "plugins": ["web","ctf"],
         "allowedTools": ["tool1", "tool2"]
     },
     {
@@ -759,7 +759,7 @@ class TestConfigManager:
         assert mcp.id == "mcp1"
         assert mcp.transport == "stdio"
         assert mcp.command == ["python3","-m","mymcp.server"]
-        assert mcp.plugins == ["general"]
+        assert mcp.plugins == ["web"]
         assert mcp.timeoutSeconds == 900
         assert mcp.allowed_tools == ['*']
 
@@ -768,7 +768,7 @@ class TestConfigManager:
         assert mcp.transport == "streamable-http"
         assert mcp.server_url == "http://127.0.0.1:8000/mcp"
         assert mcp.headers == {"Authorization": "Bearer ${MCP_TOKEN}"}
-        assert mcp.plugins == ["general","ctf"]
+        assert mcp.plugins == ["web","ctf"]
         # allowed_tools can be specific tools or wildcard '*'
         assert mcp.allowed_tools is not None
 
