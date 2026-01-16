@@ -157,7 +157,7 @@ Advanced users can directly edit `~/.cyber-autoagent/config.json`:
 
 ```bash
 # In interface
-/module              # Select general or ctf
+/module              # Select web or ctf
 target: https://testphp.vulnweb.com
 objective: Identify SQL injection vulnerabilities
 execute              # Start assessment
@@ -169,7 +169,7 @@ execute              # Start assessment
 cyber-react \
   --target "https://testphp.vulnweb.com" \
   --objective "Identify OWASP Top 10 vulnerabilities" \
-  --module general \
+  --module web \
   --iterations 50 \
   --auto-run
 ```
@@ -180,7 +180,7 @@ cyber-react \
 |------------------------|-----------|-----------------------------------------|
 | `--target, -t`         | Required  | Target system URL or IP                 |
 | `--objective, -o`      | Required  | Assessment objective                    |
-| `--module, -m`         | `general` | Security module: general, ctf           |
+| `--module, -m`         | `web`     | Security module: web, ctf               |
 | `--iterations, -i`     | `100`     | Maximum tool executions                 |
 | `--provider`           | `bedrock` | Model provider                          |
 | `--auto-run`           | `false`   | Skip interactive prompts                |
@@ -221,10 +221,10 @@ cyber-react \
 
 ## Operation Modules
 
-| Module      | Purpose                  | Key Features                                        |
-|-------------|--------------------------|-----------------------------------------------------|
-| **general** | Web application security | Advanced recon, payload testing, auth analysis      |
-| **ctf**     | CTF challenges           | Flag recognition, exploit chains, success detection |
+| Module   | Purpose                  | Key Features                                        |
+|----------|--------------------------|-----------------------------------------------------|
+| **web**  | Web application security | Advanced recon, payload testing, auth analysis      |
+| **ctf**  | CTF challenges           | Flag recognition, exploit chains, success detection |
 
 ## Monitoring
 
@@ -279,7 +279,7 @@ can be used to configure, command line options or environment variables.
          "id": "htb-mcp-server",
          "transport": "stdio",  // or "sse", "streamable-http"
          "command": ["./htb-mcp-server"],
-         "plugins": ["general"]  // or ["*"]
+         "plugins": ["web"]  // or ["*"]
       },
       {
          "id": "shyhurricane",
@@ -340,7 +340,7 @@ export HTB_MCP_TOKEN=xxx.yyy.zzz
             "id": "hex",
             "transport": "stdio",
             "command": ["python3", "/path/to/hexstrike-ai/hexstrike_mcp.py", "--server", "http://localhost:8888"],
-            "plugins": ["general"],
+            "plugins": ["web"],
             "timeoutSeconds": 300
          }
       ]
@@ -410,7 +410,7 @@ python src/cyberautoagent.py \
   --target "http://testphp.vulnweb.com" \
   --objective "SQL injection assessment" \
   --provider bedrock \
-  --module general \
+  --module web \
   --iterations 50
 ```
 
@@ -465,7 +465,7 @@ docker run --rm \
 
 ```bash
 cyber-react \
-  -m general \
+  -m web \
   -t "https://testphp.vulnweb.com" \
   -o "OWASP Top 10 assessment" \
   -i 50
@@ -475,7 +475,7 @@ cyber-react \
 
 ```bash
 cyber-react \
-  -m general \
+  -m web \
   -t "https://api.example.com" \
   -o "Authentication testing" \
   -i 75 \
@@ -518,7 +518,7 @@ cyber-react \
 | Setting       | Recommendation                                                  |
 |---------------|-----------------------------------------------------------------|
 | Iterations    | Start with 25-50, increase to 100-200 for comprehensive testing |
-| Module        | Use general for web apps, ctf for competitions                  |
+| Module        | Use web for web apps, ctf for competitions                  |
 | Auto-approve  | Only for trusted environments                                   |
 | Observability | Enable for production assessments                               |
 | Memory mode   | Auto for iterative testing, fresh for baselines                 |

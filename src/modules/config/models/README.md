@@ -104,8 +104,7 @@ Embedded snapshot of models.dev database for offline operation.
 **Update Process:**
 ```bash
 # Manual update
-curl -o src/modules/config/models/models_snapshot.json \
-     https://models.dev/api.json
+curl https://models.dev/api.json | jq --indent 4 . > src/modules/config/models/models_snapshot.json
 
 # Verify
 python3 -c "import json; json.load(open('src/modules/config/models/models_snapshot.json'))"

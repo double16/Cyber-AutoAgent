@@ -19,6 +19,6 @@ tools: []
 module_interface:
   accepts_from: []
   provides_to:
-    - general
+    - web
     - web_security
   finding_categories: ["code-vulnerability", "dependency-risk", "hardcoded-secret", "logic-flaw"]

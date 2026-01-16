@@ -59,7 +59,7 @@ const cli = meow(`
   Options
     --target, -t         Target system/network to assess
     --objective, -o      Security assessment objective
-    --module, -m         Security module to use (default: general)
+    --module, -m         Security module to use (default: web)
     --iterations, -i     Maximum tool executions (default: 50)
     --auto-run          Start assessment immediately without UI
     --auto-approve      Auto-approve tool executions (no confirmations)
@@ -76,7 +76,7 @@ const cli = meow(`
 
   Examples
     $ cyber-react
-    $ cyber-react --module general
+    $ cyber-react --module web
     $ cyber-react --target example.com --objective "vulnerability scan" --auto-run
     $ cyber-react -t 192.168.1.100 -o "port scan and service enumeration" -i 25 --auto-approve
 `, {
@@ -93,7 +93,7 @@ const cli = meow(`
     module: {
       type: 'string',
       shortFlag: 'm',
-      default: 'general'
+      default: 'web'
     },
     iterations: {
       type: 'number',

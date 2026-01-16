@@ -134,8 +134,7 @@ class ModelsDevClient:
     3. Embedded snapshot (models_snapshot.json) - if API unavailable
 
     The embedded snapshot is bundled with the application and updated weekly
-    via CI/CD to ensure offline functionality. Update manually using the command:
-    `curl https://models.dev/api.json | jq --indent 4 . > models_snapshot.json`
+    via CI/CD to ensure offline functionality.
 
     Example:
         >>> client = ModelsDevClient()

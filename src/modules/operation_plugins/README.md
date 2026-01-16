@@ -41,7 +41,7 @@ operation_plugins/
 ## Component Functions
 
 ### Specialist Agents (General Module)
-The `general` module currently ships with a `validation_specialist` tool that spins up its own Strands `Agent` to run the seven-gate validation checklist before a finding is accepted. The tool lives under `tools/validation_specialist.py` and follows a repeatable pattern:
+The `web` module currently ships with a `validation_specialist` tool that spins up its own Strands `Agent` to run the seven-gate validation checklist before a finding is accepted. The tool lives under `tools/validation_specialist.py` and follows a repeatable pattern:
 
 - `_create_specialist_model()` pulls the same provider/model configuration used by the main agent.
 - The `@tool` entry point builds a Strands `Agent` with a focused system prompt plus the minimal tool set (`shell`, `http_request`, etc.) required for validation.
@@ -266,7 +266,7 @@ if loader.validate_module("custom_module"):
 | Module                | Cognitive Level  | Domain                                    | Key Capabilities                                                       | Tools               | Status           |
 |-----------------------|------------------|-------------------------------------------|------------------------------------------------------------------------|---------------------|------------------|
 | **ctf**               | 4                | CTF challenges and competitions           | Flag extraction, vulnerability exploitation, success-state detection   | None                | Production       |
-| **general**           | 3                | Web application security assessment       | Advanced reconnaissance, payload coordination, authentication analysis | 3 specialized tools | Production       |
+| **web**               | 3                | Web application security assessment       | Advanced reconnaissance, payload coordination, authentication analysis | 3 specialized tools | Production       |
 | **threat_emulation**  | 4                | APT simulation and threat actor emulation | MITRE ATT&CK execution, IoC generation, detection engineering          | None                | **Experimental** |
 | **context_navigator** | 3                | Post-access environment discovery         | Layered enumeration, topology mapping, business context                | None                | **Experimental** |
 | **code_security**     | 4                | Static code security analysis             | Vulnerability detection, dependency scanning, chain analysis           | None                | **Experimental** |

@@ -255,7 +255,7 @@ export function useOperationManager({
         actions.setHasCompletedOperation(true); // Mark as completed to show the message
         
         // Reset the assessment flow for next operation and preserve current module from UI
-        assessmentFlowManager.setDefaultModule(currentModule || 'general');
+        assessmentFlowManager.setDefaultModule(currentModule || 'web');
         assessmentFlowManager.resetCompleteWorkflow();
         // Ensure the flow module matches the UI prompt immediately to prevent mismatches
         if (currentModule) {

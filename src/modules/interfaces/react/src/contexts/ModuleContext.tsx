@@ -88,11 +88,11 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return modules;
       });
       
-      // Load default module - use first available if general doesn't exist
+      // Load default module - use first available if web doesn't exist
       const moduleNames = Object.keys(modules);
       if (moduleNames.length > 0) {
-        const defaultModule = modules.general || modules[moduleNames[0]];
-        const defaultModuleName = modules.general ? 'general' : moduleNames[0];
+        const defaultModule = modules.web || modules[moduleNames[0]];
+        const defaultModuleName = modules.web ? 'web' : moduleNames[0];
         setCurrentModule(defaultModuleName);
         setModuleInfo(defaultModule);
       }
@@ -210,13 +210,13 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
     
-    // Default to general module if available, otherwise first available module
-    if (availableModules.general) {
-      return 'general';
+    // Default to web module if available, otherwise first available module
+    if (availableModules.web) {
+      return 'web';
     }
     
     const moduleNames = Object.keys(availableModules);
-    return moduleNames.length > 0 ? moduleNames[0] : 'general';
+    return moduleNames.length > 0 ? moduleNames[0] : 'web';
   }, [availableModules]);
 
   // Use useMemo to prevent infinite re-renders

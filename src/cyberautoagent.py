@@ -294,8 +294,8 @@ def main():
     parser.add_argument(
         "--module",
         type=str,
-        default="general",
-        help="Security operational plugins to use (e.g., general, ctf, etc.)",
+        default="web",
+        help="Security operational plugins to use (e.g., web, ctf, etc.)",
     )
     parser.add_argument(
         "--objective",

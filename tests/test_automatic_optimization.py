@@ -48,7 +48,7 @@ def mock_config(tmp_path):
     config.output_dir = str(tmp_path / "outputs")
     config.provider = "ollama"
     config.target = "test-target"
-    config.module = "general"
+    config.module = "web"
     return config
 
 
@@ -90,7 +90,7 @@ def test_auto_optimization_triggers_at_step_20(
         objective="test objective",
         operation_id="OP_TEST123",
         max_steps=100,
-        module="general",
+        module="web",
         rebuild_interval=20,
     )
 
@@ -128,7 +128,7 @@ def test_auto_optimization_forced_disabled(
         objective="test objective",
         operation_id="OP_TEST123",
         max_steps=100,
-        module="general",
+        module="web",
         rebuild_interval=20,
     )
 

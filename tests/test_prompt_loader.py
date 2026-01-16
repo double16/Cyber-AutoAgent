@@ -8,7 +8,7 @@ from modules.prompts.factory import ModulePromptLoader
 
 def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
     # Create fake operation_plugins structure with a tool
-    plugins_dir = tmp_path / "operation_plugins" / "general" / "tools"
+    plugins_dir = tmp_path / "operation_plugins" / "web" / "tools"
     plugins_dir.mkdir(parents=True)
     (plugins_dir / "__init__.py").write_text("\n")
     (plugins_dir / "quick_recon.py").write_text("# tool\n")
@@ -17,7 +17,7 @@ def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
     # Point the loader at our temp plugins dir
     monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
 
-    tools = loader.discover_module_tools("general")
+    tools = loader.discover_module_tools("web")
     names = [Path(p).name for p in tools]
     assert "quick_recon.py" in names
     assert "__init__.py" not in names
@@ -25,14 +25,14 @@ def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
 
 def test_module_prompt_loader_load_module_report_prompt(tmp_path, monkeypatch):
     # Create a report_prompt.md for module
-    module_dir = tmp_path / "operation_plugins" / "general"
+    module_dir = tmp_path / "operation_plugins" / "web"
     module_dir.mkdir(parents=True)
     (module_dir / "report_prompt.md").write_text("Report Guidance\n")
 
     loader = ModulePromptLoader()
     monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
 
-    content = loader.load_module_report_prompt("general")
+    content = loader.load_module_report_prompt("web")
     assert "Report Guidance" in content
 
 
@@ -70,7 +70,7 @@ def test_module_prompt_loader_prioritizes_operation_optimized_prompt(
     optimized_path.write_text("Optimized execution prompt for this operation")
 
     # Create master prompt
-    plugins_dir = tmp_path / "operation_plugins" / "general"
+    plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
     master_path = plugins_dir / "execution_prompt.txt"
     master_path.write_text("Master execution prompt")
@@ -80,7 +80,7 @@ def test_module_prompt_loader_prioritizes_operation_optimized_prompt(
 
     # Load with operation_root - should get optimized version
     content = loader.load_module_execution_prompt(
-        "general", operation_root=str(operation_root)
+        "web", operation_root=str(operation_root)
     )
     assert content == "Optimized execution prompt for this operation"
     assert loader.last_loaded_execution_prompt_source == f"optimized:{optimized_path}"
@@ -95,7 +95,7 @@ def test_module_prompt_loader_falls_back_to_master_when_no_optimized(
     operation_root.mkdir(parents=True)
 
     # Create master prompt
-    plugins_dir = tmp_path / "operation_plugins" / "general"
+    plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
@@ -105,7 +105,7 @@ def test_module_prompt_loader_falls_back_to_master_when_no_optimized(
 
     # Load with operation_root - should fall back to master
     content = loader.load_module_execution_prompt(
-        "general", operation_root=str(operation_root)
+        "web", operation_root=str(operation_root)
     )
     assert content == "Master execution prompt"
     assert loader.last_loaded_execution_prompt_source == str(master_path)
@@ -114,7 +114,7 @@ def test_module_prompt_loader_falls_back_to_master_when_no_optimized(
 def test_module_prompt_loader_handles_invalid_operation_root(tmp_path, monkeypatch):
     """Test handling of invalid operation_root path."""
     # Create master prompt
-    plugins_dir = tmp_path / "operation_plugins" / "general"
+    plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
@@ -124,7 +124,7 @@ def test_module_prompt_loader_handles_invalid_operation_root(tmp_path, monkeypat
 
     # Load with non-existent operation_root - should fall back to master
     content = loader.load_module_execution_prompt(
-        "general", operation_root="/nonexistent/path"
+        "web", operation_root="/nonexistent/path"
     )
     assert content == "Master execution prompt"
 
@@ -138,7 +138,7 @@ def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch
     optimized_path.write_text("")  # Empty file
 
     # Create master prompt
-    plugins_dir = tmp_path / "operation_plugins" / "general"
+    plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
@@ -148,7 +148,7 @@ def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch
 
     # Load with operation_root - should fall back to master since optimized is empty
     content = loader.load_module_execution_prompt(
-        "general", operation_root=str(operation_root)
+        "web", operation_root=str(operation_root)
     )
     assert content == "Master execution prompt"
 
@@ -156,7 +156,7 @@ def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch
 def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
     """Test that operation_root=None works correctly."""
     # Create master prompt
-    plugins_dir = tmp_path / "operation_plugins" / "general"
+    plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
@@ -165,5 +165,5 @@ def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
     monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
 
     # Load with operation_root=None - should use master
-    content = loader.load_module_execution_prompt("general", operation_root=None)
+    content = loader.load_module_execution_prompt("web", operation_root=None)
     assert content == "Master execution prompt"

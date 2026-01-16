@@ -274,7 +274,7 @@ class AgentConfig:
     provider: str = "bedrock"
     memory_path: Optional[str] = None
     memory_mode: str = "auto"
-    module: str = "general"
+    module: str = "web"
     mcp_connections: List[MCPConnection] = field(default_factory=list)
 
 

@@ -91,7 +91,7 @@ function ensureTestConfig() {
     await wait(500);
 
     // Choose a module name by typing it directly and hitting enter (fallback path)
-    term.write('general');
+    term.write('web');
     term.write('\r');
     await wait(400);
 
