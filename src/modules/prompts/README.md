@@ -48,11 +48,11 @@ This directory stores the Markdown and text templates that form the building blo
 The agent's capabilities are extended through **Operation Modules**, which are self-contained plugins located in `/src/modules/operation_plugins/`. The `ModulePromptLoader` in `factory.py` manages them as follows:
 
 1.  **Discovery**: The loader scans the `operation_plugins` directory. Each subdirectory is considered a potential module.
-2.  **Validation**: For each discovered module, the loader checks for a valid structure, typically requiring at least a `module.yaml`, `execution_prompt.txt`, or `report_prompt.txt` to be considered valid.
+2.  **Validation**: For each discovered module, the loader checks for a valid structure, typically requiring at least a `module.yaml`, `execution_prompt.md`, or `report_prompt.md` to be considered valid.
 3.  **Loading**: When a module is selected for an operation, the loader reads its files:
     - **`module.yaml`**: Contains metadata like the module's `name` and `description`.
-    - **`execution_prompt.txt`**: Provides specific instructions, rules, and context for the agent. This content is injected directly into the main system prompt, guiding the agent's behavior for the specific task.
-    - **`report_prompt.txt`**: Injected verbatim into the base report template via the `{module_report}` placeholder. This allows each plugin to steer report tone/sections without any intermediate parsing.
+    - **`execution_prompt.md`**: Provides specific instructions, rules, and context for the agent. This content is injected directly into the main system prompt, guiding the agent's behavior for the specific task.
+    - **`report_prompt.md`**: Injected verbatim into the base report template via the `{module_report}` placeholder. This allows each plugin to steer report tone/sections without any intermediate parsing.
     - **`/tools` sub-directory**: Any Python files in this directory are loaded as custom, single-use tools available only when that module is active.
 
 This architecture allows the agent to dynamically adapt its core instructions and toolset based on the specific operation it is tasked with.

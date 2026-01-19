@@ -142,15 +142,15 @@ class ModelCapabilitiesResolver:
         model = model_id or ""
         base_provider = provider
 
-        if ":" in model:
-            model_no_variant = model.split(":")[0]
-        else:
-            model_no_variant = model
-
         if provider == "litellm":
             pfx, provider_model = _split_prefix(model)
             if pfx:
                 base_provider = pfx
+
+        if base_provider != "ollama" and ":" in model:
+            model_no_variant = model.split(":")[0]
+        else:
+            model_no_variant = model
 
         supports_reason = False
         pass_reasoning_effort = False
@@ -220,7 +220,7 @@ class ModelCapabilitiesResolver:
                 if cfg is not None and hasattr(cfg, "get_model_info"):
                     model_info_base: ModelInfoBase = cfg.get_model_info(model=model_no_variant)
                     if model_info_base is not None:
-                        if model_info_base.supports_function_calling:
+                        if model_info_base.get("supports_function_calling"):
                             allowed_params.extend(["tools", "tool_choice"])
         except Exception as e:
             logger.debug(

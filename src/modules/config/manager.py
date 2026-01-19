@@ -522,7 +522,7 @@ class ConfigManager:
         - artifacts: outputs/<target>/<operation_id>/artifacts/
         - tools: outputs/<target>/<operation_id>/tools/ (for editor+load_tool meta-tooling)
 
-        Safe to call multiple times. Also copies master execution_prompt.txt for optimization.
+        Safe to call multiple times. Also copies master execution_prompt.md for optimization.
 
         Returns:
             Dict[str, str]: Absolute paths to {'root', 'artifacts', 'tools'}

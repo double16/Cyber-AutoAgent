@@ -15,7 +15,9 @@ supported_targets:
   - repository
   - codebase
   - source-code
-tools: []
+tools:
+  - http_request
+  - '*_search'
 module_interface:
   accepts_from: []
   provides_to:

@@ -42,7 +42,6 @@ services:
 
       # Ollama Configuration (Ollama Provider)
       - OLLAMA_HOST=${OLLAMA_HOST}
-      - OLLAMA_API_BASE=${OLLAMA_HOST}
       - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT}
 
       # LiteLLM Provider API Keys
@@ -69,10 +68,21 @@ services:
       - PYTHONUNBUFFERED=1
 
       # Application configuration
-      - DEV=true
+      - DEV=${DEV:-true}
       - FORCE_COLOR=1
       - CONTAINER=docker  # Mark as Docker environment for React terminal detection
       - TOKENIZERS_PARALLELISM=true
+      - CYBER_ENABLE_PROMPT_OPTIMIZATION=${CYBER_ENABLE_PROMPT_OPTIMIZATION}
+      - CYBER_ENABLE_PROMPT_OPTIMIZER=${CYBER_ENABLE_PROMPT_OPTIMIZER}
+      - CYBER_AGENT_ENABLE_UNIFIED_OUTPUT=${CYBER_AGENT_ENABLE_UNIFIED_OUTPUT}
+      - CYBER_AGENT_OUTPUT_DIR=${CYBER_AGENT_OUTPUT_DIR}
+      - BYPASS_TOOL_CONSENT=${BYPASS_TOOL_CONSENT}
+
+      # Memory configuration
+      - MEM0_API_KEY=${MEM0_API_KEY}
+      - MEM0_EMBEDDING_MODEL=${MEM0_EMBEDDING_MODEL}
+      - MEM0_LLM_MODEL=${MEM0_LLM_MODEL}
+      - OPENSEARCH_HOST=${OPENSEARCH_HOST}
 
       # Observability configuration (auto-detected by default, forced true in compose mode)
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
@@ -93,10 +103,6 @@ services:
       - MIN_EVIDENCE_QUALITY_SCORE=${MIN_EVIDENCE_QUALITY_SCORE:-0.7}
       - MIN_ANSWER_RELEVANCY_SCORE=${MIN_ANSWER_RELEVANCY_SCORE:-0.7}
       - MIN_CONTEXT_PRECISION_SCORE=${MIN_CONTEXT_PRECISION_SCORE:-0.8}
-
-      # HackTheBox MCP Tokens
-      - HTB_API_TOKEN=${HTB_API_TOKEN}
-      - HTB_CTF_TOKEN=${HTB_CTF_TOKEN}
 
       # Tavily Search API, https://www.tavily.com/
       - TAVILY_API_KEY=${TAVILY_API_KEY}
@@ -207,11 +213,11 @@ services:
       LANGFUSE_INIT_ORG_NAME: Cyber-AutoAgent
       LANGFUSE_INIT_PROJECT_ID: cyber-project-id
       LANGFUSE_INIT_PROJECT_NAME: penetration-tests
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: cyber-public
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: cyber-secret
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-cyber-public}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-cyber-secret}
       LANGFUSE_INIT_USER_EMAIL: admin@cyber-autoagent.com
       LANGFUSE_INIT_USER_NAME: Admin
-      LANGFUSE_INIT_USER_PASSWORD: changeme
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_ADMIN_PASSWORD:-changeme}
       
       # Features
       LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"

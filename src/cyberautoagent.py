@@ -452,7 +452,7 @@ def main():
 
     os.environ["AWS_REGION"] = args.region
 
-    if "OLLAMA_HOST" in os.environ and "OLLAMA_API_BASE" not in os.environ:
+    if "OLLAMA_HOST" in os.environ and not os.environ.get("OLLAMA_API_BASE", ""):
         # Set OLLAMA_API_BASE for LiteLLM
         os.environ["OLLAMA_API_BASE"] = os.environ["OLLAMA_HOST"]
 
