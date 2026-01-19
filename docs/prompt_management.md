@@ -139,7 +139,7 @@ def create_agent(module: str = "web"):
     module_execution_prompt = module_loader.load_module_execution_prompt(module)
     
     # Discover module tools
-    module_tool_paths = module_loader.discover_module_tools(module)
+    module_tool_paths, module_tools_remaining = module_loader.discover_module_tools(module)
     tool_names = [Path(tool_path).stem for tool_path in module_tool_paths]
     
     # Build tools context

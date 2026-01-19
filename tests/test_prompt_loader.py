@@ -17,10 +17,30 @@ def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
     # Point the loader at our temp plugins dir
     monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
 
-    tools = loader.discover_module_tools("web")
+    tools, tools_remaining = loader.discover_module_tools("web")
     names = [Path(p).name for p in tools]
     assert "quick_recon.py" in names
     assert "__init__.py" not in names
+    assert tools_remaining is None
+
+
+def test_module_prompt_loader_discovers_tools_allowlist(tmp_path, monkeypatch):
+    # Create fake operation_plugins structure with a tool
+    plugins_dir = tmp_path / "operation_plugins" / "web" / "tools"
+    plugins_dir.mkdir(parents=True)
+    (plugins_dir / "__init__.py").write_text("\n")
+    (plugins_dir / "quick_recon.py").write_text("# tool\n")
+    (plugins_dir / ".." / "module.yaml").write_text("tools:\n  - quick_recon\n  - http_request\n  - browser_*\n")
+
+    loader = ModulePromptLoader()
+    # Point the loader at our temp plugins dir
+    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+
+    tools, tools_remaining = loader.discover_module_tools("web")
+    names = [Path(p).name for p in tools]
+    assert "quick_recon.py" in names
+    assert "__init__.py" not in names
+    assert tools_remaining == ['http_request', 'browser_*']
 
 
 def test_module_prompt_loader_load_module_report_prompt(tmp_path, monkeypatch):
@@ -72,7 +92,7 @@ def test_module_prompt_loader_prioritizes_operation_optimized_prompt(
     # Create master prompt
     plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
-    master_path = plugins_dir / "execution_prompt.txt"
+    master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
 
     loader = ModulePromptLoader()

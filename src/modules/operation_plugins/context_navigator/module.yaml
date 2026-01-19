@@ -16,7 +16,10 @@ supported_targets:
   - internal-network
   - cloud-environment
   - active-directory
-tools: []
+tools:
+  - http_request
+  - 'browser_*'
+  - '*_search'
 module_interface:
   accepts_from: []
   provides_to:

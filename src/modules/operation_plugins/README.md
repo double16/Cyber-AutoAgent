@@ -61,6 +61,8 @@ capabilities:
   - capability_description
 tools:
   - tool_name
+  - 'browser_*'
+  - '*_search'
 supported_targets:
   - web-application
   - api-endpoint
@@ -153,6 +155,20 @@ Tools discovered from `tools/*.py` are made available via `load_tool`:
 load_tool(tool_name="domain_scanner")
 result = domain_scanner(target="example.com")
 ```
+
+### Selecting built-in tools
+
+Elements in the `tools` list that do not match a tool in the module `tools/` directory are considered allow patterns
+for built-in tools. If `tools` is specified, the module must allow list the built-in tools required.
+
+The following built-in tools are always included and do not require to be in the `tools` list:
+- swarm
+- shell
+- editor
+- load_tool
+- mem0_memory
+- stop
+- prompt_optimizer (if prompt optimization is enabled)
 
 ## Report Generation
 
@@ -305,6 +321,7 @@ if loader.validate_module("custom_module"):
 - `specialized_recon_orchestrator`: Coordinates external recon tools
 - `advanced_payload_coordinator`: Orchestrates payload testing tools
 - `auth_chain_analyzer`: Analyzes authentication mechanisms
+- `validation_specialist`: Rigorous false positive prevention
 
 **Configuration:**
 - Approach: Intelligence-driven assessment with specialized tools

@@ -20,7 +20,12 @@ supported_targets:
   - web-application
   - api-endpoint
   - ctf-challenge
-tools: []
+tools:
+  - http_request
+  - 'browser_*'
+  - 'channel_*'
+  - 'oast_*'
+  - '*_search'
 module_interface:
   accepts_from: []
   provides_to: []

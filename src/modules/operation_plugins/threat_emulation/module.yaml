@@ -16,7 +16,11 @@ supported_targets:
   - enterprise
   - active-directory
   - cloud-environment
-tools: []
+tools:
+  - http_request
+  - 'browser_*'
+  - 'channel_*'
+  - '*_search'
 module_interface:
   accepts_from: []
   provides_to: []

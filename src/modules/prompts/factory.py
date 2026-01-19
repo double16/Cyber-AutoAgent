@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib import parse as _urlparse
 from urllib import request as _urlreq
 
@@ -923,7 +923,7 @@ class ModulePromptLoader:
                 pass
         return ""
 
-    def discover_module_tools(self, module_name: str) -> List[str]:
+    def discover_module_tools(self, module_name: str) -> Tuple[List[str], Optional[List[str]]]:
         """Discover module-specific tool files under operation_plugins.
 
         Returns a list of Python file paths for tools in modules/operation_plugins/<module>/tools.
@@ -933,7 +933,7 @@ class ModulePromptLoader:
         try:
             tools_dir = self.plugins_dir / module_name / "tools"
             if not (tools_dir.exists() and tools_dir.is_dir()):
-                return results
+                return results, None
 
             # Attempt to read module.yaml to honor a tools whitelist
             allowed_tools: Optional[List[str]] = None
@@ -956,19 +956,20 @@ class ModulePromptLoader:
                     module_name,
                     ye,
                 )
-                allowed_tools = None
 
             for py in tools_dir.glob("*.py"):
                 if py.name == "__init__.py":
                     continue
                 stem = py.stem
-                if allowed_tools is not None and stem not in allowed_tools:
-                    # Skip non-whitelisted tools
-                    continue
+                if allowed_tools is not None:
+                    if stem not in allowed_tools:
+                        # Skip non-whitelisted tools
+                        continue
+                    allowed_tools.remove(stem)
                 results.append(str(py.resolve()))
         except Exception as e:
             logger.debug("discover_module_tools failed for '%s': %s", module_name, e)
-        return results
+        return results, allowed_tools
 
 
 def get_module_loader() -> ModulePromptLoader:
