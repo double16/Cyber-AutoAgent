@@ -14,17 +14,14 @@ from typing import Any, Optional
 import pytest
 
 from modules.handlers.conversation_budget import (
-    DEFAULT_CHAR_TO_TOKEN_RATIO,
     LargeToolResultMapper,
     MappingConversationManager,
     MESSAGE_METADATA_OVERHEAD_TOKENS,
     PROACTIVE_COMPRESSION_THRESHOLD,
-    SYSTEM_PROMPT_OVERHEAD_TOKENS,
     TOOL_COMPRESS_THRESHOLD,
     TOOL_COMPRESS_TRUNCATE,
-    TOOL_DEFINITIONS_OVERHEAD_TOKENS,
-    _estimate_prompt_tokens,
-    _safe_estimate_tokens,
+    _estimate_prompt_tokens_for_agent,
+    safe_estimate_tokens,
 )
 
 
@@ -319,34 +316,19 @@ class TestTokenEstimation:
             for msg in messages
             for block in msg.get("content", [])
             if isinstance(block, dict)
-        )
+        ) + 36  # system prompt
 
-        estimated = _estimate_prompt_tokens(agent)
-        overhead = (
-            SYSTEM_PROMPT_OVERHEAD_TOKENS
-            + TOOL_DEFINITIONS_OVERHEAD_TOKENS
-            + len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS
-        )
+        estimated = _estimate_prompt_tokens_for_agent(agent)
+        overhead = len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS
         content_tokens = estimated - overhead
 
         actual_ratio = total_chars / content_tokens if content_tokens > 0 else 0
         assert abs(actual_ratio - expected_ratio) < 1.0
 
-    def test_token_estimation_includes_overhead(self):
-        """Verify overhead constants are included in estimation."""
-        generator = MockDataGenerator(CLAUDE_SONNET_CONFIG)
-        messages = generator.create_conversation(1, include_tool_calls=False)
-        agent = MockAgent(messages, CLAUDE_SONNET_CONFIG)
-
-        estimated = _estimate_prompt_tokens(agent)
-        min_overhead = SYSTEM_PROMPT_OVERHEAD_TOKENS + TOOL_DEFINITIONS_OVERHEAD_TOKENS
-
-        assert estimated > min_overhead
-
     def test_token_estimation_empty_messages(self):
         """Verify estimation handles empty message list."""
         agent = MockAgent([], CLAUDE_SONNET_CONFIG)
-        estimated = _safe_estimate_tokens(agent)
+        estimated = safe_estimate_tokens(agent)
 
         assert estimated == 0
 
@@ -363,8 +345,8 @@ class TestTokenEstimation:
         agent_without = MockAgent(messages_without_tools, CLAUDE_SONNET_CONFIG)
         agent_with = MockAgent(messages_with_tools, CLAUDE_SONNET_CONFIG)
 
-        tokens_without = _estimate_prompt_tokens(agent_without)
-        tokens_with = _estimate_prompt_tokens(agent_with)
+        tokens_without = _estimate_prompt_tokens_for_agent(agent_without)
+        tokens_with = _estimate_prompt_tokens_for_agent(agent_with)
 
         assert tokens_with > tokens_without
 
@@ -388,8 +370,8 @@ class TestTokenEstimation:
         agent_without = MockAgent(messages_without, CLAUDE_SONNET_CONFIG)
         agent_with = MockAgent(messages_with, CLAUDE_SONNET_CONFIG)
 
-        tokens_without = _estimate_prompt_tokens(agent_without)
-        tokens_with = _estimate_prompt_tokens(agent_with)
+        tokens_without = _estimate_prompt_tokens_for_agent(agent_without)
+        tokens_with = _estimate_prompt_tokens_for_agent(agent_with)
 
         assert tokens_with > tokens_without
 
@@ -692,9 +674,9 @@ class TestMultiModelConfiguration:
             preserve_first_messages=config.preserve_first,
         )
 
-        initial_tokens = _estimate_prompt_tokens(agent)
+        initial_tokens = _estimate_prompt_tokens_for_agent(agent)
         manager.apply_management(agent)
-        final_tokens = _estimate_prompt_tokens(agent)
+        final_tokens = _estimate_prompt_tokens_for_agent(agent)
 
         assert final_tokens <= initial_tokens
 

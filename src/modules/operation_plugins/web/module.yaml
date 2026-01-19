@@ -1,4 +1,4 @@
-name: general
+name: web
 version: 1.0.0
 description:  Generalized web application security assessment 
 author: Cyber-AutoAgent Team
@@ -14,6 +14,11 @@ supported_targets:
   - api-endpoint
   - authentication-service
 tools:
+  - http_request
+  - 'browser_*'
+  - 'channel_*'
+  - 'oast_*'
+  - '*_search'
   - specialized_recon_orchestrator
   - advanced_payload_coordinator  
   - auth_chain_analyzer

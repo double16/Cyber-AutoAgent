@@ -80,55 +80,6 @@ def test_tokenbucket_zero_or_negative_is_noop():
 
 
 # ----------------------------
-# Token estimation
-# ----------------------------
-
-def test_json_to_compact_str_compacts_and_sorts_keys():
-    assert rl._json_to_compact_str({"b": 1, "a": 2}) == '{"a":2,"b":1}'
-
-
-def test_extract_text_from_text_block():
-    assert rl._extract_text_from_content({"text": "hello"}) == "hello"
-
-
-def test_extract_text_from_json_key_block():
-    assert rl._extract_text_from_content({"json": {"b": 1, "a": 2}}) == '{"a":2,"b":1}'
-
-
-def test_extract_text_from_type_json_variants():
-    assert rl._extract_text_from_content({"type": "json", "value": {"x": 1}}) == '{"x":1}'
-    assert rl._extract_text_from_content({"type": "json", "content": [1, 2]}) == "[1,2]"
-
-
-def test_extract_text_from_nested_content():
-    assert rl._extract_text_from_content({"content": {"text": "nested"}}) == "nested"
-
-
-def test_estimate_tokens_rough_includes_text_json_and_assume_output():
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"text": "abcd"},          # 4 chars -> 1 token under chars//4 heuristic
-                {"json": {"k": "vvvv"}},   # counts JSON too
-            ],
-        }
-    ]
-    system_prompt = "zzzz"  # +1 token
-    system_prompt_content = [{"text": "yyyy"}]  # +1 token
-
-    est = rl.estimate_tokens_rough(
-        messages=messages,
-        system_prompt=system_prompt,
-        system_prompt_content=system_prompt_content,
-        assume_output_tokens=10,
-    )
-
-    assert est >= 10
-    assert est > 0
-
-
-# ----------------------------
 # ThreadSafeRateLimiter
 # ----------------------------
 

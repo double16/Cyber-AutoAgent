@@ -240,7 +240,7 @@ Remember: You MUST use your build_report_sections tool first to get the evidence
         # Escape braces in the report template so Python format doesn't consume them
         report_template_escaped = report_template.replace("{", "{{").replace("}", "}}")
         tools_json = json.dumps(tools_used) if tools_used else "[]"
-        module_str = module or "general"
+        module_str = module or "web"
         module_guidance = (
             module_report_prompt
             if module_report_prompt

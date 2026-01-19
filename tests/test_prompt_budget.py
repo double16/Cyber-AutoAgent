@@ -3,7 +3,7 @@ import types
 
 from modules.handlers.conversation_budget import (
     _ensure_prompt_within_budget,
-    _estimate_prompt_tokens,
+    _estimate_prompt_tokens_for_agent,
     _strip_reasoning_content,
 )
 
@@ -35,7 +35,7 @@ def _make_reasoning_message(text="thinking"):
 
 def test_estimate_prompt_tokens_counts_text_blocks():
     agent = AgentStub([_make_message("a" * 40), _make_message("b" * 80)])
-    estimated = _estimate_prompt_tokens(agent)
+    estimated = _estimate_prompt_tokens_for_agent(agent)
     # Token estimation includes system prompt and other context
     # Just verify it returns a positive integer
     assert isinstance(estimated, int) and estimated > 0

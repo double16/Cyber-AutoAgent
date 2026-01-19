@@ -410,12 +410,12 @@ outputs/<target>/memory/
 └── mem0.pkl                        # FAISS metadata
 
 src/modules/operation_plugins/<module>/
-├── execution_prompt.txt            # Master template (never modified)
-└── report_prompt.txt               # Report generation template
+├── execution_prompt.md             # Master template (never modified)
+└── report_prompt.md                # Report generation template
 ```
 
 ### Isolation Model
-- **Operation Isolation**: Each operation gets a copy of execution_prompt.txt as execution_prompt_optimized.txt
+- **Operation Isolation**: Each operation gets a copy of execution_prompt.md as execution_prompt_optimized.txt
 - **Template Preservation**: Master templates in `operation_plugins/` remain unchanged
 - **Cross-Operation Learning**: Memory system provides context across operations for the same target
 - **Overlay System**: Optional `adaptive_prompt.json` provides temporary directive overlays with TTL support

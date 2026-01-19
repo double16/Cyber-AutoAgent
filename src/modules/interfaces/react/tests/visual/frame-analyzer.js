@@ -144,7 +144,7 @@ export class FrameAnalyzer {
         // 5. Detect overlapping UI elements
         const uiPatterns = [
             { name: 'setup', pattern: /Setup Wizard|Environment Configuration/g },
-            { name: 'main', pattern: /Type target <url>|general: target/g },
+            { name: 'main', pattern: /Type target <url>|web: target/g },
             { name: 'config', pattern: /Configuration Editor|AWS Configuration/g },
             { name: 'memory', pattern: /Memory Search|Search memories/g },
             { name: 'help', pattern: /Available Commands|Slash Commands/g }

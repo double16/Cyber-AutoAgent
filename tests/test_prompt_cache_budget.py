@@ -10,15 +10,16 @@ import types
 from modules.handlers.conversation_budget import (
     _ensure_prompt_within_budget,
     register_conversation_manager,
-    clear_shared_conversation_manager, SYSTEM_PROMPT_OVERHEAD_TOKENS, TOOL_DEFINITIONS_OVERHEAD_TOKENS,
+    clear_shared_conversation_manager,
     PROMPT_TELEMETRY_THRESHOLD,
 )
 
 
 class AgentStub:
     def __init__(self, messages, limit=None, telemetry=None, cache_hint=False):
+        self.system_prompt = "x" * 30_000
         self.messages = messages
-        self._prompt_token_limit = limit + (SYSTEM_PROMPT_OVERHEAD_TOKENS + TOOL_DEFINITIONS_OVERHEAD_TOKENS) / PROMPT_TELEMETRY_THRESHOLD
+        self._prompt_token_limit = limit + 8_000 / PROMPT_TELEMETRY_THRESHOLD
         # Provide a stub CM when needed
         self.conversation_manager = None
         # Test/legacy telemetry injection point

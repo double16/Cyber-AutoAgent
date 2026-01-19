@@ -147,6 +147,11 @@ class ModelCapabilitiesResolver:
             if pfx:
                 base_provider = pfx
 
+        if base_provider != "ollama" and ":" in model:
+            model_no_variant = model.split(":")[0]
+        else:
+            model_no_variant = model
+
         supports_reason = False
         pass_reasoning_effort = False
         supports_tools = True
@@ -186,7 +191,7 @@ class ModelCapabilitiesResolver:
                     else None
                 )
                 supports_reason = bool(
-                    llm_supports_reasoning(model=model, custom_llm_provider=custom)  # type: ignore[arg-type]
+                    llm_supports_reasoning(model=model_no_variant, custom_llm_provider=custom)  # type: ignore[arg-type]
                 )
                 if supports_reason:
                     logger.debug(
@@ -206,16 +211,16 @@ class ModelCapabilitiesResolver:
             ):
                 prov_enum = LlmProviders(base_provider)  # type: ignore[call-arg]
                 cfg = ProviderConfigManager.get_provider_chat_config(
-                    model=model, provider=prov_enum
+                    model=model_no_variant, provider=prov_enum
                 )
                 if cfg is not None and hasattr(cfg, "get_supported_openai_params"):
                     allowed_params.extend(
-                        cfg.get_supported_openai_params(model=model) or []
+                        cfg.get_supported_openai_params(model=model_no_variant) or []
                     )
                 if cfg is not None and hasattr(cfg, "get_model_info"):
-                    model_info_base: ModelInfoBase = cfg.get_model_info(model=model)
+                    model_info_base: ModelInfoBase = cfg.get_model_info(model=model_no_variant)
                     if model_info_base is not None:
-                        if model_info_base.supports_function_calling:
+                        if model_info_base.get("supports_function_calling"):
                             allowed_params.extend(["tools", "tool_choice"])
         except Exception as e:
             logger.debug(

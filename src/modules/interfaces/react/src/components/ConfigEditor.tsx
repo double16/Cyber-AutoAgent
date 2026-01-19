@@ -51,8 +51,11 @@ const MCP_TRANSPORT_OPTIONS = [
 
 const MCP_PLUGIN_OPTIONS = [
   { label: '*', value: '*' },
-  { label: 'general', value: 'general' },
-  { label: 'ctf', value: 'ctf' }
+  { label: 'web', value: 'web' },
+  { label: 'ctf', value: 'ctf' },
+  { label: 'code_security', value: 'code_security' },
+  { label: 'context_navigator', value: 'context_navigator' },
+  { label: 'threat_emulation', value: 'threat_emulation' },
 ] as const;
 
 // Define all configuration fields with their metadata
@@ -439,7 +442,7 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
       id: `conn-${(mcp.connections?.length ?? 0) + 1}`,
       transport: 'stdio',
       command: [],
-      plugins: ['general'],
+      plugins: ['*'],
       timeoutSeconds: 300,
       allowedTools: ['*'],
     }];

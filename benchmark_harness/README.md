@@ -22,9 +22,17 @@ Checkout one of the benchmark repos:
 
 Execute:
 ```shell
-./run_xbow_benchmark.sh XBEN-001-24
+./run_xbow_benchmark.py --help
 
-./run_xbow_benchmark.sh --all
+./run_xbow_benchmark.py XBEN-001-24
+
+./run_xbow_benchmark.py --all
+
+./run_xbow_benchmark.py --remaining
+
+./run_xbow_benchmark.py --remaining --tag xss
+
+./run_xbow_benchmark.py --tags
 ```
 
 Results are appended to the `results.csv` file with the following columns:

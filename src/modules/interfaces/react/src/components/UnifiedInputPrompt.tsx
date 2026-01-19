@@ -39,7 +39,7 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
   disabled = false,
   userHandoffActive = false,
   suggestions = [],
-  availableModules = ['general'],
+  availableModules = ['web'],
   recentTargets = []
 }) => {
   // Access global app state via a lightweight event bridge to avoid circular deps
@@ -50,7 +50,7 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
   const { currentModule, availableModules: contextModules } = useModule();
   
   // Use modules from context if not provided as prop
-  const modules = availableModules.length > 1 || availableModules[0] !== 'general' 
+  const modules = availableModules.length > 1 || availableModules[0] !== 'web'
     ? availableModules 
     : Object.keys(contextModules);
   const [value, setValue] = useState('');
@@ -228,7 +228,7 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
     }
     
     // Default prompt
-    return '◆ general >'
+    return '◆ web >'
   };
 
   // Get placeholder text
@@ -247,7 +247,7 @@ export const UnifiedInputPrompt: React.FC<UnifiedInputPromptProps> = ({
       case 'ready':
         return 'Press Enter, type "execute", or "execute <objective>" to start';
       default:
-        // If we have a module loaded (by default 'general'), prompt for target
+        // If we have a module loaded (by default 'web'), prompt for target
         if (currentModule) {
           return 'target <url> or type "execute" after setting target';
         }

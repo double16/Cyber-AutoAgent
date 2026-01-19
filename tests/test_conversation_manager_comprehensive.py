@@ -5,38 +5,24 @@ Validates the context management system across all layers including SDK contract
 compliance, state persistence, and long-running operation simulation.
 """
 
-import copy
-import logging
 import threading
-import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
-
 from strands.types.exceptions import ContextWindowOverflowException
 
 from modules.handlers.conversation_budget import (
-    CONTEXT_LIMIT,
-    DEFAULT_CHAR_TO_TOKEN_RATIO,
-    ESCALATION_MAX_PASSES,
-    ESCALATION_THRESHOLD_RATIO,
     LargeToolResultMapper,
     MappingConversationManager,
-    MESSAGE_METADATA_OVERHEAD_TOKENS,
     PROACTIVE_COMPRESSION_THRESHOLD,
     PromptBudgetHook,
-    SYSTEM_PROMPT_OVERHEAD_TOKENS,
     TOOL_COMPRESS_THRESHOLD,
     TOOL_COMPRESS_TRUNCATE,
-    TOOL_DEFINITIONS_OVERHEAD_TOKENS,
-    WINDOW_OVERFLOW_THRESHOLD,
     _ensure_prompt_within_budget,
-    _estimate_prompt_tokens,
     _record_context_reduction_event,
-    _safe_estimate_tokens,
     clear_shared_conversation_manager,
     register_conversation_manager,
 )
@@ -1014,7 +1000,6 @@ class TestReductionHistoryTracking:
 
     def test_history_preserves_most_recent(self):
         """Verify most recent events are preserved when capped."""
-        from modules.handlers.conversation_budget import _MAX_REDUCTION_HISTORY
 
         agent = MockAgent()
 

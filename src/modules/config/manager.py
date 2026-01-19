@@ -512,7 +512,7 @@ class ConfigManager:
         server: str,
         target_name: str,
         operation_id: str,
-        module: str = "general",
+        module: str = "web",
         **overrides,
     ) -> Dict[str, str]:
         """Ensure operation output directories exist and return absolute paths.
@@ -522,7 +522,7 @@ class ConfigManager:
         - artifacts: outputs/<target>/<operation_id>/artifacts/
         - tools: outputs/<target>/<operation_id>/tools/ (for editor+load_tool meta-tooling)
 
-        Safe to call multiple times. Also copies master execution_prompt.txt for optimization.
+        Safe to call multiple times. Also copies master execution_prompt.md for optimization.
 
         Returns:
             Dict[str, str]: Absolute paths to {'root', 'artifacts', 'tools'}
@@ -554,7 +554,7 @@ class ConfigManager:
 
         Args:
             operation_root: Root directory of the operation
-            module: Module name (e.g., 'general', 'ctf')
+            module: Module name (e.g., 'web', 'ctf')
         """
         import shutil
         from pathlib import Path
@@ -583,12 +583,12 @@ class ConfigManager:
         if candidate.exists() and candidate.is_file():
             master_path = candidate
 
-        # If module-specific prompt not found and not already trying general, fall back
-        if master_path is None and module != "general":
+        # If module-specific prompt not found and not already trying web, fall back
+        if master_path is None and module != "web":
             logger.warning(
-                "Module %s execution prompt not found, falling back to general", module
+                "Module %s execution prompt not found, falling back to web", module
             )
-            candidate = module_loader.plugins_dir / "general" / "execution_prompt.md"
+            candidate = module_loader.plugins_dir / "web" / "execution_prompt.md"
             if candidate.exists() and candidate.is_file():
                 master_path = candidate
 

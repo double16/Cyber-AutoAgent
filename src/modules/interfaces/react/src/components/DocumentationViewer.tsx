@@ -96,9 +96,9 @@ When you first launch Cyber-AutoAgent, you'll be presented with a deployment mod
 
 #### Guided Flow (Step-by-Step)
 \`\`\`bash
-◆ general > target https://testphp.vulnweb.com
+◆ web > target https://testphp.vulnweb.com
 ✓ Target set
-◆ general > execute focus on SQL injection
+◆ web > execute focus on SQL injection
 \`\`\`
 
 ## ■ Safety & Authorization

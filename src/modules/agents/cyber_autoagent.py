@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Agent creation and management for Cyber-AutoAgent."""
-
+import fnmatch
 import json
 import logging
 import os
@@ -117,6 +117,14 @@ def tool_catalog_wrapper(full_tools_context: str, mcp_tools: List[AgentTool]):
     return tool_catalog
 
 
+def get_tool_name(tool) -> str:
+    try:
+        tool_name = tool.tool_name
+    except AttributeError:
+        tool_name = tool.__name__.split(".")[-1]
+    return tool_name
+
+
 def create_agent(
     target: str,
     objective: str,
@@ -167,6 +175,10 @@ def create_agent(
         operation_id = f"OP_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     else:
         operation_id = config.op_id
+
+    enable_prompt_optimization = (
+            os.getenv("CYBER_ENABLE_PROMPT_OPTIMIZATION", "false").lower() == "true"
+    )
 
     # Configure memory system using centralized configuration
     memory_config = config_manager.get_mem0_service_config(config.provider)
@@ -311,7 +323,7 @@ def create_agent(
 
     try:
         module_loader = prompts.get_module_loader()
-        module_tool_paths = module_loader.discover_module_tools(config.module)
+        module_tool_paths, module_tool_allowlist = module_loader.discover_module_tools(config.module)
 
         if module_tool_paths:
             import importlib.util
@@ -461,6 +473,90 @@ Prefer MCP tools over command line tools that offer similar capabilities.
 Guidance and tool names in prompts are illustrative, not prescriptive. Always check availability and prefer tools present in the following lists. If a capability is missing, follow Ask-Enable-Retry for minimal, non-interactive enablement, or choose an equivalent available tool.
 
 """ + full_tools_context
+
+    # Always use original tools - event emission is handled by callback
+    # The following are builtin_tools that can be selected by the module
+    builtin_tools_list = [
+        http_request,
+        browser_set_headers,
+        browser_goto_url,
+        browser_get_page_html,
+        browser_perform_action,
+        browser_observe_page,
+        browser_evaluate_js,
+        browser_get_cookies,
+        channel_create_forward,
+        channel_create_reverse,
+        channel_send,
+        channel_poll,
+        channel_status,
+        channel_close,
+        oast_health,
+        oast_endpoints,
+        oast_poll,
+        oast_register_http_response,
+        oast_clear_http_responses,
+    ]
+
+    if os.getenv("TAVILY_API_KEY"):
+        builtin_tools_list.append(tavily_search)
+    else:
+        builtin_tools_list.append(web_search)
+
+    logger.info(f"Built-in tools available for allow listing by module: {[get_tool_name(tool) for tool in builtin_tools_list]}")
+
+    # these tools are necessary and always present
+    tools_list = [
+        swarm,
+        shell,
+        editor,
+        load_tool,
+        mem0_memory,
+        stop,
+    ]
+
+    if enable_prompt_optimization:
+        tools_list.append(prompt_optimizer)
+
+    if "module_tool_allowlist" in locals() and module_tool_allowlist is not None:
+        for builtin_tool in builtin_tools_list:
+            tool_name = get_tool_name(builtin_tool)
+            if any(fnmatch.fnmatch(tool_name, tool_allowed) for tool_allowed in module_tool_allowlist):
+                tools_list.append(builtin_tool)
+    else:
+        tools_list.extend(builtin_tools_list)
+
+    tool_count += len(tools_list)
+    # The tools below have already been counted. We cannot use `tool_count = len(tools_list)` because there may be unloaded tools
+
+    # Inject module-specific tools if available
+    if "loaded_module_tools" in locals() and loaded_module_tools:
+        tools_list.extend(loaded_module_tools)
+        agent_logger.info(
+            "Injected %d module tools into agent", len(loaded_module_tools)
+        )
+
+    # Inject MCP tools if available
+    if "mcp_tools" in locals() and mcp_tools:
+        tools_list.extend(mcp_tools)
+        agent_logger.info(
+            "Injected %d MCP tools into agent", len(mcp_tools)
+        )
+        tools_list.append(tool_catalog_wrapper(full_tools_context, mcp_tools or []))
+    else:
+        tools_list.append(tool_catalog_wrapper(full_tools_context, []))
+
+    # Capability-based warning if tool calls are unsupported for this model
+    try:
+        caps = get_capabilities(config.provider, config.model_id or "")
+        if not caps.supports_tools and tools_list:
+            agent_logger.warning(
+                "Model %s does not support tool calls; tools will be ignored.",
+                config.model_id,
+            )
+            tool_count = 0
+    except Exception:
+        pass
 
 
     # Load module-specific execution prompt
@@ -759,9 +855,6 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     hooks: List[HookProvider] = [tool_router_hook, react_hooks, prompt_budget_hook]
     swarm_hooks: List[HookProvider] = [tool_router_hook, prompt_budget_hook]
 
-    enable_prompt_optimization = (
-        os.getenv("CYBER_ENABLE_PROMPT_OPTIMIZATION", "false").lower() == "true"
-    )
     if enable_prompt_optimization:
         # Create prompt rebuild hook for intelligent prompt updates
         from modules.handlers.prompt_rebuild_hook import PromptRebuildHook
@@ -779,73 +872,6 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         hooks.append(prompt_rebuild_hook)
 
     model = create_strands_model(config.provider, config.model_id)
-
-    # Always use original tools - event emission is handled by callback
-    tools_list = [
-        swarm,
-        shell,
-        editor,
-        load_tool,
-        mem0_memory,
-        stop,
-        http_request,
-        python_repl,
-        sleep,
-        browser_set_headers,
-        browser_goto_url,
-        browser_get_page_html,
-        browser_perform_action,
-        browser_observe_page,
-        browser_evaluate_js,
-        browser_get_cookies,
-        channel_create_forward,
-        channel_create_reverse,
-        channel_send,
-        channel_poll,
-        channel_status,
-        channel_close,
-        oast_health,
-        oast_endpoints,
-        oast_poll,
-        oast_register_http_response,
-        oast_clear_http_responses,
-    ]
-
-    if os.getenv("TAVILY_API_KEY"):
-        tools_list.append(tavily_search)
-    else:
-        tools_list.append(web_search)
-
-    if enable_prompt_optimization:
-        tools_list.append(prompt_optimizer)
-
-    # Capability-based warning if tool calls are unsupported for this model
-    try:
-        caps = get_capabilities(config.provider, config.model_id or "")
-        if not caps.supports_tools and tools_list:
-            agent_logger.warning(
-                "Model %s does not support tool calls; tools will be ignored.",
-                config.model_id,
-            )
-    except Exception:
-        pass
-
-    # Inject module-specific tools if available
-    if "loaded_module_tools" in locals() and loaded_module_tools:
-        tools_list.extend(loaded_module_tools)
-        agent_logger.info(
-            "Injected %d module tools into agent", len(loaded_module_tools)
-        )
-
-    # Inject MCP tools if available
-    if "mcp_tools" in locals() and mcp_tools:
-        tools_list.extend(mcp_tools)
-        agent_logger.info(
-            "Injected %d MCP tools into agent", len(mcp_tools)
-        )
-        tools_list.append(tool_catalog_wrapper(full_tools_context, mcp_tools or []))
-    else:
-        tools_list.append(tool_catalog_wrapper(full_tools_context, []))
 
     agent_logger.debug("Creating autonomous agent")
 
@@ -885,12 +911,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     # Initialize concurrent tool executor for parallel execution
     tool_executor = ConcurrentToolExecutor()
 
-    trace_attributes_tool_names = []
-    for tool in tools_list:
-        try:
-            trace_attributes_tool_names.append(tool.tool_name)
-        except AttributeError:
-            trace_attributes_tool_names.append(tool.__name__)
+    trace_attributes_tool_names = [get_tool_name(tool) for tool in tools_list]
 
     # Register toolUseId hook for patching toolUseId, must be last
     tool_use_id_hook = ToolUseIdHook()

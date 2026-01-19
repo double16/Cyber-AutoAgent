@@ -46,7 +46,7 @@ class PromptRebuildHook(HookProvider):
         objective: str,
         operation_id: str,
         max_steps: int = 100,
-        module: str = "general",
+        module: str = "web",
         rebuild_interval: int = 20,
         operation_root: Optional[str] = None,
     ):
@@ -60,7 +60,7 @@ class PromptRebuildHook(HookProvider):
             objective: Assessment objective
             operation_id: Operation identifier
             max_steps: Maximum steps for operation
-            module: Module name (e.g., 'general', 'ctf')
+            module: Module name (e.g., 'web', 'ctf')
             rebuild_interval: Steps between automatic rebuilds (default: 20)
         """
         self.callback_handler = callback_handler

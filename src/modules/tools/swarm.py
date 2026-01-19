@@ -150,18 +150,6 @@ def _create_custom_agents(
         raise ValueError("At least one agent specification is required")
 
     config_manager = get_config_manager()
-    provider = config_manager.get_provider()
-    swarm_model_id = config_manager.get_swarm_model_id(provider)
-
-    try:
-        caps = get_capabilities(provider, swarm_model_id)
-        allow_reasoning_content = bool(caps.supports_reasoning)
-    except Exception:
-        allow_reasoning_content = False
-
-    prompt_token_limit = _resolve_prompt_token_limit(
-        provider, swarm_model_id
-    )
 
     if parent_agent is None:
         logger.error("Parent agent not given, swarm agents will lack intended functionality")
@@ -189,6 +177,31 @@ def _create_custom_agents(
                 agent_name = f"{original_name}_{counter}"
                 counter += 1
         used_names.add(agent_name)
+
+        # Configure model provider
+        provider = config_manager.get_provider()
+        # only allow swarm agent provider to change to local/ollama model
+        if spec.get("model_provider", "") == "ollama":
+            provider = "ollama"
+
+        # Configure model settings
+        swarm_model_id = config_manager.get_swarm_model_id(provider)
+        model_settings = spec.get("model_settings")
+        if model_settings and "model_id" in model_settings:
+            request_model_id = model_settings["model_id"]
+            if request_model_id and "purpose-built-model" not in request_model_id:
+                swarm_model_id = request_model_id
+
+        # TODO: how to validate (provider, swarm_model_id) and fall back to (config_manager.get_provider(), config_manager.get_swarm_model_id(provider))
+        try:
+            caps = get_capabilities(provider, swarm_model_id)
+            allow_reasoning_content = bool(caps.supports_reasoning)
+        except Exception:
+            allow_reasoning_content = False
+
+        prompt_token_limit = _resolve_prompt_token_limit(
+            provider, swarm_model_id
+        )
 
         # Get system prompt with fallback
         system_prompt = spec.get("system_prompt")
@@ -326,6 +339,7 @@ def swarm(
             - name (str): Agent name/identifier (optional, auto-generated if not provided)
             - system_prompt (str): Agent's system prompt defining its role and expertise
             - tools (List[str]): List of tool names available to this agent (optional)
+            - model_provider (str): Model provider for this agent (optional, inherits from parent)
             - model_settings (Dict): Model configuration for this agent (optional)
             - inherit_parent_prompt (bool): Whether to append parent agent's system prompt (optional)
         max_handoffs: Maximum number of handoffs between agents (default: 20).
@@ -385,7 +399,8 @@ def swarm(
                 "name": "creative_director",
                 "system_prompt": "You are a creative director. Focus on visual concepts and campaigns.",
                 "tools": ["generate_image", "file_write"],
-                "model_settings": {"params": {"temperature": 0.8}}
+                "model_provider": "ollama",
+                "model_settings": {"model_id": "purpose-built-model", "params": {"temperature": 0.8}}
             },
             {
                 "name": "copywriter",

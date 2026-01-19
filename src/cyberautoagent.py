@@ -294,8 +294,8 @@ def main():
     parser.add_argument(
         "--module",
         type=str,
-        default="general",
-        help="Security operational plugins to use (e.g., general, ctf, etc.)",
+        default="web",
+        help="Security operational plugins to use (e.g., web, ctf, etc.)",
     )
     parser.add_argument(
         "--objective",
@@ -452,7 +452,7 @@ def main():
 
     os.environ["AWS_REGION"] = args.region
 
-    if "OLLAMA_HOST" in os.environ and "OLLAMA_API_BASE" not in os.environ:
+    if "OLLAMA_HOST" in os.environ and not os.environ.get("OLLAMA_API_BASE", ""):
         # Set OLLAMA_API_BASE for LiteLLM
         os.environ["OLLAMA_API_BASE"] = os.environ["OLLAMA_HOST"]
 
@@ -1138,6 +1138,9 @@ def main():
                 logger.warning("Error in final report/evaluation: %s", error)
         else:
             logger.warning("No callback_handler available for evaluation trigger")
+
+        if "agent" in locals():
+            agent.cleanup()
 
         # Clean up resources
         should_cleanup = not args.keep_memory and not args.memory_path

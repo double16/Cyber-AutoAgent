@@ -41,7 +41,7 @@ operation_plugins/
 ## Component Functions
 
 ### Specialist Agents (General Module)
-The `general` module currently ships with a `validation_specialist` tool that spins up its own Strands `Agent` to run the seven-gate validation checklist before a finding is accepted. The tool lives under `tools/validation_specialist.py` and follows a repeatable pattern:
+The `web` module currently ships with a `validation_specialist` tool that spins up its own Strands `Agent` to run the seven-gate validation checklist before a finding is accepted. The tool lives under `tools/validation_specialist.py` and follows a repeatable pattern:
 
 - `_create_specialist_model()` pulls the same provider/model configuration used by the main agent.
 - The `@tool` entry point builds a Strands `Agent` with a focused system prompt plus the minimal tool set (`shell`, `http_request`, etc.) required for validation.
@@ -61,6 +61,8 @@ capabilities:
   - capability_description
 tools:
   - tool_name
+  - 'browser_*'
+  - '*_search'
 supported_targets:
   - web-application
   - api-endpoint
@@ -153,6 +155,20 @@ Tools discovered from `tools/*.py` are made available via `load_tool`:
 load_tool(tool_name="domain_scanner")
 result = domain_scanner(target="example.com")
 ```
+
+### Selecting built-in tools
+
+Elements in the `tools` list that do not match a tool in the module `tools/` directory are considered allow patterns
+for built-in tools. If `tools` is specified, the module must allow list the built-in tools required.
+
+The following built-in tools are always included and do not require to be in the `tools` list:
+- swarm
+- shell
+- editor
+- load_tool
+- mem0_memory
+- stop
+- prompt_optimizer (if prompt optimization is enabled)
 
 ## Report Generation
 
@@ -266,7 +282,7 @@ if loader.validate_module("custom_module"):
 | Module                | Cognitive Level  | Domain                                    | Key Capabilities                                                       | Tools               | Status           |
 |-----------------------|------------------|-------------------------------------------|------------------------------------------------------------------------|---------------------|------------------|
 | **ctf**               | 4                | CTF challenges and competitions           | Flag extraction, vulnerability exploitation, success-state detection   | None                | Production       |
-| **general**           | 3                | Web application security assessment       | Advanced reconnaissance, payload coordination, authentication analysis | 3 specialized tools | Production       |
+| **web**               | 3                | Web application security assessment       | Advanced reconnaissance, payload coordination, authentication analysis | 3 specialized tools | Production       |
 | **threat_emulation**  | 4                | APT simulation and threat actor emulation | MITRE ATT&CK execution, IoC generation, detection engineering          | None                | **Experimental** |
 | **context_navigator** | 3                | Post-access environment discovery         | Layered enumeration, topology mapping, business context                | None                | **Experimental** |
 | **code_security**     | 4                | Static code security analysis             | Vulnerability detection, dependency scanning, chain analysis           | None                | **Experimental** |
@@ -305,6 +321,7 @@ if loader.validate_module("custom_module"):
 - `specialized_recon_orchestrator`: Coordinates external recon tools
 - `advanced_payload_coordinator`: Orchestrates payload testing tools
 - `auth_chain_analyzer`: Analyzes authentication mechanisms
+- `validation_specialist`: Rigorous false positive prevention
 
 **Configuration:**
 - Approach: Intelligence-driven assessment with specialized tools
