@@ -1,7 +1,6 @@
 """Test unified precedence order for model capabilities."""
 
 import os
-import pytest
 
 from modules.config.models.capabilities import (
     get_capabilities,
@@ -80,6 +79,7 @@ class TestTokenLimitPrecedence:
         """Verify MAX_COMPLETION_TOKENS (UI reasoning models) overrides models.dev."""
         os.environ["MAX_COMPLETION_TOKENS"] = "50000"
 
+        get_model_output_limit.cache_clear()
         limit = get_model_output_limit("azure/gpt-5")
         assert limit == 50000, "MAX_COMPLETION_TOKENS should override models.dev"
 
@@ -89,6 +89,7 @@ class TestTokenLimitPrecedence:
         """Verify MAX_TOKENS (UI general setting) overrides models.dev."""
         os.environ["MAX_TOKENS"] = "60000"
 
+        get_model_output_limit.cache_clear()
         limit = get_model_output_limit("azure/gpt-5")
         assert limit == 60000, "MAX_TOKENS should override models.dev"
 
@@ -99,11 +100,13 @@ class TestTokenLimitPrecedence:
         os.environ["MAX_COMPLETION_TOKENS"] = "50000"
         os.environ["MAX_TOKENS"] = "60000"
 
+        get_model_output_limit.cache_clear()
         limit = get_model_output_limit("azure/gpt-5")
         assert limit == 50000, "MAX_COMPLETION_TOKENS should have highest precedence"
 
         del os.environ["MAX_COMPLETION_TOKENS"]
 
+        get_model_output_limit.cache_clear()
         limit = get_model_output_limit("azure/gpt-5")
         assert limit == 60000, "MAX_TOKENS should be second priority"
 

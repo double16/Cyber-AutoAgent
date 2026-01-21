@@ -6,9 +6,10 @@ This module contains all model instantiation logic for Bedrock, Ollama, and Lite
 Model creation is a configuration concern because it involves reading configuration,
 applying provider-specific settings, and managing credentials.
 """
+import dataclasses
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import ollama
 
@@ -26,6 +27,7 @@ from modules.config.providers import get_ollama_host, split_litellm_model_id
 from modules.config.providers.ollama_config import get_ollama_timeout
 from modules.config.system import EnvironmentReader
 from modules.config.system.logger import get_logger
+from modules.config.system.defaults import LLMRoleType
 from modules.config.models.capabilities import (
     get_model_input_limit,
     get_provider_default_limit,
@@ -347,11 +349,67 @@ def _handle_model_creation_error(provider: str, error: Exception) -> None:
 
 # === Model Creation Functions ===
 
+@dataclasses.dataclass(frozen=True)
+class _CreateModelParameters:
+    llm_temp: float
+    llm_max: int
+    role: LLMRoleType
+
+
+def _get_parameters_by_role(provider: str, model_id: str, role: Optional[LLMRoleType], config: Dict[str, Any]) -> _CreateModelParameters:
+    # Select parameter source by model role (primary vs swarm)
+    try:
+        config_manager = _get_config_manager()
+        server_config = config_manager.get_server_config(provider)
+        llm_temp = server_config.llm.temperature
+        llm_max = server_config.llm.max_tokens
+        if not role:
+            role = "unknown"
+        # Detect swarm if role is not specified.
+        is_swarm = False
+        if role == "swarm":
+            is_swarm = True
+        elif role != "unknown":
+            is_swarm = False
+        elif (
+                server_config.swarm
+                and server_config.swarm.llm
+                and server_config.swarm.llm.model_id == model_id
+                and server_config.swarm.llm.model_id != server_config.llm.model_id
+        ):
+            is_swarm = True
+        if is_swarm:
+            role = "swarm"
+            llm_temp = server_config.swarm.llm.temperature
+            # Use swarm model's max_tokens (calculated by ConfigManager from models.dev)
+            # This respects per-model limits - different models have different constraints
+            llm_max = server_config.swarm.llm.max_tokens
+
+            # Defensive: Ensure valid max_tokens
+            if not isinstance(llm_max, int) or llm_max <= 0:
+                logger.warning(
+                    "Invalid swarm max_tokens=%s for model %s, falling back to 4096",
+                    llm_max,
+                    config.get("model_id"),
+                )
+                llm_max = 4096
+    except Exception:
+        llm_temp = config.get("temperature", 0.95)
+        llm_max = config.get("max_tokens", 4096)
+        role = "unknown"
+
+    return _CreateModelParameters(
+        llm_temp=llm_temp,
+        llm_max=llm_max,
+        role=role,
+    )
+
 
 def create_bedrock_model(
     model_id: str,
     region_name: str,
     provider: str = "bedrock",
+    role: Optional[LLMRoleType] = None,
     **kwargs,
 ) -> BedrockModel:
     """Create AWS Bedrock model instance using centralized configuration.
@@ -360,6 +418,7 @@ def create_bedrock_model(
         model_id: Bedrock model identifier
         region_name: AWS region
         provider: Provider name (default: "bedrock")
+        role: the LLM role (default: None, detect)
         **kwargs: Additional arguments (e.g., effort, additional_request_fields)
 
     Returns:
@@ -427,45 +486,11 @@ def create_bedrock_model(
                 additional_fields[k] = list(set(additional_fields[k] + v))
             elif k not in additional_fields:
                 additional_fields[k] = v
-    
-    # Select parameter source by model role (primary vs swarm)
-    try:
-        server_config = config_manager.get_server_config(provider)
-        llm_temp = server_config.llm.temperature
-        llm_max = server_config.llm.max_tokens
-        role = "primary"
-        swarm_env = config_manager.getenv("CYBER_AGENT_SWARM_MODEL")
-        is_swarm = False
-        if swarm_env and model_id and swarm_env == model_id:
-            is_swarm = True
-        elif (
-            server_config.swarm
-            and server_config.swarm.llm
-            and server_config.swarm.llm.model_id == model_id
-            and server_config.swarm.llm.model_id != server_config.llm.model_id
-        ):
-            is_swarm = True
-        if is_swarm:
-            llm_temp = server_config.swarm.llm.temperature
-            # Use swarm model's max_tokens (calculated by ConfigManager from models.dev)
-            # This respects per-model limits - different models have different constraints
-            llm_max = server_config.swarm.llm.max_tokens
 
-            # Defensive: Ensure valid max_tokens
-            if not isinstance(llm_max, int) or llm_max <= 0:
-                logger.warning(
-                    "Invalid swarm max_tokens=%s for model %s, falling back to 4096",
-                    llm_max,
-                    config.get("model_id"),
-                )
-                llm_max = 4096
-
-            role = "swarm"
-    except Exception:
-        # Fallback to standard config if any issue arises
-        llm_temp = config.get("temperature", 0.95)
-        llm_max = config.get("max_tokens", 4096)
-        role = "unknown"
+    create_parameters = _get_parameters_by_role(provider, model_id, role, config)
+    llm_temp = create_parameters.llm_temp
+    llm_max = create_parameters.llm_max
+    role = create_parameters.role
 
     # Observability: one-liner
     try:
@@ -506,12 +531,14 @@ def create_bedrock_model(
 def create_ollama_model(
     model_id: str,
     provider: str = "ollama",
+    role: Optional[LLMRoleType] = None,
 ) -> OllamaModel:
     """Create Ollama model instance using centralized configuration.
 
     Args:
         model_id: Ollama model identifier
         provider: Provider name (default: "ollama")
+        role: the LLM role (default: None, detect)
 
     Returns:
         Configured OllamaModel instance
@@ -523,43 +550,10 @@ def create_ollama_model(
     config_manager = _get_config_manager()
     config = config_manager.get_local_model_config(model_id, provider)
 
-    # Select parameter source by model role (primary vs swarm)
-    try:
-        server_config = config_manager.get_server_config(provider)
-        llm_temp = server_config.llm.temperature
-        llm_max = server_config.llm.max_tokens
-        role = "primary"
-        swarm_env = config_manager.getenv("CYBER_AGENT_SWARM_MODEL")
-        is_swarm = False
-        if swarm_env and model_id and swarm_env == model_id:
-            is_swarm = True
-        elif (
-            server_config.swarm
-            and server_config.swarm.llm
-            and server_config.swarm.llm.model_id == model_id
-            and server_config.swarm.llm.model_id != server_config.llm.model_id
-        ):
-            is_swarm = True
-        if is_swarm:
-            llm_temp = server_config.swarm.llm.temperature
-            # Use swarm model's max_tokens (calculated by ConfigManager from models.dev)
-            # This respects per-model limits - different models have different constraints
-            llm_max = server_config.swarm.llm.max_tokens
-
-            # Defensive: Ensure valid max_tokens
-            if not isinstance(llm_max, int) or llm_max <= 0:
-                logger.warning(
-                    "Invalid swarm max_tokens=%s for model %s, falling back to 4096",
-                    llm_max,
-                    config.get("model_id"),
-                )
-                llm_max = 4096
-
-            role = "swarm"
-    except Exception:
-        llm_temp = config.get("temperature", 0.95)
-        llm_max = config.get("max_tokens", 4096)
-        role = "unknown"
+    create_parameters = _get_parameters_by_role(provider, model_id, role, config)
+    llm_temp = create_parameters.llm_temp
+    llm_max = create_parameters.llm_max
+    role = create_parameters.role
 
     # Observability: one-liner
     try:
@@ -587,6 +581,7 @@ def create_litellm_model(
     model_id: str,
     region_name: str,
     provider: str = "litellm",
+    role: Optional[LLMRoleType] = None,
 ) -> LiteLLMModel:
     """Create LiteLLM model instance for universal provider access.
 
@@ -594,6 +589,7 @@ def create_litellm_model(
         model_id: LiteLLM model identifier (e.g., "bedrock/...", "openai/...")
         region_name: AWS region (for Bedrock/SageMaker models)
         provider: Provider name (default: "litellm")
+        role: the LLM role (default: None, detect)
 
     Returns:
         Configured LiteLLMModel instance
@@ -636,44 +632,10 @@ def create_litellm_model(
         if sagemaker_base_url:
             client_args["sagemaker_base_url"] = sagemaker_base_url
 
-    # Build params dict with optional reasoning parameters
-    # Select parameter source by model role (primary vs swarm)
-    try:
-        server_config = config_manager.get_server_config(provider)
-        llm_temp = server_config.llm.temperature
-        llm_max = server_config.llm.max_tokens
-        role = "primary"
-        swarm_env = config_manager.getenv("CYBER_AGENT_SWARM_MODEL")
-        is_swarm = False
-        if swarm_env and model_id and swarm_env == model_id:
-            is_swarm = True
-        elif (
-            server_config.swarm
-            and server_config.swarm.llm
-            and server_config.swarm.llm.model_id == model_id
-            and server_config.swarm.llm.model_id != server_config.llm.model_id
-        ):
-            is_swarm = True
-        if is_swarm:
-            llm_temp = server_config.swarm.llm.temperature
-            # Use swarm model's max_tokens (calculated by ConfigManager from models.dev)
-            # This respects per-model limits - different models have different constraints
-            llm_max = server_config.swarm.llm.max_tokens
-
-            # Defensive: Ensure valid max_tokens
-            if not isinstance(llm_max, int) or llm_max <= 0:
-                logger.warning(
-                    "Invalid swarm max_tokens=%s for model %s, falling back to 4096",
-                    llm_max,
-                    config.get("model_id"),
-                )
-                llm_max = 4096
-
-            role = "swarm"
-    except Exception:
-        llm_temp = config.get("temperature", 0.95)
-        llm_max = config.get("max_tokens", 4096)
-        role = "unknown"
+    create_parameters = _get_parameters_by_role(provider, model_id, role, config)
+    llm_temp = create_parameters.llm_temp
+    llm_max = create_parameters.llm_max
+    role = create_parameters.role
 
     # LiteLLM best-effort output clamp (no new envs, best-effort only)
     try:
@@ -769,6 +731,7 @@ def create_gemini_model(
     model_id: str,
     region_name: str,
     provider: str = "gemini",
+    role: Optional[LLMRoleType] = None,
 ) -> GeminiModel:
     """Create native Gemini model instance using Google's genai SDK.
 
@@ -779,6 +742,7 @@ def create_gemini_model(
         model_id: Gemini model identifier (e.g., "gemini/gemini-3-pro-preview")
         region_name: Unused for Gemini (kept for interface compatibility)
         provider: Provider name (should be "gemini")
+        role: the LLM role (default: None, detect)
 
     Returns:
         Configured GeminiModel instance
@@ -808,17 +772,11 @@ def create_gemini_model(
     }
 
     # Build params dict
+    create_parameters = _get_parameters_by_role(provider, model_id, role, config)
+    llm_temp = create_parameters.llm_temp
+    llm_max = create_parameters.llm_max
+
     params: Dict[str, Any] = {}
-
-    # Temperature from config
-    try:
-        server_config = config_manager.get_server_config(provider)
-        llm_temp = server_config.llm.temperature
-        llm_max = server_config.llm.max_tokens
-    except Exception:
-        llm_temp = config.get("temperature", 0.95)
-        llm_max = config.get("max_tokens", 4096)
-
     params["temperature"] = llm_temp
     params["max_output_tokens"] = llm_max
 
@@ -843,7 +801,11 @@ def create_gemini_model(
     )
 
 
-def create_strands_model(provider: Optional[str] = None, model_id: Optional[str] = None) -> Model:
+def create_strands_model(
+        provider: Optional[str] = None,
+        model_id: Optional[str] = None,
+        role: Optional[LLMRoleType] = None,
+) -> Model:
     """ Create model based on provider type """
     agent_logger = logging.getLogger("CyberAutoAgent")
 
@@ -856,26 +818,26 @@ def create_strands_model(provider: Optional[str] = None, model_id: Optional[str]
     try:
         if provider == "ollama":
             agent_logger.debug("Configuring OllamaModel")
-            model = create_ollama_model(model_id, provider)
+            model = create_ollama_model(model_id, provider, role)
             print_status(f"Ollama model initialized: {model_id}", "SUCCESS")
         elif provider == "bedrock":
             agent_logger.debug("Configuring BedrockModel")
             # Check for effort configuration (Opus 4.5 feature)
             effort = os.getenv("BEDROCK_EFFORT")
             model = create_bedrock_model(
-                model_id, config_manager.get_default_region(), provider, effort=effort
+                model_id, config_manager.get_default_region(), provider, role, effort=effort
             )
             print_status(f"Bedrock model initialized: {model_id}", "SUCCESS")
         elif provider == "litellm":
             agent_logger.debug("Configuring LiteLLMModel")
             model = create_litellm_model(
-                model_id, config_manager.get_default_region(), provider
+                model_id, config_manager.get_default_region(), provider, role
             )
             print_status(f"LiteLLM model initialized: {model_id}", "SUCCESS")
         elif provider == "gemini":
             agent_logger.debug("Configuring native GeminiModel")
             model = create_gemini_model(
-                model_id, config_manager.get_default_region(), provider
+                model_id, config_manager.get_default_region(), provider, role
             )
             print_status(f"Native Gemini model initialized: {model_id}", "SUCCESS")
         else:

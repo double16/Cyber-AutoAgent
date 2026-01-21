@@ -404,6 +404,7 @@ MODEL_FAMILY_PATTERNS = [
 ]
 
 
+@lru_cache
 def get_model_input_limit(model_id: str) -> Optional[int]:
     """Get INPUT token limit for a model (context window capacity).
 
@@ -448,6 +449,7 @@ def get_provider_default_limit(provider: str) -> Optional[int]:
     return defaults.get((provider or "").lower())
 
 
+@lru_cache
 def get_model_output_limit(model_id: str) -> Optional[int]:
     """Get OUTPUT token limit for a model (max completion length).
 
@@ -489,6 +491,7 @@ def get_model_output_limit(model_id: str) -> Optional[int]:
     return None
 
 
+@lru_cache
 def get_model_pricing(model_id: str) -> Optional[tuple[float, float]]:
     """Get pricing for a model (cost per million tokens).
 
@@ -504,7 +507,7 @@ def get_model_pricing(model_id: str) -> Optional[tuple[float, float]]:
             client = get_models_client()
             info = client.get_model_info(model_id)
             if info and info.pricing:
-                return (info.pricing.input, info.pricing.output)
+                return info.pricing.input, info.pricing.output
         except Exception:
             pass
 

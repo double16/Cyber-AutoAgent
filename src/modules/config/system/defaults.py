@@ -6,7 +6,7 @@ This module provides default configurations for LLM models, embeddings,
 and provider-specific settings across Bedrock, Ollama, and LiteLLM.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from modules.config.types import (
     EmbeddingConfig,
@@ -14,6 +14,8 @@ from modules.config.types import (
     MemoryLLMConfig,
     ModelProvider,
 )
+
+LLMRoleType = Literal["primary", "swarm", "report", "evaluation", "unknown"]
 
 
 def build_default_configs() -> Dict[str, Dict[str, Any]]:

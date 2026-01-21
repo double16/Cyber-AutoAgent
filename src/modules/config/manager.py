@@ -17,6 +17,7 @@ Key Components:
 
 import json
 import os
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 import litellm
@@ -928,6 +929,7 @@ class ConfigManager:
         """Get evaluation embedding configuration."""
         return defaults["embedding"]
 
+    @lru_cache
     def get_safe_max_tokens(self, model_id: str, buffer: float = 0.5) -> int:
         """Get safe max_tokens using models.dev (50% of limit by default).
 
@@ -976,7 +978,7 @@ class ConfigManager:
 
     def _get_swarm_llm_config(
         self, _server: str, defaults: Dict[str, Any]
-    ) -> ModelConfig:
+    ) -> LLMConfig:
         """Get swarm LLM configuration with model-aware token limits."""
         swarm_cfg = defaults["swarm_llm"]
 
@@ -1113,6 +1115,7 @@ class ConfigManager:
             operation_id=operation_id,
         )
 
+    @lru_cache
     def get_rate_limit_config(self, provider: Optional[str] = None) -> Optional[RateLimitConfig]:
         request_per_minute = self.getenv_float("CYBER_RATE_LIMIT_REQ_PER_MIN")
         tokens_per_minute = self.getenv_float("CYBER_RATE_LIMIT_TOKENS_PER_MIN")
@@ -1136,8 +1139,6 @@ class ConfigManager:
             )
 
         return None
-
-    # Validation helper methods now in validation.py module
 
 
 # Memory utility functions
