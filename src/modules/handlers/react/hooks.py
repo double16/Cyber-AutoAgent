@@ -76,7 +76,7 @@ class ReactHooks(HookProvider):
         try:
             tool_use = event.tool_use
             tool_name = tool_use.get("name", "unknown")
-            tool_id = tool_use.get("toolUseId", tool_use.get("id", "unknown"))
+            tool_id = tool_use.get("_toolUseId", tool_use.get("toolUseId", tool_use.get("id", "unknown")))
 
             # Enhanced logging for swarm debugging
             if tool_name == "swarm":
@@ -101,8 +101,6 @@ class ReactHooks(HookProvider):
                 command = tool_input["command"]
                 if isinstance(command, str) and command.strip().startswith("["):
                     try:
-                        import json
-
                         parsed_commands = json.loads(command)
                         if isinstance(parsed_commands, list):
                             tool_input["command"] = parsed_commands
@@ -156,7 +154,7 @@ class ReactHooks(HookProvider):
         try:
             tool_use = event.tool_use
             tool_name = tool_use.get("name", "unknown")
-            tool_id = tool_use.get("toolUseId", tool_use.get("id"))
+            tool_id = tool_use.get("_toolUseId", tool_use.get("toolUseId", tool_use.get("id", "unknown")))
 
             # Enhanced logging for swarm completion
             if tool_name == "swarm":

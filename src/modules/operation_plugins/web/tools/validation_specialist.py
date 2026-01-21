@@ -5,6 +5,7 @@ import logging
 
 from strands import Agent, tool
 from modules.config.models.factory import create_strands_model
+from modules.agents.patches import ToolUseIdHook
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ def _create_specialist_model():
     swarm_model_id = config_manager.get_swarm_model_id()
 
     try:
-        return create_strands_model(provider, swarm_model_id)
+        return create_strands_model(provider, swarm_model_id, "swarm")
     except Exception as exc:  # fall back to main LLM if swarm override is misconfigured
         primary_model = config_manager.get_llm_config(provider).model_id
         logger.warning(
@@ -117,7 +118,7 @@ def _create_specialist_model():
             exc,
             primary_model,
         )
-        return create_strands_model(provider, primary_model)
+        return create_strands_model(provider, primary_model, "swarm")
 
 
 
@@ -135,7 +136,7 @@ def validation_specialist(
             model=_create_specialist_model(),
             system_prompt=VALIDATION_METHODOLOGY,
             tools=[editor, shell],
-            
+            hooks=[ToolUseIdHook()],
         )
 
         task = f"""Validate security finding:

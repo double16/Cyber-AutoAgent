@@ -7,7 +7,7 @@ from modules.config.system.environment import (
 )
 from modules.config.system.env_reader import EnvironmentReader
 from modules.config.system.logger import configure_sdk_logging, get_logger
-from modules.config.system.defaults import build_default_configs
+from modules.config.system.defaults import build_default_configs, LLMRoleType
 from modules.config.system.validation import validate_provider
 
 __all__ = [
@@ -22,6 +22,7 @@ __all__ = [
     "get_logger",
     # Defaults
     "build_default_configs",
+    "LLMRoleType",
     # Validation
     "validate_provider",
 ]

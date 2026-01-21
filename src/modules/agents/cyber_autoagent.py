@@ -513,6 +513,8 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         load_tool,
         mem0_memory,
         stop,
+        sleep,
+        python_repl,
     ]
 
     if enable_prompt_optimization:
@@ -871,7 +873,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         )
         hooks.append(prompt_rebuild_hook)
 
-    model = create_strands_model(config.provider, config.model_id)
+    model = create_strands_model(config.provider, config.model_id, "primary")
 
     agent_logger.debug("Creating autonomous agent")
 

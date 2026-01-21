@@ -37,6 +37,7 @@ import json
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -171,6 +172,7 @@ class ModelsDevClient:
         self._data: Optional[Dict] = None
         self._data_source: Optional[str] = None
 
+    @lru_cache
     def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
         """Get complete model information.
 
@@ -205,6 +207,7 @@ class ModelsDevClient:
         logger.debug(f"Model not found: {model_id}")
         return None
 
+    @lru_cache
     def get_limits(self, model_id: str) -> Optional[ModelLimits]:
         """Get model token limits.
 
@@ -217,6 +220,7 @@ class ModelsDevClient:
         info = self.get_model_info(model_id)
         return info.limits if info else None
 
+    @lru_cache
     def get_capabilities(self, model_id: str) -> Optional[ModelCapabilities]:
         """Get model capabilities and features.
 
@@ -229,6 +233,7 @@ class ModelsDevClient:
         info = self.get_model_info(model_id)
         return info.capabilities if info else None
 
+    @lru_cache
     def get_pricing(self, model_id: str) -> Optional[ModelPricing]:
         """Get model pricing information.
 

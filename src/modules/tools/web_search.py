@@ -14,10 +14,10 @@ class WebSearchHit(BaseModel):
     snippet: str = Field(description="Result snippet")
 
 
-# 9.5.1 has backend: bing, brave, google, mojeek, mullvad_brave, mullvad_google, wikipedia, yahoo, yandex
+# 9.10.0 has backend: brave, duckduckgo, google, grokipedia, mojeek, wikipedia, yahoo, yandex
 def search_duckduckgo(query: str, num: int) -> List[WebSearchHit]:
     with DDGS() as ddg:
-        results = ddg.text(query, backend="brave,bing,google", max_results=num)
+        results = ddg.text(query, backend="brave,duckduckgo", max_results=num)
         return [WebSearchHit(title=r["title"], url=r["href"], snippet=r["body"])
                 for r in results]
 
