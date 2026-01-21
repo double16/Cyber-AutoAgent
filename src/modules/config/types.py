@@ -235,7 +235,7 @@ class EvaluationConfig:
 class SwarmConfig:
     """Configuration for swarm system."""
 
-    llm: ModelConfig
+    llm: LLMConfig
 
 
 @dataclass

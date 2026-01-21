@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Dict, Optional, Callable, Sequence, List
 
 from strands import Agent
@@ -1139,10 +1140,7 @@ def _get_metrics_input_tokens(agent: Agent) -> Optional[int]:
     return None
 
 
-# Module-level cache for char/token ratios to avoid repeated lookups
-_RATIO_CACHE: Dict[str, float] = {}
-
-
+@lru_cache
 def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
     """Get char/token ratio using models.dev provider detection.
 
@@ -1160,10 +1158,6 @@ def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
     """
     if not model_id:
         return DEFAULT_CHAR_TO_TOKEN_RATIO  # Conservative default (slight overestimation)
-
-    # Check cache first
-    if model_id in _RATIO_CACHE:
-        return _RATIO_CACHE[model_id]
 
     # Compute ratio with default fallback
     ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Default
@@ -1189,8 +1183,6 @@ def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
     except Exception as e:
         logger.debug("models.dev lookup failed for ratio: model=%s, error=%s", model_id, e)
 
-    # Cache and return
-    _RATIO_CACHE[model_id] = ratio
     return ratio
 
 

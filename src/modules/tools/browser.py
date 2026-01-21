@@ -1536,9 +1536,10 @@ async def browser_observe_page(instruction: Optional[str] = None) -> list[str]:
 
 
 def log_heap_stats():
-    try:
-        from guppy import hpy
-        h = hpy()
-        logger.info(h.heap()[0:12])
-    except ImportError:
-        logger.debug("Install guppy3 for heap analysis")
+    if logger.isEnabledFor(logging.DEBUG):
+        try:
+            from guppy import hpy
+            h = hpy()
+            logger.debug(h.heap()[0:12])
+        except ImportError:
+            logger.debug("Install guppy3 for heap analysis")

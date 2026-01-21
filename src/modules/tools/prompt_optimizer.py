@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from strands import tool
+from modules.agents.patches import ToolUseIdHook
 
 from modules.config.system.logger import get_logger
 
@@ -859,7 +860,11 @@ Before returning, verify:
 CRITICAL: Output must be ≤ {len(current_prompt)} chars. This is STRICT.
 </validation_checklist>"""
 
-    rewriter = Agent(model=model, system_prompt=system_prompt)
+    rewriter = Agent(
+        model=model,
+        system_prompt=system_prompt,
+        hooks=[ToolUseIdHook()],
+    )
 
     # Build the rewrite request
     remove_str = ", ".join(remove_tactics) if remove_tactics else "none"
@@ -948,10 +953,10 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
             failure_counts[operation_id] = current_failures + 1
             return current_prompt
 
-        # Enforce line-count non-growth
+        # Enforce line-count non-growth with error margin
         current_lines = current_prompt.splitlines()
         rewritten_lines = rewritten.splitlines()
-        if len(rewritten_lines) > len(current_lines):
+        if len(rewritten_lines) > int(len(current_lines) * 1.15):
             logger.warning(
                 "Prompt optimizer rejected rewrite: line count increased %d → %d",
                 len(current_lines),

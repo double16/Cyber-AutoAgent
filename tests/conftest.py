@@ -8,6 +8,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from modules.config.models.capabilities import (
+    get_model_input_limit,
+    get_model_output_limit,
+    get_model_pricing,
+)
+
 # Disable dotenv loading in tests
 os.environ["PYTHON_DOTENV_DISABLED"] = "true"
 
@@ -19,9 +25,21 @@ for _var in (
     "CYBER_AGENT_PROVIDER",
     "CYBER_AGENT_LLM_MODEL",
     "CYBER_AGENT_EMBEDDING_MODEL",
+    "CYBER_AGENT_SWARM_MODEL",
+    "CYBER_AGENT_EVALUATION_MODEL",
+    "RAGAS_EVALUATOR_MODEL",
+    "CYBER_CONTEXT_LIMIT",
+    "CYBER_REASONING_ALLOW",
+    "CYBER_REASONING_DENY",
+    "CYBER_RATE_LIMIT_TOKENS_PER_MIN",
+    "CYBER_RATE_LIMIT_REQ_PER_MIN",
+    "CYBER_RATE_LIMIT_MAX_CONCURRENT",
     "AZURE_API_BASE",
     "AZURE_API_KEY",
     "AZURE_API_VERSION",
+    "OLLAMA_HOST",
+    "MAX_COMPLETION_TOKENS",
+    "MAX_TOKENS",
 ):
     os.environ.pop(_var, None)
 
@@ -179,3 +197,17 @@ def caplog_with_level():
         return _pytest.logging.LogCaptureFixture(pytest_config=None)
 
     return _caplog_with_level
+
+
+@pytest.fixture
+def clear_lru_caches():
+    fns = [
+        get_model_input_limit,
+        get_model_output_limit,
+        get_model_pricing,
+    ]
+    for fn in fns:
+        fn.cache_clear()
+    yield
+    for fn in fns:
+        fn.cache_clear()

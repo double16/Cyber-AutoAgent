@@ -192,7 +192,22 @@ def _create_custom_agents(
             if request_model_id and "purpose-built-model" not in request_model_id:
                 swarm_model_id = request_model_id
 
-        # TODO: how to validate (provider, swarm_model_id) and fall back to (config_manager.get_provider(), config_manager.get_swarm_model_id(provider))
+        try:
+            strands_model = create_strands_model(provider, swarm_model_id, "swarm")
+        except Exception as exc:  # fall back to main LLM if swarm override is misconfigured
+            provider_from_spec = provider
+            model_from_spec = swarm_model_id
+            provider = config_manager.get_provider()
+            swarm_model_id = config_manager.get_llm_config(provider).model_id
+            logger.warning(
+                "Swarm model '%s' unavailable for provider '%s' (%s). Falling back to main model '%s'.",
+                model_from_spec,
+                provider_from_spec,
+                exc,
+                swarm_model_id,
+            )
+            strands_model = create_strands_model(provider, swarm_model_id, "swarm")
+
         try:
             caps = get_capabilities(provider, swarm_model_id)
             allow_reasoning_content = bool(caps.supports_reasoning)
@@ -263,7 +278,7 @@ def _create_custom_agents(
 
         # Create agent
         swarm_agent = Agent(
-            model=create_strands_model(provider, swarm_model_id),
+            model=strands_model,
             name=agent_name,
             system_prompt=system_prompt,
             tools=agent_tools,

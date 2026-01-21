@@ -16,8 +16,11 @@ from strands.models.litellm import LiteLLMModel
 from strands.models.ollama import OllamaModel
 
 from modules.config.manager import get_config_manager
+from modules.config.models.factory import create_gemini_model
 from modules.config.system.logger import get_logger
 from modules.prompts.factory import get_report_agent_system_prompt
+from modules.agents.patches import ToolUseIdHook
+from modules import __version__
 
 logger = get_logger("Agents.ReportAgent")
 
@@ -80,12 +83,7 @@ class ReportGenerator:
             )
 
             # Use the same max_tokens budget as the primary Bedrock model
-            try:
-                max_tokens = int(getattr(llm_cfg, "max_tokens", 0) or 0)
-                if max_tokens <= 0:
-                    raise ValueError
-            except Exception:
-                max_tokens = 32000
+            max_tokens = llm_cfg.max_tokens
 
             # Ensure explicit region to avoid environment inconsistencies
             region = cfg.get_server_config("bedrock").region
@@ -96,6 +94,18 @@ class ReportGenerator:
                 temperature=0.3,
                 boto_client_config=boto_config,
             )
+        elif prov == "gemini":
+            # Always use the primary model from config
+            llm_cfg = cfg.get_llm_config("gemini")
+            # Only override if explicitly provided, otherwise use config
+            mid = model_id if model_id else llm_cfg.model_id
+
+            model = create_gemini_model(
+                mid,
+                cfg.get_default_region(),
+                prov,
+                "report")
+            model.config.get("params")["temperature"] = 0.3
         elif prov == "ollama":
             host = cfg.get_ollama_host()
             llm_cfg = cfg.get_llm_config("ollama")
@@ -104,6 +114,8 @@ class ReportGenerator:
             model = OllamaModel(
                 host=host,
                 model_id=mid,
+                temperature=0.3,
+                max_tokens=llm_cfg.max_tokens,
                 ollama_client_args={
                     "timeout": cfg.get_ollama_timeout(),
                 },
@@ -113,12 +125,7 @@ class ReportGenerator:
             # Only override if explicitly provided, otherwise use config
             mid = model_id if model_id else llm_cfg.model_id
             # Pass both token params - LiteLLM drop_params removes unsupported one
-            try:
-                llm_max = int(getattr(llm_cfg, "max_tokens", 0) or 0)
-                if llm_max <= 0:
-                    raise ValueError
-            except Exception:
-                llm_max = 4000
+            llm_max = llm_cfg.max_tokens
             params = {
                 "temperature": 0.3,
                 "max_tokens": llm_max,
@@ -138,14 +145,34 @@ class ReportGenerator:
             # Core identification - CRITICAL for trace continuity
             "langfuse.session.id": operation_id,
             "langfuse.user.id": f"cyber-agent-{target}" if target else "cyber-agent",
+            # Human-readable name that Langfuse will pick up
+            "name": f"Security Report - {target} - {operation_id}",
+            # Tags for filtering and categorization
+            "langfuse.tags": [
+                "Cyber-AutoAgent",
+                operation_id,
+            ],
+            "langfuse.environment": cfg.getenv(
+                "DEPLOYMENT_ENV", "production"
+            ),
+            # Standard OTEL attributes
+            "session.id": operation_id,
+            "user.id": f"cyber-agent-{target}",
             # Agent identification
             "langfuse.agent.type": "report_generator",
             "agent.name": "Cyber-ReportGenerator",
+            "agent.version": __version__,
             "agent.role": "report_generation",
+            "gen_ai.agent.name": "Cyber-AutoAgent",
+            "gen_ai.system": "Cyber-AutoAgent",
             # Operation context
             "operation.id": operation_id,
+            "operation.type": "reporting",
             "operation.phase": "reporting",
             "target.host": target or "unknown",
+            # Model configuration
+            "model.provider": provider,
+            "model.id": mid if "mid" in locals() else model_id,
         }
 
         # Configure trace attributes for observability
@@ -160,6 +187,7 @@ class ReportGenerator:
             tools=[build_report_sections],
             trace_attributes=trace_attrs if operation_id else None,
             callback_handler=NoOpCallbackHandler(),
+            hooks=[ToolUseIdHook()],
         )
 
 

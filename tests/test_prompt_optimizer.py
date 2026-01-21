@@ -51,9 +51,10 @@ def _install_llm_rewrite_stubs(monkeypatch: pytest.MonkeyPatch, *, response_text
             self.kwargs = kwargs
 
     class _FakeAgent:
-        def __init__(self, model=None, system_prompt: str = ""):
+        def __init__(self, model=None, system_prompt: str = "", hooks: list | None= None):
             self.model = model
             self.system_prompt = system_prompt
+            self.hooks = hooks
 
         def __call__(self, request: str):
             call_counter["count"] = call_counter.get("count", 0) + 1
