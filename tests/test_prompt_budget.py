@@ -8,9 +8,16 @@ from modules.handlers.conversation_budget import (
 )
 
 
+class ModelStub:
+    def __init__(self, output_tokens: int | None = None):
+        if output_tokens is not None:
+            self._output_tokens = output_tokens
+
+
 class AgentStub:
-    def __init__(self, messages, limit=None, telemetry=None):
+    def __init__(self, messages, limit=None, telemetry=None, output_tokens=None):
         self.messages = messages
+        self.model = ModelStub(output_tokens=output_tokens)
         self._prompt_token_limit = limit
         self.conversation_manager = types.SimpleNamespace(
             calls=[],
@@ -44,6 +51,13 @@ def test_estimate_prompt_tokens_counts_text_blocks():
 def test_ensure_prompt_reduces_context_when_near_limit():
     messages = [_make_message("x" * 4000) for _ in range(10)]
     agent = AgentStub(messages, limit=1000)
+    _ensure_prompt_within_budget(agent)
+    assert agent.conversation_manager.calls, "Expected reduce_context to be invoked"
+
+
+def test_ensure_prompt_reduces_context_when_near_limit_consider_output_tokens():
+    messages = [_make_message("x" * 2000)]
+    agent = AgentStub(messages, limit=1000, output_tokens=100)
     _ensure_prompt_within_budget(agent)
     assert agent.conversation_manager.calls, "Expected reduce_context to be invoked"
 

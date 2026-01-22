@@ -94,6 +94,7 @@ class ReportGenerator:
                 temperature=0.3,
                 boto_client_config=boto_config,
             )
+            setattr(model, "_output_tokens", max_tokens)
         elif prov == "gemini":
             # Always use the primary model from config
             llm_cfg = cfg.get_llm_config("gemini")
@@ -120,6 +121,7 @@ class ReportGenerator:
                     "timeout": cfg.get_ollama_timeout(),
                 },
             )
+            setattr(model, "_output_tokens", llm_cfg.max_tokens)
         else:  # litellm
             llm_cfg = cfg.get_llm_config("litellm")
             # Only override if explicitly provided, otherwise use config
@@ -136,6 +138,7 @@ class ReportGenerator:
                 "timeout": 1200,
             }
             model = LiteLLMModel(model_id=mid, params=params, client_args=client_args)
+            setattr(model, "_output_tokens", llm_max)
 
         # Import the report builder tool
         from modules.tools.report_builder import build_report_sections

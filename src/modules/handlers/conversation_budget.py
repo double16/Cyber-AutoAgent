@@ -1437,8 +1437,16 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     if not limit_for_threshold:
         return
 
+    if hasattr(agent.model, "_output_tokens"):
+        output_tokens = getattr(agent.model, "_output_tokens")
+        if isinstance(output_tokens, int):
+            if output_tokens < limit_for_threshold:
+                limit_for_threshold -= output_tokens
+            else:
+                logger.warning("BUDGET CHECK MIS-CONFIG: output tokens is larger than token limit: %d > %d",
+                               output_tokens, limit_for_threshold)
+
     # Respect a prompt-cache hint to avoid premature reductions when provider caching is enabled
-    cache_hint = False
     try:
         cache_hint = bool(getattr(agent, "_prompt_cache_hit", False))
         if not cache_hint:

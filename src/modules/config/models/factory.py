@@ -405,6 +405,8 @@ def _get_parameters_by_role(provider: str, model_id: str, role: Optional[LLMRole
     )
 
 
+# TODO: limit max_tokens based on role. Do we really need 64000 output tokens? Is reasoning output considered output tokens?
+
 def create_bedrock_model(
     model_id: str,
     region_name: str,
@@ -473,6 +475,7 @@ def create_bedrock_model(
             additional_request_fields=additional_fields if additional_fields else None,
             boto_client_config=boto_config,
         )
+        setattr(model, "_output_tokens", config["max_tokens"])
 
         return model
     
@@ -522,7 +525,8 @@ def create_bedrock_model(
         additional_request_fields=additional_fields if additional_fields else None,
         boto_client_config=boto_config,
     )
-    
+    setattr(model, "_output_tokens", llm_max)
+
     return model
 
 
@@ -566,7 +570,7 @@ def create_ollama_model(
     except Exception:
         pass
 
-    return OllamaModel(
+    model = OllamaModel(
         host=config["host"],
         model_id=config["model_id"],
         temperature=llm_temp,
@@ -575,6 +579,8 @@ def create_ollama_model(
             "timeout": config["timeout"],
         },
     )
+    setattr(model, "_output_tokens", llm_max)
+    return model
 
 
 def create_litellm_model(
@@ -646,9 +652,8 @@ def create_litellm_model(
             base = base.split("/", 1)[1]
         model_cap = litellm.get_max_tokens(base)  # may return None for unknown models
         if (
-            isinstance(model_cap, (int, float))
-            and int(model_cap) > 0
-            and llm_max > int(model_cap)
+                isinstance(model_cap, (int, float))
+                and 0 < int(model_cap) < llm_max
         ):
             logger.info(
                 "LiteLLM cap: reducing max_tokens from %s to %s for model=%s",
@@ -720,11 +725,13 @@ def create_litellm_model(
 
     _apply_context_window_fallbacks(client_args)
 
-    return LiteLLMModel(
+    model = LiteLLMModel(
         client_args=client_args,
         model_id=config["model_id"],
         params=params,
     )
+    setattr(model, "_output_tokens", llm_max)
+    return model
 
 
 def create_gemini_model(
@@ -794,11 +801,13 @@ def create_gemini_model(
         )
     )
 
-    return GeminiModel(
+    model = GeminiModel(
         client_args=client_args,
         model_id=clean_model_id,
         params=params,
     )
+    setattr(model, "_output_tokens", llm_max)
+    return model
 
 
 def create_strands_model(
