@@ -261,15 +261,18 @@ Remember: You MUST use your build_report_sections tool first to get the evidence
         # Generate the report using the agent with its tool
         logger.info("Invoking report generation agent with structured prompt of %d characters ...", len(agent_prompt))
         logger.debug("Report prompt\n%s", agent_prompt)
+        result = None
         for retry in range(1,-1,-1):  # [1,0]
             try:
                 result = report_agent(agent_prompt)
+                break
             except Exception as e:
                 if retry == 0:
                     raise e
                 e_str = str(e).lower()
-                if "midstreamfallbackerror" in e_str:
-                    # network errors midstream are not uncommon with litellm and is not retried
+                if any(n in e_str for n in ["midstreamfallbackerror", "maxtokensreached", "max_tokens"]):
+                    # network errors midstream are not uncommon with litellm, they are not retried
+                    # max tokens reached may be the model got into a verbose state
                     logger.info("Report agent failed, retrying ... %s", e_str)
                     continue
                 raise e

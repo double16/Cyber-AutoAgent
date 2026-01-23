@@ -58,6 +58,9 @@ def patch_model_class_tool_use_id(
         return model_cls
 
     if not hasattr(model_cls, "stream"):
+        if "stubs" in model_cls.__qualname__.lower():
+            # unit test mock
+            return model_cls
         raise TypeError(f"{model_cls.__name__} has no 'stream' method to patch")
 
     if is_bad_id is None:

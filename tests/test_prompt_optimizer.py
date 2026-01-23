@@ -51,10 +51,12 @@ def _install_llm_rewrite_stubs(monkeypatch: pytest.MonkeyPatch, *, response_text
             self.kwargs = kwargs
 
     class _FakeAgent:
-        def __init__(self, model=None, system_prompt: str = "", hooks: list | None= None):
+        def __init__(self, model=None, name=None, system_prompt: str = "", hooks: list | None= None, trace_attributes = None):
             self.model = model
+            self.name = name
             self.system_prompt = system_prompt
             self.hooks = hooks
+            self.trace_attributes = trace_attributes
 
         def __call__(self, request: str):
             call_counter["count"] = call_counter.get("count", 0) + 1
@@ -343,8 +345,8 @@ def test_llm_rewrite_rejects_line_growth(tmp_path, monkeypatch):
             "L2 " + ("y" * 60) + "\n" +
             "L3 " + ("z" * 60)
     )
-    # 4 lines -> should be rejected even if within ±15% chars
-    rewritten = current_prompt + "\nL4 extra"
+    # 6 lines -> should be rejected even if within ±15% chars
+    rewritten = current_prompt + "\nL4 extra\nL5 extra"
 
     calls = {"count": 0}
     _install_llm_rewrite_stubs(monkeypatch, response_text=rewritten, call_counter=calls)
@@ -403,7 +405,7 @@ def test_llm_rewrite_failure_count_scoped_per_operation(tmp_path, monkeypatch):
     )
 
     # Force repeated failures by returning a line-growing rewrite
-    bad_rewrite = current_prompt + "\nL4"
+    bad_rewrite = current_prompt + "\nL4\nL5\nL6"
 
     calls = {"count": 0}
     _install_llm_rewrite_stubs(monkeypatch, response_text=bad_rewrite, call_counter=calls)

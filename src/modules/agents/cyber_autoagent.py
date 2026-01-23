@@ -57,7 +57,7 @@ from modules.handlers.conversation_budget import (
 from modules.handlers.react import ReactBridgeHandler
 from modules.handlers.tool_router import ToolRouterHook
 from modules.config.models.capabilities import get_capabilities
-from modules.handlers.utils import print_status, sanitize_target_name
+from modules.handlers.utils import print_status, sanitize_target_name, get_tool_name
 from modules.tools import swarm, web_search
 
 from modules.tools.mcp import (
@@ -115,14 +115,6 @@ def tool_catalog_wrapper(full_tools_context: str, mcp_tools: List[AgentTool]):
         return full_tools_context
 
     return tool_catalog
-
-
-def get_tool_name(tool) -> str:
-    try:
-        tool_name = tool.tool_name
-    except AttributeError:
-        tool_name = tool.__name__.split(".")[-1]
-    return tool_name
 
 
 def create_agent(

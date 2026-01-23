@@ -73,13 +73,14 @@ together autonomously to solve complex, multi-faceted problems.
 """
 
 import logging
+import os
 import traceback
 from typing import Any, Dict, List, Optional
 
 from rich.box import ROUNDED
 from rich.console import Console
 from rich.panel import Panel
-from strands import Agent, tool
+from strands import Agent, ToolContext, tool
 from strands.multiagent import Swarm
 
 from strands_tools.utils import console_util
@@ -87,6 +88,7 @@ from strands_tools.utils import console_util
 from modules.config import get_config_manager
 from modules.config.models import get_capabilities
 from modules.config.models.factory import create_strands_model, get_model_timeout, _resolve_prompt_token_limit
+from modules.utils.telemetry import flush_traces
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +271,9 @@ def _create_custom_agents(
                 "model.provider": provider,
                 "model.id": swarm_model_id,
                 "gen_ai.request.model": swarm_model_id,
+                # Agent identification
+                "agent.name": f"Cyber-{agent_name}",
+                "gen_ai.agent.name": f"Cyber-{agent_name}",
                 # Tool configuration
                 "tools.available": len(trace_attributes_tool_names),
                 "tools.names": trace_attributes_tool_names,
@@ -305,7 +310,7 @@ def _create_custom_agents(
     return agents
 
 
-@tool
+@tool(context=True)
 def swarm(
         task: str,
         agents: List[Dict[str, Any]],
@@ -315,7 +320,7 @@ def swarm(
         node_timeout: float = 300.0,
         repetitive_handoff_detection_window: int = 8,
         repetitive_handoff_min_unique_agents: int = 3,
-        agent: Optional[Any] = None,
+        tool_context: ToolContext = None,
 ) -> Dict[str, Any]:
     """Create and coordinate a custom team of AI agents for collaborative task solving.
 
@@ -364,7 +369,6 @@ def swarm(
         repetitive_handoff_detection_window: Number of recent handoffs to analyze for repetitive behavior (default: 8).
         repetitive_handoff_min_unique_agents: Minimum number of unique agents required in the
             detection window (default: 3).
-        agent: The parent agent (automatically passed by Strands framework).
 
     Returns:
         Dict containing status and response content in the format:
@@ -464,6 +468,8 @@ def swarm(
         - Tool filtering ensures agents only get tools that exist in parent registry
     """
     console = console_util.create()
+    swarm_agents: Optional[list[Agent]] = None
+    agent = tool_context.agent if tool_context else None
 
     try:
         # Validate input
@@ -585,3 +591,12 @@ def swarm(
             "status": "error",
             "content": [{"text": f"⚠️ Custom swarm execution failed: {str(e)}"}],
         }
+
+    finally:
+        if swarm_agents:
+            for agent in swarm_agents:
+                try:
+                    agent.cleanup()
+                except Exception as e:
+                    logger.debug("Cleaning up swarm agent", exc_info=e)
+            flush_traces(swarm_agents[0])

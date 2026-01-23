@@ -139,6 +139,75 @@ def update_pyproject_version(path: pathlib.Path, version: str) -> bool:
     return True
 
 
+def _eol(s: str) -> str:
+    if s.endswith("\r\n"):
+        return "\r\n"
+    if s.endswith("\n"):
+        return "\n"
+    if s.endswith("\r"):
+        return "\r"
+    return ""
+
+
+def update_uv_lock_version(
+        uv_lock_path: pathlib.Path,
+        new_version: str,
+        *,
+        package_name: str = "caa",
+) -> bool:
+    """
+    Update `uv.lock` in-place for the given package's `[[package]]` block.
+
+    Only updates `version = "..."` inside `[[package]]` blocks where
+    `name = "<package_name>"`.
+
+    Returns True if at least one matching block was updated, else False.
+    """
+    lines = uv_lock_path.read_text(encoding="utf-8").splitlines(keepends=True)
+
+    name_re = re.compile(r'^(?P<indent>\s*)name\s*=\s*"(?P<name>[^"]+)"\s*$')
+    ver_re = re.compile(r'^(?P<indent>\s*)version\s*=\s*"(?P<ver>[^"]*)"\s*$')
+
+    in_pkg_block = False
+    block_name: str | None = None
+    updated = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        if stripped == "[[package]]":
+            in_pkg_block = True
+            block_name = None
+            continue
+
+        if not in_pkg_block:
+            continue
+
+        # If we hit a new table header (but not another [[package]]), the package block ended.
+        if stripped.startswith("[[") and stripped != "[[package]]":
+            in_pkg_block = False
+            block_name = None
+            continue
+
+        raw = line[:-len(_eol(line))] if _eol(line) else line
+
+        m_name = name_re.match(raw)
+        if m_name:
+            block_name = m_name.group("name")
+            continue
+
+        m_ver = ver_re.match(raw)
+        if m_ver and block_name == package_name:
+            indent = m_ver.group("indent")
+            lines[i] = f'{indent}version = "{new_version}"{_eol(line)}'
+            updated = True
+
+    if updated:
+        uv_lock_path.write_text("".join(lines), encoding="utf-8")
+
+    return updated
+
+
 def update_tsx_header_version(path: pathlib.Path, version: str) -> bool:
     """
     Update the version in the Header element of a TOML file.
@@ -212,6 +281,8 @@ def main() -> int:
     replace_docker_image_version(args.version, ["docker/docker-compose.yml"])
 
     update_pyproject_version(pathlib.Path(root_path, "pyproject.toml"), args.version)
+
+    update_uv_lock_version(pathlib.Path(root_path, "uv.lock"), args.version)
 
     for root, dirs, files in os.walk(root_path):
         for file in filter(lambda f: f.endswith(".tsx"), files):

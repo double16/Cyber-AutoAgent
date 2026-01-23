@@ -475,3 +475,11 @@ def dumpstacks(signal, frame):
 
 def b64(b: bytes) -> str:
     return base64.b64encode(b).decode("ascii")
+
+
+def get_tool_name(tool) -> str:
+    try:
+        tool_name = tool.tool_name
+    except AttributeError:
+        tool_name = tool.__name__.split(".")[-1]
+    return tool_name

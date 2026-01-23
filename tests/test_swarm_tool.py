@@ -104,7 +104,6 @@ class SwarmToolTests(unittest.TestCase):
                 node_timeout=1.0,
                 repetitive_handoff_detection_window=1,
                 repetitive_handoff_min_unique_agents=1,
-                agent=None,
             )
 
         self.assertEqual("success", out["status"])
