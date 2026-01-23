@@ -39,7 +39,6 @@ from botocore.exceptions import (
     ConnectTimeoutError as BotoConnectTimeoutError,
 )
 from dotenv import load_dotenv
-from opentelemetry import trace
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout as RequestsReadTimeout
 from strands.telemetry.config import StrandsTelemetry
@@ -68,6 +67,7 @@ from modules.handlers.utils import (
 )
 from modules.tools import browser, channel_close_all
 from modules.tools.oast import close_oast_providers
+from modules.utils.telemetry import flush_traces
 
 load_dotenv()
 
@@ -663,6 +663,7 @@ def main():
             objective=args.objective,
             config=config,
         )
+        setattr(agent, "telemetry", telemetry)
         print_status("Cyber-AutoAgent online and starting", "SUCCESS")
 
         # Initial user message to start the agent
@@ -1164,24 +1165,7 @@ def main():
         total_time = end_time - start_time
         logger.info("Operation %s ended after %.2fs", local_operation_id, total_time)
 
-        # Flush OpenTelemetry traces before exit
-        try:
-            # Use the telemetry instance if available, otherwise use global tracer provider
-            if telemetry and hasattr(telemetry, "tracer_provider"):
-                tracer_provider = telemetry.tracer_provider
-            else:
-                tracer_provider = trace.get_tracer_provider()
-
-            if hasattr(tracer_provider, "force_flush"):
-                logger.debug("Flushing OpenTelemetry traces...")
-                # Force flush with timeout to ensure traces are sent
-                # This is critical for capturing all tool calls and swarm operations
-                tracer_provider.force_flush(timeout_millis=10000)  # 10 second timeout
-                # Short delay to ensure network transmission completes
-                time.sleep(2)
-                logger.debug("Traces flushed successfully")
-        except Exception as e:
-            logger.warning("Error flushing traces: %s", e)
+        flush_traces(telemetry=telemetry)
 
         # Final cleanup of log outputs before exit
         close_log_outputs()

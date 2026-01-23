@@ -221,7 +221,7 @@ class PromptRebuildHook(HookProvider):
             # Disabled by default to prevent LLM-based prompt modifications
             if os.environ.get("CYBER_ENABLE_PROMPT_OPTIMIZER", "false").lower() == "true":
                 if current_step >= 20:
-                    self._auto_optimize_execution_prompt()
+                    self._auto_optimize_execution_prompt(parent_agent=event.agent)
 
         except Exception as e:
             logger.error("Failed to rebuild prompt: %s", e, exc_info=True)
@@ -488,7 +488,7 @@ Without category='finding', your work will NOT appear in the final report.
         self.force_rebuild = True
         logger.debug("Force rebuild flag set")
 
-    def _auto_optimize_execution_prompt(self):
+    def _auto_optimize_execution_prompt(self, *, parent_agent: Optional[Any] = None):
         """Automatically optimize execution prompt based on memory patterns.
 
         Direct LLM-based approach: Provides raw memories for natural language
@@ -579,6 +579,7 @@ Without category='finding', your work will NOT appear in the final report.
                     learned_patterns=memory_context,  # Raw memories as context
                     remove_tactics=[],  # LLM-driven decision
                     focus_tactics=[],  # LLM-driven decision
+                    parent_agent=parent_agent,
                 )
 
                 logger.info("LLM optimization completed")

@@ -11,10 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from strands import tool
-from modules.agents.patches import ToolUseIdHook
+from strands import ToolContext, tool
 
 from modules.config.system.logger import get_logger
+from modules.utils.telemetry import flush_traces
 
 OVERLAY_FILENAME = "adaptive_prompt.json"
 logger = get_logger("Tools.PromptOptimizer")
@@ -203,7 +203,7 @@ def _get_overlay_cooldown_state(overlay_record: dict[str, Any]) -> tuple[Optiona
     )
 
 
-@tool
+@tool(context=True)
 def prompt_optimizer(
     action: str,
     overlay: Any | None = None,
@@ -218,6 +218,7 @@ def prompt_optimizer(
     learned_patterns: Optional[str] = None,
     remove_dead_ends: Optional[list[str]] = None,
     focus_areas: Optional[list[str]] = None,
+    tool_context: ToolContext = None,
 ) -> dict[str, Any]:
     """Manage adaptive prompt overlays and execution prompt optimization.
 
@@ -248,6 +249,7 @@ def prompt_optimizer(
     Returns:
         Structured response describing the outcome and overlay snapshot.
     """
+    agent = tool_context.agent if tool_context else None
 
     action_normalised = (action or "").strip().lower()
     mutating_actions = {
@@ -274,6 +276,7 @@ def prompt_optimizer(
             learned_patterns=learned_patterns or "",
             remove_dead_ends=remove_dead_ends or [],
             focus_areas=focus_areas or [],
+            parent_agent=agent,
         )
 
     overlay_file = _overlay_path()
@@ -488,7 +491,7 @@ def prompt_optimizer(
 
 
 def _optimize_execution_prompt(
-    learned_patterns: str, remove_dead_ends: List[str], focus_areas: List[str]
+    learned_patterns: str, remove_dead_ends: List[str], focus_areas: List[str], *, parent_agent: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Rewrite execution_prompt_optimized.txt based on agent learning.
 
@@ -526,6 +529,7 @@ def _optimize_execution_prompt(
             learned_patterns=learned_patterns,
             remove_tactics=remove_dead_ends,
             focus_tactics=focus_areas,
+            parent_agent=parent_agent,
         )
     except Exception as e:
         logger.error("Failed to rewrite execution prompt: %s", e)
@@ -617,6 +621,7 @@ def _llm_rewrite_execution_prompt(
     learned_patterns: str,
     remove_tactics: List[str],
     focus_tactics: List[str],
+    parent_agent: Optional[Any] = None,
 ) -> str:
     """Use LLM to rewrite execution prompt coherently.
 
@@ -625,13 +630,12 @@ def _llm_rewrite_execution_prompt(
         learned_patterns: What the agent learned
         remove_tactics: Tactics to remove
         focus_tactics: Tactics to emphasize
+        parent_agent: Parent agent for inheriting config
 
     Returns:
         Rewritten execution prompt
     """
-    import os
     from modules.config.manager import get_config_manager
-    from strands import Agent
 
     # Load active provider configuration
     config_manager = get_config_manager()
@@ -860,10 +864,46 @@ Before returning, verify:
 CRITICAL: Output must be ≤ {len(current_prompt)} chars. This is STRICT.
 </validation_checklist>"""
 
+    operation_id = os.getenv("CYBER_OPERATION_ID") or "unknown"
+
+    if parent_agent is None:
+        trace_attributes = None
+        logger.warning("No parent agent provided, skipping trace attributes")
+    else:
+        trace_attributes = (parent_agent.trace_attributes or {}) | {
+            "langfuse.agent.type": "prompt_optimizer",
+            "langfuse.capabilities.swarm": False,
+            # Model configuration
+            "model.provider": provider,
+            "model.id": model_id,
+            "gen_ai.request.model": model_id,
+            # Agent identification
+            "agent.name": "Cyber-prompt_optimizer",
+            "gen_ai.agent.name": "Cyber-prompt_optimizer",
+            # Tool configuration
+            "tools.available": 0,
+            "tools.names": [],
+        }
+
+    # prevent circular imports
+    from modules.agents.patches import ToolUseIdHook
+    # allows test mocks
+    from strands import Agent
+
+    try:
+        from opentelemetry import trace
+        span = trace.get_current_span()
+        sc = span.get_span_context()
+        logger.info(f"otel span valid? {sc.is_valid}, trace_id: {hex(sc.trace_id)}")
+    except Exception as e:
+        logger.warning(f"otel info", exc_info=e)
+
     rewriter = Agent(
         model=model,
+        name=f"Cyber-prompt_optimizer {operation_id}",
         system_prompt=system_prompt,
         hooks=[ToolUseIdHook()],
+        trace_attributes=trace_attributes,
     )
 
     # Build the rewrite request
@@ -915,8 +955,6 @@ Return ONLY the optimized prompt text (no explanation, no preamble, no commentar
 Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
 </output_format>"""
 
-    operation_id = os.getenv("CYBER_OPERATION_ID") or "unknown"
-
     if not hasattr(_llm_rewrite_execution_prompt, "_failure_counts"):
         _llm_rewrite_execution_prompt._failure_counts = {}
 
@@ -956,7 +994,8 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
         # Enforce line-count non-growth with error margin
         current_lines = current_prompt.splitlines()
         rewritten_lines = rewritten.splitlines()
-        if len(rewritten_lines) > int(len(current_lines) * 1.15):
+        # we more depend on the context size increase check, but if the number of lines increases a lot, could indicate a corrupted prompt
+        if len(rewritten_lines) > int(len(current_lines) * 1.50):
             logger.warning(
                 "Prompt optimizer rejected rewrite: line count increased %d → %d",
                 len(current_lines),
@@ -1001,3 +1040,9 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
         logger.error("LLM rewrite failed: %s", e)
         failure_counts[operation_id] = current_failures + 1
         return current_prompt
+    finally:
+        try:
+            rewriter.cleanup()
+        except Exception as e:
+            logger.debug("Cleaning up prompt optimizer agent", exc_info=e)
+        flush_traces(rewriter)

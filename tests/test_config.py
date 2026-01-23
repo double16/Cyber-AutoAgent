@@ -14,7 +14,7 @@ from modules.config.manager import (
     get_config_manager,
     get_default_model_configs,
     get_model_config,
-    get_ollama_host,
+    get_ollama_host, MAX_TOKENS_LIMIT,
 )
 from modules.config.types import (
     EmbeddingConfig,
@@ -1086,7 +1086,7 @@ class TestEnvironmentIntegration:
             "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "us-east-1", "bedrock"
         )
         assert standard_config["temperature"] == 0.95
-        assert standard_config["max_tokens"] == 64000
+        assert standard_config["max_tokens"] == MAX_TOKENS_LIMIT  # clamped
         # top_p is now optional (not included for Anthropic models to avoid conflicts)
 
         # Test local model configuration

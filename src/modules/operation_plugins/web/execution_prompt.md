@@ -17,6 +17,7 @@ Discovery without exploitation = reconnaissance failure. Findings = exploited vu
 - Constraint? SPECIFIC not vague. VAGUE: "Filter blocks" | SPECIFIC: "Quotes OK, <script> stripped, onclick passes" | Type: [syntax|processing|filter|rate-limit|auth]
 - Confidence UPDATE (IMMEDIATE): BEFORE: [X%] | AFTER: [Y%] | Apply formula from system prompt
 - Pivot: "Y < 50%?" → If YES: MUST pivot OR swarm | If NO: continue
+- Validation: validation_specialist tool if HIGH/CRITICAL confidence >70% 
 - Next: [escalate if >70% / pivot if <50% / refine if 50-70%]
 
 **Phase 4: CHAINING** → Capability→objective bridge

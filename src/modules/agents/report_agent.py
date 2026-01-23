@@ -185,7 +185,7 @@ class ReportGenerator:
         # The report will be returned and handled by the caller
         return Agent(
             model=model,
-            name="Cyber-ReportGenerator",
+            name=f"Cyber-ReportGenerator {operation_id}",
             system_prompt=get_report_agent_system_prompt(),
             tools=[build_report_sections],
             trace_attributes=trace_attrs if operation_id else None,

@@ -1437,6 +1437,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     if not limit_for_threshold:
         return
 
+    output_tokens = None
     if hasattr(agent.model, "_output_tokens"):
         output_tokens = getattr(agent.model, "_output_tokens")
         if isinstance(output_tokens, int):
@@ -1472,11 +1473,12 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
             else 0.0
         )
         logger.warning(
-            "THRESHOLD EXCEEDED: context=%d, threshold=%d (%.1f%%), limit=%d",
+            "THRESHOLD EXCEEDED: context=%d, threshold=%d (%.1f%%), limit=%d (output_tokens=%s)",
             current_tokens,
             threshold,
             percentage,
             limit_for_threshold,
+            output_tokens,
         )
 
     # Warning system: alert if near capacity but no reductions yet
@@ -1537,7 +1539,7 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     logger.warning(
         "Prompt budget trigger (%s / limit=%d). Initiating context reduction (escalation=%d).",
         reduction_reason,
-        token_limit,
+        limit_for_threshold,
         escalation_count,
     )
     setattr(agent, "_pending_reduction_reason", reduction_reason)
