@@ -15,10 +15,16 @@ from modules.handlers.conversation_budget import (
 )
 
 
+class ModelStub:
+    def __init__(self):
+        self._output_tokens = 80
+
+
 class AgentStub:
     def __init__(self, messages, limit=None, telemetry=None, cache_hint=False):
         self.system_prompt = "x" * 30_000
         self.messages = messages
+        self.model = ModelStub()
         self._prompt_token_limit = limit + 8_000 / PROMPT_TELEMETRY_THRESHOLD
         # Provide a stub CM when needed
         self.conversation_manager = None

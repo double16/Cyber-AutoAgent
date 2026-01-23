@@ -2,10 +2,17 @@
 
 import json
 import logging
+import os
+from typing import Optional, Tuple
 
-from strands import Agent, tool
+from strands import Agent, ToolContext, tool
+from strands.models import Model
+from strands_tools import editor, shell
 from modules.config.models.factory import create_strands_model
 from modules.agents.patches import ToolUseIdHook
+from modules.handlers.utils import get_tool_name
+from modules.config.manager import ConfigManager
+from modules.utils.telemetry import flush_traces
 
 logger = logging.getLogger(__name__)
 
@@ -99,16 +106,14 @@ Return JSON only:
 </validation_specialist>"""
 
 
-def _create_specialist_model():
+def _create_specialist_model() -> Tuple[Model, str, str]:
     """Create model for specialist - reuse main LLM/provider when swarm override is unavailable."""
-    from modules.config.manager import ConfigManager
-
     config_manager = ConfigManager()
     provider = config_manager.get_provider()
     swarm_model_id = config_manager.get_swarm_model_id()
 
     try:
-        return create_strands_model(provider, swarm_model_id, "swarm")
+        return create_strands_model(provider, swarm_model_id, "swarm"), provider, swarm_model_id
     except Exception as exc:  # fall back to main LLM if swarm override is misconfigured
         primary_model = config_manager.get_llm_config(provider).model_id
         logger.warning(
@@ -118,25 +123,61 @@ def _create_specialist_model():
             exc,
             primary_model,
         )
-        return create_strands_model(provider, primary_model, "swarm")
+        return create_strands_model(provider, primary_model, "swarm"), provider, primary_model
 
 
-
-@tool
+@tool(context=True)
 def validation_specialist(
     finding_description: str,
     artifact_paths: list[str],
-    claimed_severity: str = "HIGH"
+    claimed_severity: str = "HIGH",
+    tool_context: ToolContext = None,
 ) -> dict:
-    """Validate HIGH/CRITICAL findings via rigorous 7-gate checklist."""
+    """Validate HIGH/CRITICAL findings via rigorous 7-gate checklist.
+    Args:
+        finding_description: Detailed description of the finding.
+        artifact_paths: List of filesystem paths to the artifacts.
+        claimed_severity: The claimed severity of the finding: CRITICAL/HIGH/MEDIUM/LOW
+
+    Returns:
+        Structured response describing the outcome.
+    """
+    agent = tool_context.agent if tool_context else None
+    validator: Optional[Agent] = None
     try:
-        from strands_tools import editor, shell
+        tools = [editor, shell]
+        trace_attributes_tool_names = [get_tool_name(tool) for tool in tools]
+
+        model, provider, model_id = _create_specialist_model()
+
+        if agent is None:
+            trace_attributes = None
+            logger.warning("No parent agent provided, skipping trace attributes")
+        else:
+            trace_attributes = (agent.trace_attributes or {}) | {
+                "langfuse.agent.type": "validation_specialist",
+                "langfuse.capabilities.swarm": False,
+                # Model configuration
+                "model.provider": provider,
+                "model.id": model_id,
+                "gen_ai.request.model": model_id,
+                # Agent identification
+                "agent.name": f"Cyber-validation_specialist",
+                "gen_ai.agent.name": f"Cyber-validation_specialist",
+                # Tool configuration
+                "tools.available": len(trace_attributes_tool_names),
+                "tools.names": trace_attributes_tool_names,
+            }
+
+        operation_id = os.getenv("CYBER_OPERATION_ID") or "unknown"
 
         validator = Agent(
-            model=_create_specialist_model(),
+            model=model,
+            name=f"Cyber-validation_specialist {operation_id}",
             system_prompt=VALIDATION_METHODOLOGY,
-            tools=[editor, shell],
+            tools=tools,
             hooks=[ToolUseIdHook()],
+            trace_attributes=trace_attributes,
         )
 
         task = f"""Validate security finding:
@@ -181,3 +222,10 @@ Execute 7-gate validation checklist. Return JSON only."""
             "evidence_summary": f"Validation error: {str(e)}",
             "recommendation": "Fix specialist configuration"
         }
+    finally:
+        if validator is not None:
+            try:
+                validator.cleanup()
+            except Exception as e:
+                logger.debug("Cleaning up validation_specialist agent", exc_info=e)
+            flush_traces(validator)

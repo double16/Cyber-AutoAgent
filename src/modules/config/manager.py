@@ -66,6 +66,10 @@ litellm.respect_retry_after_header = True
 
 logger = get_logger("Config.Manager")
 
+# Clamp model max tokens (a.k.a. output limit) to give more space to input.
+MAX_TOKENS_LIMIT = 12_000
+# Clamp thinking model max tokens (a.k.a. output limit) to give more space to input.
+MAX_TOKENS_REASONING_LIMIT = 32_000
 
 
 class ConfigManager:
@@ -180,12 +184,13 @@ class ConfigManager:
         """Get configuration for standard (non-thinking) models."""
         provider_config = self.get_server_config(provider)
         llm_config = provider_config.llm
+        max_tokens_limit = self.getenv_int("MAX_TOKENS_LIMIT", MAX_TOKENS_LIMIT)
 
         config = {
             "model_id": model_id,
             "region_name": region_name,
             "temperature": llm_config.temperature,
-            "max_tokens": llm_config.max_tokens,
+            "max_tokens": min(llm_config.max_tokens, max_tokens_limit),
         }
 
         # Only include top_p if set (avoid conflicts with providers like Anthropic)
@@ -229,13 +234,14 @@ class ConfigManager:
         """Get configuration for local Ollama models."""
         provider_config = self.get_server_config(provider)
         llm_config = provider_config.llm
+        max_tokens_limit = self.getenv_int("MAX_TOKENS_LIMIT", MAX_TOKENS_LIMIT)
 
         return {
             "model_id": model_id,
             "host": self.get_ollama_host(),
             "timeout": self.get_ollama_timeout(),
             "temperature": llm_config.temperature,
-            "max_tokens": llm_config.max_tokens,
+            "max_tokens": min(llm_config.max_tokens, max_tokens_limit),
         }
 
     # Default configs now built by build_default_configs() from defaults.py
@@ -847,12 +853,22 @@ class ConfigManager:
                 llm_cfg.top_p = top_p
                 llm_cfg.parameters["top_p"] = top_p
 
-        max_tokens_override = self.getenv("MAX_TOKENS")
-        if max_tokens_override and llm_cfg is not None:
-            max_tokens = self.getenv_int("MAX_TOKENS", llm_cfg.max_tokens)
-            if max_tokens != llm_cfg.max_tokens:
-                llm_cfg.max_tokens = max_tokens
-                llm_cfg.parameters["max_tokens"] = max_tokens
+        if llm_cfg is not None:
+            if self.getenv("MAX_TOKENS"):
+                max_tokens = self.getenv_int("MAX_TOKENS", llm_cfg.max_tokens)
+                if max_tokens != llm_cfg.max_tokens:
+                    llm_cfg.max_tokens = max_tokens
+                    llm_cfg.parameters["max_tokens"] = max_tokens
+            else:
+                # apply limit to max tokens so we use the space for input context
+                if self.is_thinking_model(llm_cfg.model_id):
+                    max_tokens_limit = self.getenv_int("MAX_TOKENS_REASONING_LIMIT", MAX_TOKENS_REASONING_LIMIT)
+                else:
+                    max_tokens_limit = self.getenv_int("MAX_TOKENS_LIMIT", MAX_TOKENS_LIMIT)
+                if 0 < max_tokens_limit < llm_cfg.max_tokens:
+                    llm_cfg.max_tokens = max_tokens_limit
+                    llm_cfg.parameters["max_tokens"] = max_tokens_limit
+
 
         embedding_model = self.getenv("CYBER_AGENT_EMBEDDING_MODEL")
         if embedding_model and isinstance(defaults.get("embedding"), EmbeddingConfig):
@@ -955,10 +971,12 @@ class ConfigManager:
 
             limits = self.models_client.get_limits(model_id)
             if limits and limits.output > 0:
-                safe = int(limits.output * buffer)
+                max_tokens_limit = self.getenv_int("MAX_TOKENS_LIMIT", MAX_TOKENS_LIMIT)
+                output_limit = min(limits.output, max_tokens_limit)
+                safe = int(output_limit * buffer)
                 logger.debug(
                     "Safe max_tokens from models.dev: model=%s, limit=%d, safe=%d (%.0f%%)",
-                    model_id, limits.output, safe, buffer * 100
+                    model_id, output_limit, safe, buffer * 100
                 )
                 return safe
         except (ValueError, KeyError, AttributeError) as e:
