@@ -534,7 +534,7 @@ wheels = [
 ]
 
 [[package]]
-name = "caa"
+name = "cyber-autoagent"
 version = "0.5.0"
 source = { editable = "." }
 dependencies = [

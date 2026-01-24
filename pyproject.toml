@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "caa"
+name = "cyber-autoagent"
 version = "0.5.0"
 description = "Cyber-AutoAgent: Autonomous AI agent for ethical security assessments"
 readme = "README.md"
