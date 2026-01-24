@@ -7,7 +7,7 @@ import sys
 import os
 
 UNDERSCORE_VERSION_PATTERN = re.compile(r'^(__version__\s*=\s*)"[^"]*"', re.MULTILINE)
-DOCKER_IMAGE_VERSION_PATTERN = re.compile(r'^(\s*image:\s+caa:)[0-9.]+$', re.MULTILINE)
+DOCKER_IMAGE_VERSION_PATTERN = re.compile(r'^(\s*image:\s+cyber-autoagent:)[0-9.]+$', re.MULTILINE)
 DOCKERFILE_VERSION_PATTERN = re.compile(r'(\s+org.opencontainers.image.version\s*=\s*)"[^"]*"', re.MULTILINE)
 
 root_path = pathlib.Path(os.path.dirname(os.path.realpath(__file__)), '..', '..')
@@ -50,17 +50,17 @@ def replace_docker_image_version(version, rel_paths: list[str]):
 
         if count == 0:
             print(
-                f'{rel_path}: could not find a line starting with image: caa:...',
+                f'{rel_path}: could not find a line starting with image: cyber-autoagent:...',
                 file=sys.stderr,
             )
             continue
 
         if new_text == text:
-            print(f"{rel_path}: image is already caa:{version}")
+            print(f"{rel_path}: image is already cyber-autoagent:{version}")
             continue
 
         path.write_text(new_text, encoding="utf-8")
-        print(f"{rel_path}: Updated image: caa:{version}")
+        print(f"{rel_path}: Updated image: cyber-autoagent:{version}")
 
 
 def replace_dockerfile_version(version, paths: list[pathlib.Path]):
@@ -153,7 +153,7 @@ def update_uv_lock_version(
         uv_lock_path: pathlib.Path,
         new_version: str,
         *,
-        package_name: str = "caa",
+        package_name: str = "cyber-autoagent",
 ) -> bool:
     """
     Update `uv.lock` in-place for the given package's `[[package]]` block.

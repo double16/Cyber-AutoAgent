@@ -568,7 +568,7 @@ export class PythonExecutionService extends EventEmitter {
         progress('[OK] pip upgraded');
         
         // Install with editable mode for development
-        progress('[INFO] Installing cyberautoagent package (this may take a moment)...');
+        progress('[INFO] Installing cyber-autoagent package (this may take a moment)...');
         await execAsync(`"${this.pipPath}" install -e .`, {
           cwd: this.projectRoot
         });

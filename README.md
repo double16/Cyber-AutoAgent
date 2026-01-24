@@ -71,7 +71,7 @@ The React-based terminal interface is now the **default UI**, providing interact
 
 ```bash
 # Install from PyPI
-pip install caa
+pip install cyber-autoagent
 
 # Run the CLI
 caa --help

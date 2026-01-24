@@ -268,7 +268,6 @@ yarn-debug.log*
 yarn-error.log*
 
 # Package files
-package-lock.json
 *.tar.gz
 /benchmark_harness/validation-benchmarks/
 /benchmark_harness/results.csv
