@@ -99,7 +99,7 @@ class EnvironmentReader:
             Integer value or default if conversion fails
         """
         value = os.getenv(key)
-        if value is None or len(value.strip()) == 0:
+        if value is None or len(value.strip()) == 0 or value.lower() == "null":
             return default
         try:
             return int(float(value.strip()))
@@ -125,7 +125,7 @@ class EnvironmentReader:
             Float value or default if conversion fails
         """
         value = os.getenv(key)
-        if value is None or len(value.strip()) == 0:
+        if value is None or len(value.strip()) == 0 or value.lower() == "null":
             return default
         try:
             return float(value.strip())
