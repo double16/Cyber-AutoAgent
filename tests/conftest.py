@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -50,6 +51,16 @@ def temp_data_dir():
     temp_dir = tempfile.mkdtemp()
     yield temp_dir
     shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.fixture
+def outputs_dir():
+    """Return the path to the expected output directory"""
+    cwd = Path.cwd()
+    if (cwd / "tests").exists():
+        yield cwd / "outputs"
+    else:
+        yield Path.cwd() / ".." / "outputs"
 
 
 @pytest.fixture

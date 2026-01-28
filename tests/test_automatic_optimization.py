@@ -285,12 +285,14 @@ def test_auto_optimization_at_multiple_intervals(
     hook = PromptRebuildHook(
         callback_handler=mock_callback_handler,
         memory_instance=mock_memory,
+        has_memory_path=True,
         config=mock_config,
         target="test-target",
         objective="test objective",
         operation_id="OP_TEST123",
         max_steps=100,
         rebuild_interval=20,
+        tools_context="dirb,gobuster",
     )
 
     mock_event = MagicMock()
@@ -335,6 +337,7 @@ def test_auto_optimization_error_handling(
         objective="test objective",
         operation_id="OP_TEST123",
         max_steps=100,
+        tools_context="dirb,gobuster",
     )
 
     # Get the actual module object from sys.modules

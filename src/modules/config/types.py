@@ -279,28 +279,31 @@ class AgentConfig:
 
 
 def get_default_base_dir() -> str:
-    """Get the default base directory for outputs.
+    """Get the default base directory for outputs. If CYBER_AGENT_OUTPUT_DIR is defined, returns it.
 
     Returns:
         Default base directory path, preferring project root if detectable
     """
+    if os.getenv("CYBER_AGENT_OUTPUT_DIR") and os.getenv("CYBER_AGENT_OUTPUT_DIR").strip():
+        return os.path.abspath(os.getenv("CYBER_AGENT_OUTPUT_DIR"))
+
     # Try to detect if we're in a project directory structure
     cwd = os.getcwd()
 
     # Check if we're in the project root (contains pyproject.toml)
     if os.path.exists(os.path.join(cwd, "pyproject.toml")):
-        return os.path.join(cwd, "outputs")
+        return os.path.abspath(os.path.join(cwd, "outputs"))
 
     # Check if we're in a subdirectory of the project
     # Look for project root by traversing up the directory tree
     current = cwd
     while current != os.path.dirname(current):  # Stop at filesystem root
         if os.path.exists(os.path.join(current, "pyproject.toml")):
-            return os.path.join(current, "outputs")
+            return os.path.abspath(os.path.join(current, "outputs"))
         current = os.path.dirname(current)
 
     # Fallback to current working directory
-    return os.path.join(cwd, "outputs")
+    return os.path.abspath(os.path.join(cwd, "outputs"))
 
 
 @dataclass

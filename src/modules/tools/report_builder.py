@@ -11,6 +11,7 @@ import os
 import re
 from datetime import datetime
 from typing import Any, Dict, List
+from collections import Counter
 
 from strands import tool
 
@@ -20,11 +21,12 @@ from modules.prompts.factory import (
     format_evidence_for_report,
     format_tools_summary,
     generate_findings_summary_table,
+    safe_truncate,
 )
 from modules.tools.memory import Mem0ServiceClient
 from modules.config.manager import get_config_manager
 from modules.config.system.logger import get_logger
-from modules.handlers.utils import sanitize_target_name
+from modules.handlers.utils import sanitize_target_name, get_output_path
 
 logger = get_logger("Tools.ReportBuilder")
 
@@ -42,7 +44,7 @@ def _trim_evidence_for_report(
     sorted_items = sorted(
         items,
         key=lambda entry: _SEVERITY_ORDER.get(
-            str(entry.get("severity", "")).upper(), 4
+            str(entry.get("severity", "")).upper(), 5
         ),
     )
     trimmed = sorted_items[:limit]
@@ -60,58 +62,6 @@ def _trim_evidence_for_report(
             }
         )
     return trimmed
-
-
-def sanitize_target_for_path(target: str) -> str:
-    """Sanitize a target URL/string for safe use in filesystem paths.
-
-    Prevents directory traversal attacks and ensures the resulting path
-    is safe for use in file operations.
-
-    Args:
-        target: The target URL or string to sanitize (e.g., "https://example.com/path")
-
-    Returns:
-        A sanitized string safe for use in filesystem paths
-
-    Examples:
-        >>> sanitize_target_for_path("https://example.com/test")
-        'example.com_test'
-        >>> sanitize_target_for_path("../../etc/passwd")
-        'etc_passwd'
-    """
-    # Remove protocol prefixes
-    clean = re.sub(r"^https?://", "", target)
-
-    # Remove directory traversal attempts
-    clean = clean.replace("..", "").replace("./", "")
-
-    # Keep only safe characters: alphanumeric, dots, hyphens, underscores
-    clean = re.sub(r"[^a-zA-Z0-9._-]", "_", clean)
-
-    # Normalize multiple underscores to single
-    clean = re.sub(r"_+", "_", clean)
-
-    # Enforce maximum length and trim special chars
-    clean = clean[:100].strip("_.")
-
-    # Provide fallback for empty results
-    return clean or "unknown_target"
-
-
-def _safe_truncate(text: str, n: int) -> str:
-    """Safely truncate text to n characters, preserving readability.
-
-    Adds an ellipsis when truncation occurs and handles None/empty inputs.
-    """
-    if text is None:
-        return ""
-    s = str(text).strip()
-    if len(s) <= max(0, n):
-        return s
-    if n <= 3:
-        return s[: max(0, n)]
-    return s[: n - 3] + "..."
 
 
 def _clean_remediation_text(text: str) -> str:
@@ -166,6 +116,7 @@ def build_report_sections(
         # Initialize memory client and retrieve evidence and plans
         evidence = []
         operation_plan = None
+        cross_operation = os.getenv("MEMORY_ISOLATION", "operation").lower() == "shared"
 
         # Prefer the existing global memory client to ensure identical backend/path
         try:
@@ -176,7 +127,7 @@ def build_report_sections(
             memory_client = None
 
         if not memory_client:
-            # Configure memory client with target-specific path as a fallback using unified path logic
+            # Configure memory client with target-specific path as a fallback using unified path logic (mockable)
             config = Mem0ServiceClient.get_default_config()
             if (
                 config
@@ -190,25 +141,18 @@ def build_report_sections(
                         target_name=sanitize_target_name(target),
                     )
                     # Respect MEMORY_ISOLATION mode for path construction
-                    import os as _os
-                    isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
-                    if isolation_mode == "operation" and operation_id:
+                    if not cross_operation and operation_id:
                         # Per-operation isolation: include operation_id in path
-                        unified_path = _os.path.join(unified_path, operation_id)
+                        unified_path = os.path.join(unified_path, operation_id)
                     config["vector_store"]["config"]["path"] = unified_path
                 except Exception:
                     # Fallback to sanitized path logic if manager is unavailable
-                    import os as _os
-                    safe_target_name = sanitize_target_for_path(target)
-                    isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
-                    if isolation_mode == "operation" and operation_id:
-                        config["vector_store"]["config"]["path"] = (
-                            f"outputs/{safe_target_name}/memory/{operation_id}"
-                        )
+                    safe_target_name = sanitize_target_name(target)
+                    memory_path = get_output_path(target_name=safe_target_name, subdir="memory", operation_id="")
+                    if not cross_operation and operation_id:
+                        config["vector_store"]["config"]["path"] = os.path.join(memory_path, operation_id)
                     else:
-                        config["vector_store"]["config"]["path"] = (
-                            f"outputs/{safe_target_name}/memory"
-                        )
+                        config["vector_store"]["config"]["path"] = memory_path
             # Use silent mode to suppress initialization output during report generation
             memory_client = Mem0ServiceClient(config, silent=True)
             logger.info("Initialized memory client (fallback) for target: %s, operation: %s", target, operation_id)
@@ -219,7 +163,11 @@ def build_report_sections(
         if memory_client:
             try:
                 # Use run_id scoping to get operation-specific memories
-                memories = memory_client.list_memories(user_id="cyber_agent", limit=100, run_id=operation_id)
+                memories = memory_client.list_memories(
+                    user_id="cyber_agent",
+                    run_id=operation_id if not cross_operation else None,
+                    limit=100,
+                )
             except Exception as mem_err:
                 logger.warning(
                     "Failed to load memories from existing client: %s", mem_err
@@ -235,60 +183,12 @@ def build_report_sections(
                 elif isinstance(memories, list):
                     raw_memories = memories
 
-        # If no memories were returned (e.g., different backend in tests), try fallback Mem0 client (mockable)
-        if not raw_memories:
-            try:
-                import os as _os
-                config = Mem0ServiceClient.get_default_config()
-                if (
-                    config
-                    and "vector_store" in config
-                    and "config" in config["vector_store"]
-                ):
-                    try:
-                        manager = get_config_manager()
-                        unified_path = manager.get_unified_memory_path(
-                            server="bedrock",
-                            target_name=sanitize_target_name(target),
-                        )
-                        # Respect MEMORY_ISOLATION mode for path construction
-                        isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
-                        if isolation_mode == "operation" and operation_id:
-                            unified_path = _os.path.join(unified_path, operation_id)
-                        config["vector_store"]["config"]["path"] = unified_path
-                    except Exception:
-                        safe_target_name = sanitize_target_for_path(target)
-                        isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
-                        if isolation_mode == "operation" and operation_id:
-                            config["vector_store"]["config"]["path"] = (
-                                f"outputs/{safe_target_name}/memory/{operation_id}"
-                            )
-                        else:
-                            config["vector_store"]["config"]["path"] = (
-                                f"outputs/{safe_target_name}/memory"
-                            )
-                fallback_client = Mem0ServiceClient(config, silent=True)
-                # Use run_id scoping to get operation-specific memories
-                memories = fallback_client.list_memories(user_id="cyber_agent", limit=100, run_id=operation_id)
-                if isinstance(memories, dict):
-                    raw_memories = (
-                        memories.get("results", [])
-                        or memories.get("memories", [])
-                        or []
-                    )
-                elif isinstance(memories, list):
-                    raw_memories = memories
-                logger.info("ReportBuilder: loaded memories via fallback Mem0 client")
-            except Exception as mem_err:
-                logger.debug("Fallback Mem0 load failed: %s", mem_err)
-
         if raw_memories:
             # Debug logging: show what we loaded from memory
             logger.info(f"Total memories loaded from shared storage: {len(raw_memories)}")
 
             # Count by operation_id and category for debugging
             try:
-                from collections import Counter
                 op_ids = Counter()
                 categories = Counter()
                 for m in raw_memories:
@@ -300,7 +200,8 @@ def build_report_sections(
             except Exception as debug_err:
                 logger.debug(f"Debug counter failed: {debug_err}")
 
-            logger.info(f"Filtering evidence for current operation_id: {operation_id}")
+            if not cross_operation:
+                logger.info(f"Filtering evidence for current operation_id: {operation_id}")
 
             # Select the newest active plan for this operation
             try:
@@ -337,20 +238,21 @@ def build_report_sections(
             for memory_item in raw_memories:
                 memory_content = memory_item.get("memory", "")
                 metadata = memory_item.get("metadata", {}) or {}
+                if not metadata:
+                    continue
 
                 # CRITICAL FIX: Filter evidence by operation_id to prevent cross-operation pollution
                 # Only include evidence from THIS operation for per-operation reports
-                item_op_id = str(metadata.get("operation_id", ""))
-
-                if item_op_id and item_op_id != str(operation_id):
-                    # Skip evidence from other operations
-                    logger.debug(f"Skipping evidence from different operation: {item_op_id} (current: {operation_id})")
-                    evidence_skipped += 1
-                    continue
+                if not cross_operation:
+                    item_op_id = str(metadata.get("operation_id", ""))
+                    if item_op_id and item_op_id != str(operation_id):
+                        # Skip evidence from other operations
+                        logger.debug(f"Skipping evidence from different operation: {item_op_id} (current: {operation_id})")
+                        evidence_skipped += 1
+                        continue
 
                 # Build base evidence structure
                 base_evidence = {
-                    "category": "finding",
                     "content": memory_content,
                     "id": memory_item.get("id", ""),
                     "anchor_id": ("finding-" + str(memory_item.get("id", "")))
@@ -363,15 +265,17 @@ def build_report_sections(
                 }
 
                 # Findings via metadata
-                if metadata and metadata.get("category") == "finding":
+                category = metadata.get("category")
+                if category in ["finding", "signal", "observation", "discovery"]:
                     evidence_included += 1
                     item = base_evidence.copy()
-                    sev = metadata.get("severity", "MEDIUM")
+                    sev = metadata.get("severity", "MEDIUM" if category == "finding" else "INFO")
                     conf = str(metadata.get("confidence", ""))
                     # Parse structured markers from the content so downstream sections have clean fields
                     parsed_evidence = _parse_structured_evidence(memory_content)
                     item.update(
                         {
+                            "category": category,
                             "severity": sev,
                             "confidence": conf,
                             "parsed": parsed_evidence
@@ -412,6 +316,9 @@ def build_report_sections(
             ),
             "low": sum(
                 1 for e in evidence if str(e.get("severity", "")).upper() == "LOW"
+            ),
+            "info": sum(
+                1 for e in evidence if str(e.get("severity", "")).upper() == "INFO"
             ),
         }
 
@@ -512,10 +419,8 @@ def build_report_sections(
         metrics_duration = ""
         metrics_cost = None
         try:
-            safe_target_name = sanitize_target_for_path(target)
-            log_path = os.path.join(
-                "outputs", safe_target_name, operation_id, "cyber_operations.log"
-            )
+            safe_target_name = sanitize_target_name(target)
+            log_path = os.path.join(get_output_path(target_name=safe_target_name, operation_id=operation_id), "cyber_operations.log")
             if os.path.exists(log_path):
                 with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
                     for line in f:
@@ -565,7 +470,7 @@ def build_report_sections(
 
         # Build canonical findings (first per severity) with stable anchors
         canonical_findings: Dict[str, Dict[str, Any]] = {}
-        for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+        for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
             sev_items = [
                 e for e in evidence if str(e.get("severity", "")).upper() == sev
             ]
@@ -580,7 +485,7 @@ def build_report_sections(
                 "id": top.get("id", ""),
                 "title": (
                     p.get("vulnerability")
-                    or _safe_truncate(str(top.get("content", "")), 60)
+                    or safe_truncate(str(top.get("content", "")), 60)
                 ).strip(),
                 "where": (p.get("where") or "").strip(),
                 "anchor": anchor_link,
@@ -598,6 +503,7 @@ def build_report_sections(
             "high_count": severity_counts["high"],
             "medium_count": severity_counts["medium"],
             "low_count": severity_counts["low"],
+            "info_count": severity_counts["info"],
             "module_report": "",  # LLM generates from context
             "visual_summary": "",  # LLM generates mermaid diagram
             "overview": report_content.get("overview", ""),
@@ -623,7 +529,7 @@ def build_report_sections(
             "total_tokens": metrics_total or (metrics_input + metrics_output),
             "total_duration": metrics_duration,
             "estimated_cost": (
-                f"${metrics_cost:.4f}"
+                f"{metrics_cost:.4f}"
                 if isinstance(metrics_cost, (int, float)) and metrics_cost > 0
                 else "N/A"
             ),
@@ -741,7 +647,7 @@ def _format_detailed_findings(findings: List[Dict[str, Any]], severity: str) -> 
         status = str(finding.get("validation_status") or "").strip()
 
         # Extract from parsed structure if available
-        if "parsed" in finding and finding["parsed"]:
+        if "parsed" in finding and any(finding["parsed"].values()):
             parsed = finding["parsed"]
             title = parsed.get("vulnerability", "")
             location = parsed.get("where", "")
@@ -850,13 +756,13 @@ def _format_summary_table(findings: List[Dict[str, Any]]) -> str:
     ]
 
     for i, finding in enumerate(
-        findings[:50], 1
+        findings[:MAX_REPORT_FINDINGS], 1
     ):  # Include up to 50 findings in summary
         severity = finding.get("severity", "MEDIUM")
         confidence = finding.get("confidence", "N/A")
 
         # Extract title and location
-        if "parsed" in finding and finding["parsed"]:
+        if "parsed" in finding and any(finding["parsed"].values()):
             parsed = finding["parsed"]
             title = parsed.get("vulnerability", "Finding")[:50]
             location = parsed.get("where", "N/A")[:30]
@@ -868,7 +774,7 @@ def _format_summary_table(findings: List[Dict[str, Any]]) -> str:
         table.append(f"| {i} | {severity} | {title} | {location} | {confidence} |")
 
     # Include all findings count if more than shown
-    if len(findings) > 50:
+    if len(findings) > MAX_REPORT_FINDINGS:
         table.append(f"\n*Total findings: {len(findings)}*")
 
     return "\n".join(table)
@@ -884,8 +790,6 @@ def _format_operation_plan(plan_content: str) -> str:
         plan_content = plan_content.replace("[PLAN]", "").strip()
 
     try:
-        import json
-
         plan_data = json.loads(plan_content)
 
         # Return raw plan data as JSON for LLM to format
@@ -894,90 +798,3 @@ def _format_operation_plan(plan_content: str) -> str:
         # Return raw plan if not JSON
         return plan_content
 
-
-def _generate_findings_table(
-    evidence_text: str, severity_counts: Dict[str, int]
-) -> str:
-    """Generate the Key Findings table with richer context.
-
-    Columns:
-    - Severity
-    - Count
-    - Top Finding (from evidence)
-    - Typical Location (if available)
-    - Confidence (if available)
-    """
-
-    # Derive a simple top-finding and location per severity from evidence_text using heuristics.
-    # evidence_text is grouped by headings and includes structured blocks.
-    def _extract_top_finding_and_location(block: str) -> tuple[str, str, str]:
-        title = ""
-        location = ""
-        confidence = ""
-        # Try to parse VULNERABILITY and WHERE markers
-        import re
-
-        m_v = re.search(r"\[VULNERABILITY\]\s*(.+)", block)
-        if m_v:
-            title = m_v.group(1).strip()
-        m_w = re.search(r"\[WHERE\]\s*(.+)", block)
-        if m_w:
-            location = m_w.group(1).strip()
-        m_c = re.search(r"\[CONFIDENCE\]\s*([0-9]{1,3}%)(?:\s*-.*)?", block)
-        if m_c:
-            confidence = m_c.group(1).strip()
-        # Fall back to first header-like line if no marker
-        if not title:
-            m_h = re.search(r"^####\s*\d+\.\s*(.+)$", block, re.MULTILINE)
-            if m_h:
-                title = m_h.group(1).strip()
-        return title, location, confidence
-
-    # Segment evidence_text per severity group and pick first finding
-    def _first_finding_for(sev_label: str) -> tuple[str, str, str]:
-        if not evidence_text:
-            return "", "", ""
-        import re
-
-        # Find the section starting with the severity heading
-        pattern = (
-            rf"###\s*{sev_label}\s*Findings(.*?)(?:\n###\s*[A-Z][a-z]+\s*Findings|\Z)"
-        )
-        m = re.search(pattern, evidence_text, flags=re.DOTALL)
-        if not m:
-            return "", "", ""
-        block = m.group(1)
-        # Split by '#### N. ' blocks
-        parts = re.split(r"\n####\s*\d+\.\s*", block)
-        if len(parts) < 2:
-            return "", "", ""
-        # The first element before the split header is preamble; take next non-empty
-        for p in parts[1:]:
-            if p.strip():
-                return _extract_top_finding_and_location(p)
-        return "", "", ""
-
-    rows = []
-    for sev_display, key in [
-        ("CRITICAL", "critical"),
-        ("HIGH", "high"),
-        ("MEDIUM", "medium"),
-        ("LOW", "low"),
-    ]:
-        count = int(severity_counts.get(key, 0) or 0)
-        if count > 0:
-            title, location, confidence = _first_finding_for(sev_display)
-            # Truncate for table cleanliness
-            if len(title) > 60:
-                title = title[:57] + "..."
-            if len(location) > 40:
-                location = location[:37] + "..."
-            rows.append((sev_display, count, title, location, confidence))
-
-    # Build markdown table (no extra leading pipes)
-    header = "| Severity | Count | Top Finding | Location | Confidence |\n"
-    header += "|----------|-------|-------------|----------|------------|\n"
-    table = header
-    for sev, cnt, title, loc, conf in rows:
-        table += f"| {sev} | {cnt} | {title or '-'} | {loc or '-'} | {conf or '-'} |\n"
-    return table

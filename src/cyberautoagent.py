@@ -54,7 +54,9 @@ from modules.agents.cyber_autoagent import (
 from modules.config.models.factory import get_model_timeout, configure_model_rate_limits
 from modules.config.system.environment import auto_setup, clean_operation_memory, setup_logging
 from modules.config.manager import get_config_manager
+from modules.config.types import get_default_base_dir
 from modules.handlers.base import StepLimitReached
+from modules.handlers.conversation_budget import _strip_continue_messages
 from modules.handlers.utils import (
     Colors,
     get_output_path,
@@ -65,6 +67,7 @@ from modules.handlers.utils import (
     sanitize_target_name,
     dumpstacks,
 )
+from modules.prompts.factory import get_reflection_snapshot
 from modules.tools import browser, channel_close_all
 from modules.tools.oast import close_oast_providers
 from modules.utils.telemetry import flush_traces
@@ -668,7 +671,7 @@ def main():
 
         # Initial user message to start the agent
         initial_prompt = (
-            f"Begin security assessment of {args.target} for: {args.objective}"
+            f"Conduct security assessment of {args.target} for: {args.objective}"
         )
 
         # Backward-compat helper for tests expecting get_initial_prompt to exist
@@ -681,268 +684,212 @@ def main():
         print(f"\n{Colors.DIM}{'─' * 80}{Colors.RESET}\n")
 
         # Execute autonomous operation
-        try:
-            operation_start = time.time()
-            current_message = initial_prompt
-            step0_retry = 2
-            # the number of consecutive action-less results
-            actionless_step_count = 0
+        operation_start = time.time()
+        current_message = initial_prompt
+        step0_retry = 2
+        # the number of consecutive action-less results
+        actionless_step_count = 0
 
-            # SDK-aligned execution loop with continuation support
-            while not interrupted:
-                try:
-                    print_status(
-                        f"Agent processing: {current_message[:100]}{' ...' if len(current_message) > 100 else ''}",
-                        "THINKING",
+        # SDK-aligned execution loop with continuation support
+        while not interrupted:
+            try:
+                print_status(
+                    f"Agent processing: {current_message[:100]}{' ...' if len(current_message) > 100 else ''}",
+                    "THINKING",
+                )
+                logger.debug(f"Agent processing: {current_message}")
+
+                last_step = callback_handler.current_step
+
+                _strip_continue_messages(agent)
+                _ensure_prompt_within_budget(agent)
+                # Execute agent with current message
+                result = agent(current_message)
+
+                logger.debug(f"Agent result: {repr(result)}")
+
+                # Pass the metrics from the result to the callback handler
+                if (
+                    callback_handler
+                    and hasattr(result, "metrics")
+                    and result.metrics
+                ):
+                    if hasattr(result.metrics, "accumulated_usage"):
+                        if result.metrics.accumulated_usage:
+                            # Create an object that matches what _process_metrics expects
+                            # It expects event_loop_metrics.accumulated_usage to be accessible
+                            class MetricsObject:
+                                def __init__(self, accumulated_usage):
+                                    self.accumulated_usage = accumulated_usage
+
+                            metrics_obj = MetricsObject(
+                                result.metrics.accumulated_usage
+                            )
+                            callback_handler.process_metrics(metrics_obj)
+
+                # Ensure step is incremented and detect lack of progress
+                if callback_handler and callback_handler.current_step == last_step:
+                    actionless_step_count += 1
+                    tool_total_count = sum(callback_handler.tool_counts.values())
+                    logger.debug(
+                        "Incrementing step because agent returned but callback_handler did not, actionless_step_count=%d, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
+                        actionless_step_count,
+                        str(callback_handler.pending_step_header),
+                        tool_total_count,
+                        str(getattr(callback_handler, '_reasoning_emitted_since_last_step_header', None))
                     )
-                    logger.debug(f"Agent processing: {current_message}")
+                    callback_handler.current_step += 1
+                else:
+                    actionless_step_count = 0
 
-                    last_step = callback_handler.current_step
-
-                    _ensure_prompt_within_budget(agent)
-                    # Execute agent with current message
-                    result = agent(current_message)
-
-                    logger.debug(f"Agent result: {repr(result)}")
-
-                    # Pass the metrics from the result to the callback handler
-                    if (
-                        callback_handler
-                        and hasattr(result, "metrics")
-                        and result.metrics
-                    ):
-                        if hasattr(result.metrics, "accumulated_usage"):
-                            if result.metrics.accumulated_usage:
-                                # Create an object that matches what _process_metrics expects
-                                # It expects event_loop_metrics.accumulated_usage to be accessible
-                                class MetricsObject:
-                                    def __init__(self, accumulated_usage):
-                                        self.accumulated_usage = accumulated_usage
-
-                                metrics_obj = MetricsObject(
-                                    result.metrics.accumulated_usage
-                                )
-                                callback_handler.process_metrics(metrics_obj)
-
-                    # Ensure step is incremented and detect lack of progress
-                    if callback_handler and callback_handler.current_step == last_step:
-                        actionless_step_count += 1
-                        tool_total_count = sum(callback_handler.tool_counts.values())
-                        logger.debug(
-                            "Incrementing step because agent returned but callback_handler did not, actionless_step_count=%d, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
-                            actionless_step_count,
-                            str(callback_handler.pending_step_header),
-                            tool_total_count,
-                            str(getattr(callback_handler, '_reasoning_emitted_since_last_step_header', None))
+                # Check if we should continue
+                if callback_handler and callback_handler.should_stop():
+                    if callback_handler.stop_tool_used:
+                        print_status("Stop tool used - terminating", "SUCCESS")
+                        # Generate report immediately when stop tool is used
+                        logger.info(
+                            "Stop tool detected - generating report before termination"
                         )
-                        callback_handler.current_step += 1
-                    else:
-                        actionless_step_count = 0
-
-                    # Check if we should continue
-                    if callback_handler and callback_handler.should_stop():
-                        if callback_handler.stop_tool_used:
-                            print_status("Stop tool used - terminating", "SUCCESS")
-                            # Generate report immediately when stop tool is used
-                            logger.info(
-                                "Stop tool detected - generating report before termination"
-                            )
-                            callback_handler.ensure_report_generated(
-                                agent, args.target, args.objective, args.module
-                            )
-                        elif callback_handler.has_reached_limit():
-                            print_status("Step limit reached - terminating", "SUCCESS")
-                        break
-
-                    # Allow at least one assistant turn to emit reasoning before concluding no action
-                    if callback_handler.current_step == 0:
-                        # If we've seen any reasoning emitted, give the agent one more cycle
-                        # This prevents premature termination when the first turn is pure reasoning
-                        if getattr(callback_handler, "_emitted_any_reasoning", False):
-                            logger.debug(
-                                "Initial reasoning observed with no tools yet; continuing one more cycle"
-                            )
-                        elif step0_retry <= 0:
-                            print_status("No actions taken - completing", "SUCCESS")
-                            break
-                        step0_retry -= 1
-                    # If agent hasn't done anything substantial for a while, break to avoid infinite loop
-                    elif actionless_step_count > 2:
-                        print_status(f"No actions taken after {actionless_step_count} attempts - completing", "SUCCESS")
-                        break
-
-                    # Generate continuation prompt
-                    remaining_steps = (
-                        args.iterations - callback_handler.current_step
-                        if callback_handler
-                        else args.iterations
-                    )
-                    logger.info(
-                        "Remaining steps check: iterations=%d, current_step=%d, remaining=%d",
-                        args.iterations,
-                        callback_handler.current_step if callback_handler else 0,
-                        remaining_steps,
-                    )
-                    if remaining_steps > 0:
-                        # Simple continuation message
-                        current_message = f"Continue the security assessment. You have {remaining_steps} steps remaining out of {args.iterations} total. Focus on achieving the objective efficiently."
-                    else:
-                        break
-
-                except StepLimitReached:
-                    # Handle step limit reached gracefully without context errors
-                    print_status(
-                        f"Step limit reached ({callback_handler.max_steps} steps)",
-                        "SUCCESS",
-                    )
-                    logger.debug("Step limit reached - terminating gracefully")
+                        callback_handler.ensure_report_generated(
+                            agent, args.target, args.objective, args.module
+                        )
+                    elif callback_handler.has_reached_limit():
+                        print_status("Step limit reached - terminating", "SUCCESS")
                     break
 
-                except StopIteration as error:
-                    # Strands agent completed normally - continue if we have steps left
-                    logger.debug("Agent iteration completed: %s", str(error))
-                    if (
-                        callback_handler
-                        and callback_handler.current_step > callback_handler.max_steps
-                    ):
-                        print_status("Step limit reached", "SUCCESS")
+                # Allow at least one assistant turn to emit reasoning before concluding no action
+                if callback_handler.current_step == 0:
+                    # If we've seen any reasoning emitted, give the agent one more cycle
+                    # This prevents premature termination when the first turn is pure reasoning
+                    if getattr(callback_handler, "_emitted_any_reasoning", False):
+                        logger.debug(
+                            "Initial reasoning observed with no tools yet; continuing one more cycle"
+                        )
+                    elif step0_retry <= 0:
+                        print_status("No actions taken - completing", "SUCCESS")
                         break
-                    # Continue to next iteration
+                    step0_retry -= 1
+                # If agent hasn't done anything substantial for a while, break to avoid infinite loop
+                elif actionless_step_count > 2:
+                    termination_reason = f"No actions taken after {actionless_step_count} attempts"
+                    print_status(termination_reason, "WARNING")
+                    if callback_handler:
+                        callback_handler.emit_termination("stalled", termination_reason)
+                    break
 
-                except MaxTokensReachedException:
-                    # Emit explicit termination event for UI and generate final report
+                # Generate continuation prompt
+                remaining_steps = (
+                    args.iterations - callback_handler.current_step
+                    if callback_handler
+                    else args.iterations
+                )
+                logger.info(
+                    "Remaining steps check: iterations=%d, current_step=%d, remaining=%d",
+                    args.iterations,
+                    callback_handler.current_step if callback_handler else 0,
+                    remaining_steps,
+                )
+                if remaining_steps > 0:
+                    reflection_snapshot = get_reflection_snapshot(
+                        current_step=callback_handler.current_step,
+                        max_steps=callback_handler.max_steps,
+                        plan_current_phase=None,
+                    )
+                    current_message = f"<continue_instructions>\n{reflection_snapshot}\n<continue_instructions>"
+                else:
+                    break
+
+            except StepLimitReached:
+                # Handle step limit reached gracefully without context errors
+                print_status(
+                    f"Step limit reached ({callback_handler.max_steps} steps)",
+                    "SUCCESS",
+                )
+                logger.debug("Step limit reached - terminating gracefully")
+                break
+
+            except StopIteration as error:
+                # Strands agent completed normally - continue if we have steps left
+                logger.debug("Agent iteration completed: %s", str(error))
+                if (
+                    callback_handler
+                    and callback_handler.current_step > callback_handler.max_steps
+                ):
+                    print_status("Step limit reached", "SUCCESS")
+                    break
+                # Continue to next iteration
+
+            except Exception as error:
+                # Handle other termination scenarios
+                logger.debug("Termination exception", exc_info=error)
+                error_str = str(error).lower()
+                if isinstance(error, MaxTokensReachedException) or "maxtokensreached" in error_str or "max_tokens" in error_str:
                     print_status(
                         "Token limit reached - generating final report", "WARNING"
                     )
                     try:
                         if callback_handler:
-                            # Emit a single termination_reason event for clarity in the UI
-                            termination_event = {
-                                "type": "termination_reason",
-                                "reason": "max_tokens",
-                                "message": "Model token limit reached. Switching to final report.",
-                                "current_step": getattr(
-                                    callback_handler, "current_step", 0
-                                ),
-                                "max_steps": getattr(
-                                    callback_handler, "max_steps", args.iterations
-                                ),
-                            }
-                            # Use handler's emitter directly
-                            callback_handler.emit_ui_event(
-                                termination_event)  # noqa: SLF001 (internal method okay for UI)
-                            # Generate the report immediately
+                            callback_handler.emit_termination(
+                                "max_tokens",
+                                "Model token limit reached. Switching to final report."
+                            )
                             callback_handler.ensure_report_generated(
                                 agent, args.target, args.objective, args.module
                             )
-                    except Exception:
-                        logger.debug("Failed to emit termination event for max_tokens")
-                    break
-
-                except (
-                    RequestsReadTimeout,
-                    RequestsConnectionError,
-                    BotoReadTimeoutError,
-                    BotoEndpointConnectionError,
-                    BotoConnectTimeoutError,
-                    litellm.RateLimitError,
-                    litellm.ServiceUnavailableError,
-                ) as timeout_exc:
-                    logger.debug("Network/provider timeout exception", exc_info=timeout_exc)
-                    # Network/provider timeout: emit termination_reason and pivot to report
+                    except Exception as max_tokens_finish_error:
+                        logger.error("Failed to complete for token limit error", exc_info=max_tokens_finish_error)
+                elif "event loop cycle stop requested" in error_str:
+                    # Extract the reason from the error message
+                    reason_match = re.search(r"Reason: (.+?)(?:\\n|$)", str(error))
+                    reason = (
+                        reason_match.group(1)
+                        if reason_match
+                        else "Objective achieved"
+                    )
+                    print_status(f"Agent terminated: {reason}", "SUCCESS")
+                elif "step limit" in error_str:
+                    print_status("Step limit reached", "SUCCESS")
+                elif (
+                        any(isinstance(error, error_class) for error_class in
+                            [RequestsReadTimeout,
+                             RequestsConnectionError,
+                             BotoReadTimeoutError,
+                             BotoEndpointConnectionError,
+                             BotoConnectTimeoutError,
+                             litellm.RateLimitError,
+                             litellm.ServiceUnavailableError, ]) or
+                        any(n in error_str for n in
+                            ["read timed out", "readtimeouterror", "network connection", "ratelimiterror",
+                             "serviceunavailableerror"])
+                ):
+                    logger.debug("Network/provider timeout exception", exc_info=error)
                     print_status(
                         "Network/provider timeout - generating final report", "WARNING"
                     )
                     try:
                         if callback_handler:
-                            termination_event = {
-                                "type": "termination_reason",
-                                "reason": "network_timeout",
-                                "message": "Provider/network timeout detected. Switching to final report.",
-                                "current_step": getattr(
-                                    callback_handler, "current_step", 0
-                                ),
-                                "max_steps": getattr(
-                                    callback_handler, "max_steps", args.iterations
-                                ),
-                            }
-                            callback_handler.emit_ui_event(termination_event)  # noqa: SLF001
+                            callback_handler.emit_termination(
+                                "network_timeout",
+                                "Provider/network timeout detected. Switching to final report."
+                            )
                             callback_handler.ensure_report_generated(
                                 agent, args.target, args.objective, args.module
                             )
-                    except Exception:
-                        logger.debug(
-                            "Failed to emit termination event for network timeout"
+                    except Exception as network_finish_error:
+                        logger.error("Failed to complete for network timeout", exc_info=network_finish_error)
+                else:
+                    logger.exception("Unexpected agent error occurred", exc_info=error)
+                    termination_reason = str(error)
+                    print_status(f"Agent error: {termination_reason}", "ERROR")
+                    if callback_handler:
+                        callback_handler.emit_termination(
+                            "error",
+                            termination_reason
                         )
-                    break
+                break
 
-                except Exception as error:
-                    # Handle other termination scenarios
-                    logger.debug("Termination exception", exc_info=error)
-                    error_str = str(error).lower()
-                    if "maxtokensreached" in error_str or "max_tokens" in error_str:
-                        # Fallback path if the specific exception type wasn't available
-                        print_status(
-                            "Token limit reached - generating final report", "WARNING"
-                        )
-                        try:
-                            if callback_handler:
-                                termination_event = {
-                                    "type": "termination_reason",
-                                    "reason": "max_tokens",
-                                    "message": "Model token limit reached. Switching to final report.",
-                                    "current_step": getattr(
-                                        callback_handler, "current_step", 0
-                                    ),
-                                    "max_steps": getattr(
-                                        callback_handler, "max_steps", args.iterations
-                                    ),
-                                }
-                                callback_handler.emit_ui_event(termination_event)  # noqa: SLF001
-                                callback_handler.ensure_report_generated(
-                                    agent, args.target, args.objective, args.module
-                                )
-                        except Exception:
-                            logger.debug(
-                                "Failed to emit termination event for max_tokens (fallback)"
-                            )
-                        break
-
-                    if "event loop cycle stop requested" in error_str:
-                        # Extract the reason from the error message
-                        reason_match = re.search(r"Reason: (.+?)(?:\\n|$)", str(error))
-                        reason = (
-                            reason_match.group(1)
-                            if reason_match
-                            else "Objective achieved"
-                        )
-                        print_status(f"Agent terminated: {reason}", "SUCCESS")
-                    elif "step limit" in error_str:
-                        print_status("Step limit reached", "SUCCESS")
-                    elif (
-                            any(n in error_str for n in
-                                ["read timed out", "readtimeouterror", "network connection", "ratelimiterror",
-                                 "serviceunavailableerror"])
-                    ):
-                        # TODO: combine this detection into block above that uses exception types for consistent handling
-                        # Handle provider timeouts - these are now less likely with our config
-                        # but if they occur, we should save progress and report it
-                        logger.warning(
-                            "Provider timeout detected - operation interrupted but progress saved"
-                        )
-                        print_status("Network timeout - progress saved", "WARNING")
-                        # Don't break - let finally block handle report generation
-                    else:
-                        print_status(f"Agent error: {str(error)}", "ERROR")
-                        logger.exception("Unexpected agent error occurred", exc_info=error)
-                    break
-
-            execution_time = time.time() - operation_start
-            logger.info("Operation completed in %.2f seconds", execution_time)
-
-        except Exception as e:
-            logger.error("Operation error: %s", str(e))
-            raise
+        execution_time = time.time() - operation_start
+        logger.info("Operation completed in %.2f seconds", execution_time)
 
         # Display operation results (suppressed in React mode where handler emits UI events)
         if os.environ.get("CYBER_UI_MODE", "cli").lower() != "react":
@@ -968,6 +915,16 @@ def main():
                     status_text = f"{Colors.GREEN}Objective Achieved{Colors.RESET}"
                 elif callback_handler.has_reached_limit():
                     status_text = f"{Colors.YELLOW}Step Limit Reached{Colors.RESET}"
+                elif callback_handler.termination_reason == "user_abort":
+                    status_text = f"{Colors.YELLOW}Operation Cancelled{Colors.RESET}"
+                elif callback_handler.termination_reason == "stalled":
+                    status_text = f"{Colors.RED}Operation Stalled{Colors.RESET}"
+                elif callback_handler.termination_reason == "max_tokens":
+                    status_text = f"{Colors.RED}Model Token Limit Reached{Colors.RESET}"
+                elif callback_handler.termination_reason == "network_timeout":
+                    status_text = f"{Colors.RED}Network Timeout / Rate Limit Reached{Colors.RESET}"
+                elif callback_handler.termination_reason == "error":
+                    status_text = f"{Colors.RED}Agent Error Occurred{Colors.RESET}"
                 else:
                     status_text = f"{Colors.GREEN}Operation Completed{Colors.RESET}"
 
@@ -1011,7 +968,7 @@ def main():
             elif os.getenv("OPENSEARCH_HOST"):
                 memory_location = f"OpenSearch: {os.getenv('OPENSEARCH_HOST')}"
             else:
-                memory_location = f"./outputs/{target_name}/memory"
+                memory_location = f"{get_default_base_dir()}/{target_name}/memory"
 
             # Use unified output paths for evidence storage
             evidence_location = get_output_path(
@@ -1062,7 +1019,6 @@ def main():
             # Emit a structured termination event so the UI shows a clear end-of-operation
             try:
                 if callback_handler:
-                    # Idempotent termination helper emits thinking_end, a final TERMINATED header, and the reason
                     callback_handler.emit_termination(
                         "user_abort", "Operation cancelled by user"
                     )  # noqa: SLF001
@@ -1076,8 +1032,14 @@ def main():
         sys.exit(130)
 
     except Exception as e:
-        print_status(f"\nOperation failed: {str(e)}", "ERROR")
         logger.exception("Operation failed")
+        termination_reason = str(e)
+        print_status(f"\nOperation failed: {termination_reason}", "ERROR")
+        try:
+            if callback_handler:
+                callback_handler.emit_termination("error", termination_reason)
+        except Exception:
+            pass
         sys.exit(1)
 
     finally:
@@ -1115,32 +1077,32 @@ def main():
                 close_log_outputs()
                 os._exit(1)
 
-        # Ensure final report is generated - single trigger point
-        if callback_handler:
-            try:
-                callback_handler.ensure_report_generated(
-                    agent, args.target, args.objective, args.module
-                )
-
-                # Trigger evaluation after report generation
-                logger.info("Triggering evaluation on completion")
-                callback_handler.trigger_evaluation_on_completion()
-
-                # Wait for evaluation to complete if running (uses same defaults as observability)
-                default_evaluation = os.getenv("ENABLE_OBSERVABILITY", "false")
-                if (
-                    os.getenv("ENABLE_AUTO_EVALUATION", default_evaluation).lower()
-                    == "true"
-                ):
-                    callback_handler.wait_for_evaluation_completion(
-                        timeout=max(300, get_model_timeout(agent.model, 300)))
-
-            except Exception as error:
-                logger.warning("Error in final report/evaluation: %s", error)
-        else:
-            logger.warning("No callback_handler available for evaluation trigger")
-
         if "agent" in locals():
+            # Ensure final report is generated - single trigger point
+            if callback_handler:
+                try:
+                    callback_handler.ensure_report_generated(
+                        agent, args.target, args.objective, args.module
+                    )
+
+                    # Trigger evaluation after report generation
+                    logger.info("Triggering evaluation on completion")
+                    callback_handler.trigger_evaluation_on_completion()
+
+                    # Wait for evaluation to complete if running (uses same defaults as observability)
+                    default_evaluation = os.getenv("ENABLE_OBSERVABILITY", "false")
+                    if (
+                        os.getenv("ENABLE_AUTO_EVALUATION", default_evaluation).lower()
+                        == "true"
+                    ):
+                        callback_handler.wait_for_evaluation_completion(
+                            timeout=max(300, get_model_timeout(agent.model, 300)))
+
+                except Exception as error:
+                    logger.warning("Error in final report/evaluation: %s", error)
+            else:
+                logger.warning("No callback_handler available for evaluation trigger")
+
             agent.cleanup()
 
         # Clean up resources

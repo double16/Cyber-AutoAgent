@@ -257,7 +257,11 @@ class ModelCapabilitiesResolver:
             supports_tools = "tools" in lowered
             supports_tool_choice = "tool_choice" in lowered
 
-        # Priority 4: Environment overrides (highest precedence)
+        # Priority 4: strands OpenAI and LiteLLM model classes do not support reasoning content, 1.23.0
+        if provider == "litellm":
+            supports_reason = False
+
+        # Priority 5: Environment overrides (highest precedence)
         model_l = model.lower()
         allow = os.getenv("CYBER_REASONING_ALLOW", "").lower().split(",")
         deny = os.getenv("CYBER_REASONING_DENY", "").lower().split(",")
@@ -330,12 +334,12 @@ MODEL_INPUT_LIMITS = {
     "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0": 1000000,
     "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0": 1000000,
     # AWS Bedrock - Claude Opus 4.5 (200K input)
-    "bedrock/global.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
-    "bedrock/us.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
-    "bedrock/anthropic.claude-opus-4-5-20251124-v1:0": 200000,
-    "global.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
-    "us.anthropic.claude-opus-4-5-20251124-v1:0": 200000,
-    "anthropic.claude-opus-4-5-20251124-v1:0": 200000,
+    "bedrock/global.anthropic.claude-opus-4-5-20251101-v1:0": 200000,
+    "bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0": 200000,
+    "bedrock/anthropic.claude-opus-4-5-20251101-v1:0": 200000,
+    "global.anthropic.claude-opus-4-5-20251101-v1:0": 200000,
+    "us.anthropic.claude-opus-4-5-20251101-v1:0": 200000,
+    "anthropic.claude-opus-4-5-20251101-v1:0": 200000,
     # AWS Bedrock - Claude 3 Opus/Sonnet (200K)
     "bedrock/anthropic.claude-3-opus-20240229-v1:0": 200000,
     "bedrock/anthropic.claude-3-sonnet-20240229-v1:0": 200000,

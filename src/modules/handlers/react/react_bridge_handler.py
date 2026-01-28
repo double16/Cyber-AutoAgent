@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 from strands.handlers import PrintingCallbackHandler
 
@@ -77,7 +78,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         self.start_time = time.time()
         self.model_id = model_id
         self.swarm_model_id = (
-            swarm_model_id or "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+            swarm_model_id or "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
         )
         self.init_context = init_context or {}
 
@@ -151,6 +152,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
 
         # Termination tracking (stop tool or step limit)
         self._termination_emitted = False
+        self._termination_reason: Optional[str] = None
         # Track sub-agent steps separately
         self.swarm_agent_steps = {}  # {agent_name: current_step}
         # Track python_repl preview emission per tool id to suppress generic completion
@@ -272,6 +274,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             if self._termination_emitted:
                 return
             self._termination_emitted = True
+            self._termination_reason = reason
 
             # Flush any accumulated reasoning so it doesn't appear after termination
             try:
@@ -3127,17 +3130,15 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             # Check if FAISS files exist with meaningful data (fallback for metrics issues)
             has_memory_data = False
             try:
-                import os as _os
-                from pathlib import Path
                 from modules.handlers.utils import get_output_path, sanitize_target_name
 
                 target_name = sanitize_target_name(target)
-                output_dir = get_output_path(target_name, self.operation_id, "", "./outputs")
+                output_dir = get_output_path(target_name, self.operation_id, "")
 
                 # Memory path depends on MEMORY_ISOLATION mode (default: "operation")
                 # - "operation" mode: outputs/<target>/memory/<operation_id>/mem0.faiss
                 # - "shared" mode: outputs/<target>/memory/mem0.faiss
-                isolation_mode = _os.environ.get("MEMORY_ISOLATION", "operation")
+                isolation_mode = os.environ.get("MEMORY_ISOLATION", "operation")
                 memory_base = Path(output_dir).parent / "memory"
 
                 if isolation_mode == "operation":
@@ -3252,8 +3253,6 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             # Accept any non-empty report content
             if isinstance(report_content, str) and report_content.strip():
                 try:
-                    from pathlib import Path
-
                     from modules.handlers.utils import (
                         get_output_path,
                         sanitize_target_name,
@@ -3261,7 +3260,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
 
                     target_name = sanitize_target_name(target)
                     output_dir = get_output_path(
-                        target_name, self.operation_id, "", "./outputs"
+                        target_name, self.operation_id, ""
                     )
 
                     # Create output directory if it doesn't exist
@@ -3485,6 +3484,14 @@ class ReactBridgeHandler(PrintingCallbackHandler):
     def stop_tool_used(self) -> bool:
         """Check if stop tool was used."""
         return self._stop_tool_used
+
+    @property
+    def termination_emitted(self) -> bool:
+        return self._termination_emitted
+
+    @property
+    def termination_reason(self) -> Optional[str]:
+        return self._termination_reason
 
     @property
     def report_generated(self) -> bool:

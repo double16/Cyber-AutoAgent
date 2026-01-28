@@ -4,6 +4,7 @@ import os
 
 # Add src to path for imports
 import sys
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -531,14 +532,14 @@ class TestCheckExistingMemories:
 
     @patch("modules.agents.cyber_autoagent.os.environ.get")
     @patch("modules.agents.cyber_autoagent.os.path.exists")
-    def test_check_existing_memories_sanitizes_target(self, mock_exists, mock_env_get):
+    def test_check_existing_memories_sanitizes_target(self, mock_exists, mock_env_get, outputs_dir):
         """Test check_existing_memories properly sanitizes target names"""
         mock_env_get.return_value = None  # No Mem0 or OpenSearch
-        mock_exists.return_value = False
+        mock_exists.side_effect = lambda path: path.endswith("Cyber-AutoAgent/pyproject.toml")
 
         result = check_existing_memories("https://test.com/path", "ollama")
         assert result is False
-        mock_exists.assert_called_with("outputs/test.com/memory")
+        mock_exists.assert_called_with(str((outputs_dir / "test.com" / "memory").resolve()))
 
     @patch("modules.config.manager.os.environ.get")
     @patch("modules.config.manager.os.path.exists")

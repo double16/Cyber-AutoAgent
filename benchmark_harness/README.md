@@ -12,7 +12,7 @@ docker compose --env-file ../.env up -d
 # OR
 docker compose --env-file ../.env up -d --no-deps cyber-autoagent
 ```
-
+d
 ## XBOW Benchmarks
 
 Checkout one of the benchmark repos:

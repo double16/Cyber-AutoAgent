@@ -73,7 +73,6 @@ together autonomously to solve complex, multi-faceted problems.
 """
 
 import logging
-import os
 import traceback
 from typing import Any, Dict, List, Optional
 
@@ -88,7 +87,6 @@ from strands_tools.utils import console_util
 from modules.config import get_config_manager
 from modules.config.models import get_capabilities
 from modules.config.models.factory import create_strands_model, get_model_timeout, _resolve_prompt_token_limit
-from modules.utils.telemetry import flush_traces
 
 logger = logging.getLogger(__name__)
 
@@ -599,4 +597,3 @@ def swarm(
                     agent.cleanup()
                 except Exception as e:
                     logger.debug("Cleaning up swarm agent", exc_info=e)
-            flush_traces(swarm_agents[0])

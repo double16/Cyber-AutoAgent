@@ -355,7 +355,7 @@ Artifact references include immediate context for LLM comprehension:
 | Variable                            | Default | Description                                                                                |
 |-------------------------------------|---------|--------------------------------------------------------------------------------------------|
 | `CYBER_CONTEXT_LIMIT`               | 200,000 | Maximum context window size in tokens. Used when provider-specific limits are unavailable. |
-| `CYBER_PROMPT_TELEMETRY_THRESHOLD`  | 0.65    | Reduction trigger threshold (65%)                                                          |
+| `CYBER_PROMPT_TELEMETRY_THRESHOLD`  | 0.85    | Reduction trigger threshold (85%)                                                          |
 | `CYBER_PROMPT_CACHE_RELAX`          | 0.1     | Threshold relaxation when prompt caching active                                            |
 
 #### Tool Result Handling

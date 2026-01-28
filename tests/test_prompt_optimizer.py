@@ -51,12 +51,14 @@ def _install_llm_rewrite_stubs(monkeypatch: pytest.MonkeyPatch, *, response_text
             self.kwargs = kwargs
 
     class _FakeAgent:
-        def __init__(self, model=None, name=None, system_prompt: str = "", hooks: list | None= None, trace_attributes = None):
+        def __init__(self, model=None, name=None, system_prompt: str = "", hooks: list | None = None,
+                     trace_attributes=None, conversation_manager=None):
             self.model = model
             self.name = name
             self.system_prompt = system_prompt
             self.hooks = hooks
             self.trace_attributes = trace_attributes
+            self.conversation_manager = conversation_manager
 
         def __call__(self, request: str):
             call_counter["count"] = call_counter.get("count", 0) + 1
@@ -433,3 +435,44 @@ def test_llm_rewrite_failure_count_scoped_per_operation(tmp_path, monkeypatch):
     )
     assert out2 == current_prompt
     assert calls["count"] == 4
+
+
+@pytest.mark.parametrize("prologue, epilogue", [
+    ("", ""),
+    ("<current_prompt>\n", "\n</current_prompt>"),
+    ("", "\n</current_prompt>"),
+    ("<current_prompt>\n", ""),
+    ("<current_prompt>", "</current_prompt>"),
+    ("\n<current_prompt>", "</current_prompt>\n"),
+    ("<current_prompt>\n100 chars, 5 lines\n", "\n</current_prompt>"),
+    ("100 chars, 5 lines\n", ""),
+])
+def test_llm_rewrite_cleans_current_prompt_prologue_epilogue(tmp_path, monkeypatch, prologue, epilogue):
+    _setup_env(tmp_path, monkeypatch)
+    monkeypatch.setenv("CYBER_OPERATION_ID", "OP_LINE")
+
+    # Reset per-operation failure cache between tests
+    if hasattr(_llm_rewrite_execution_prompt, "_failure_counts"):
+        _llm_rewrite_execution_prompt._failure_counts.clear()
+
+    current_prompt = (
+            "L1 " + ("x" * 60) + "\n" +
+            "<current_prompt>" +
+            "L2 " + ("y" * 60) + "\n" +
+            "</current_prompt>" +
+            "L3 " + ("z" * 60)
+    )
+    # 6 lines -> should be rejected even if within ±15% chars
+    rewritten = f"{prologue}{current_prompt}{epilogue}"
+
+    calls = {"count": 0}
+    _install_llm_rewrite_stubs(monkeypatch, response_text=rewritten, call_counter=calls)
+
+    out = _llm_rewrite_execution_prompt(
+        current_prompt=current_prompt,
+        learned_patterns="evidence",
+        remove_tactics=[],
+        focus_tactics=[],
+    )
+    assert calls["count"] == 1
+    assert out == current_prompt

@@ -13,6 +13,7 @@ class _AgentStub:
         self.messages = messages
         self.system_prompt = "stub"
         self.tool_registry = None
+        self.tool_names = []
 
 
 def _make_message(text: str) -> dict[str, Any]:
@@ -176,7 +177,7 @@ def test_reduce_context_records_event(monkeypatch):
         window_size=2, summary_ratio=0.5, preserve_recent_messages=1
     )
     agent = _AgentStub(
-        [_make_message("one"), _make_message("two"), _make_message("three")]
+        [_make_message("one"), _make_message("two"), _make_message("three"), _make_message("four")]
     )
     setattr(agent, "_pending_reduction_reason", "telemetry tokens 900")
 

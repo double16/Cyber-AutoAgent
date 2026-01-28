@@ -57,10 +57,13 @@ def get_output_path(
     Returns:
         Full path in format: {base_dir}/{target_name}/{operation_id}/{subdir}
     """
+    from modules.config.types import get_default_base_dir
     if base_dir is None:
-        base_dir = os.path.join(os.getcwd(), "outputs")
+        base_dir = get_default_base_dir()
 
-    operation_dir = os.path.join(base_dir, target_name, operation_id)
+    operation_dir = os.path.join(base_dir, target_name)
+    if operation_id:
+        operation_dir = os.path.join(operation_dir, operation_id)
     return os.path.join(operation_dir, subdir) if subdir else operation_dir
 
 
@@ -96,6 +99,9 @@ def sanitize_target_name(target: str) -> str:
 
     # Remove consecutive underscores
     sanitized = re.sub(r"_+", "_", sanitized)
+
+    # Enforce maximum length
+    sanitized = sanitized[:100]
 
     # Remove leading/trailing underscores and dots
     sanitized = sanitized.strip("_.")

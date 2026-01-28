@@ -228,10 +228,10 @@ const runAutoAssessment = async () => {
       const defaultConfig = configModule.defaultConfig || {
         // Fallback defaults if import fails
         modelProvider: 'bedrock' as const,
-        modelId: 'global.anthropic.claude-opus-4-5-20251124-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
+        modelId: 'global.anthropic.claude-opus-4-5-20251101-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
         embeddingModel: 'amazon.titan-embed-text-v2:0',
-        evaluationModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-        swarmModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+        evaluationModel: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        swarmModel: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
         awsRegion: 'us-east-1',
         dockerImage: 'cyber-autoagent:latest',
         dockerTimeout: 300,
@@ -317,8 +317,11 @@ const runAutoAssessment = async () => {
       const result = await handle.result;
 
       if (result.success) {
+          // FIXME: report time in seconds or hh:mm:ss
         loggingService.info(` Assessment completed successfully in ${result.durationMs}ms`);
+        // FIXME: stepsExecuted is reporting max steps because the promises updating stepsExecuted are set to config.iterations
         loggingService.info(` Steps executed: ${result.stepsExecuted || 'unknown'}`);
+        // FIXME: findings count is reporting unknown
         loggingService.info(` Findings: ${result.findingsCount || 'unknown'}`);
       } else {
         loggingService.error(` Assessment failed: ${result.error}`);
