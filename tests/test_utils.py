@@ -17,16 +17,16 @@ from modules.handlers.utils import (
 class TestGetOutputPath:
     """Test get_output_path function."""
 
-    def test_get_output_path_default(self):
+    def test_get_output_path_default(self, outputs_dir):
         """Test get_output_path with default parameters."""
         result = get_output_path("example_com", "OP_20240101_120000")
-        expected = str((Path.cwd() / ".." / "outputs" / "example_com" / "OP_20240101_120000").resolve())
+        expected = str((outputs_dir / "example_com" / "OP_20240101_120000").resolve())
         assert result == expected
 
-    def test_get_output_path_with_subdir(self):
+    def test_get_output_path_with_subdir(self, outputs_dir):
         """Test get_output_path with subdirectory."""
         result = get_output_path("example_com", "OP_20240101_120000", "logs")
-        expected = str((Path.cwd() / ".." / "outputs" / "example_com" / "OP_20240101_120000" / "logs").resolve())
+        expected = str((outputs_dir / "example_com" / "OP_20240101_120000" / "logs").resolve())
         assert result == expected
 
     def test_get_output_path_with_base_dir(self):
@@ -36,10 +36,10 @@ class TestGetOutputPath:
         expected = os.path.join(base_dir, "example_com", "OP_20240101_120000", "logs")
         assert result == expected
 
-    def test_get_output_path_no_subdir(self):
+    def test_get_output_path_no_subdir(self, outputs_dir):
         """Test get_output_path without subdirectory."""
         result = get_output_path("example_com", "OP_20240101_120000", "")
-        expected = str((Path.cwd() / ".." / "outputs" / "example_com" / "OP_20240101_120000").resolve())
+        expected = str((outputs_dir / "example_com" / "OP_20240101_120000").resolve())
         assert result == expected
 
 

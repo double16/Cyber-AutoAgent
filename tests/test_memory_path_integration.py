@@ -270,7 +270,7 @@ class TestMemoryToolsPathConstruction:
     @patch("modules.tools.memory.os.makedirs")
     @patch("modules.tools.memory.Mem0Memory.from_config")
     def test_faiss_path_construction(
-        self, mock_from_config, mock_makedirs, mock_config_manager
+        self, mock_from_config, mock_makedirs, mock_config_manager, outputs_dir
     ):
         """Test FAISS path construction in memory tools.
 
@@ -295,7 +295,7 @@ class TestMemoryToolsPathConstruction:
 
         # Verify makedirs was called with correct path (includes operation_id in default mode)
         # Default MEMORY_ISOLATION=operation creates per-operation stores
-        expected_path = str((Path.cwd() / ".." / "outputs" / "example.com" / "memory" / "OP_20250718_123456").resolve())
+        expected_path = str((outputs_dir / "example.com" / "memory" / "OP_20250718_123456").resolve())
         mock_makedirs.assert_called_with(expected_path, exist_ok=True)
 
     @patch("modules.tools.memory.get_config_manager")
