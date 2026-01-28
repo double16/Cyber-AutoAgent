@@ -207,7 +207,7 @@ export const ObservabilityConfig: React.FC<ObservabilityConfigProps> = ({
               type="text"
               value={config.evaluationModel || ''}
               onChange={(e) => onConfigChange({ evaluationModel: e.target.value })}
-              placeholder="us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+              placeholder="us.anthropic.claude-sonnet-4-5-20250929-v1:0"
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
             <p className="text-xs text-gray-500 mt-1">

@@ -6,7 +6,7 @@ Implements adaptive prompt rebuilding for extended operations (400+ steps)
 through context-aware rebuild triggers.
 
 Key Features:
-- Configurable rebuild intervals (default: 20 steps) for context maintenance
+- Configurable rebuild intervals (default: 20% of max steps) for context maintenance
 - Automatic execution prompt optimization using memory analysis
 - LLM-based interpretation of raw memory content without pattern dependencies
 - Plan snapshot and finding injection for context preservation
@@ -15,14 +15,18 @@ Key Features:
 
 import os
 import re
+import json
 import shutil
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from strands.hooks.events import BeforeToolCallEvent
 from strands.hooks import HookProvider, HookRegistry
 
+from modules.config import get_config_manager
 from modules.config.system.logger import get_logger
+from modules.config.types import get_default_base_dir
 
 logger = get_logger("Handlers.PromptRebuildHook")
 
@@ -31,11 +35,30 @@ class PromptRebuildHook(HookProvider):
     """Trigger-based prompt rebuilding (not every step).
 
     Rebuilds system prompt only when:
-    - Interval reached (every 20 steps by default)
+    - Interval reached (20% of max steps by default)
     - Phase transition detected
     - Execution prompt modified (agent optimized it)
     - External force_rebuild flag set
     """
+
+    @staticmethod
+    def compute_rebuild_interval(max_steps: int, cap: int = 30) -> int:
+        # 20% as an integer (floor).
+        twenty_pct = max_steps // 5
+
+        # avoid zero for small max_steps
+        if twenty_pct <= 0:
+            return 5
+
+        if twenty_pct <= cap:
+            return twenty_pct
+
+        # pick the largest <= cap that divides twenty_pct
+        for d in range(cap, 0, -1):
+            if twenty_pct % d == 0:
+                return d
+
+        return twenty_pct
 
     def __init__(
         self,
@@ -47,8 +70,10 @@ class PromptRebuildHook(HookProvider):
         operation_id: str,
         max_steps: int = 100,
         module: str = "web",
-        rebuild_interval: int = 20,
+            rebuild_interval: Optional[int] = None,
         operation_root: Optional[str] = None,
+            tools_context: Optional[str] = None,
+            has_memory_path: Optional[bool] = None,
     ):
         """Initialize the prompt rebuild hook.
 
@@ -61,29 +86,34 @@ class PromptRebuildHook(HookProvider):
             operation_id: Operation identifier
             max_steps: Maximum steps for operation
             module: Module name (e.g., 'web', 'ctf')
-            rebuild_interval: Steps between automatic rebuilds (default: 20)
+            rebuild_interval: Steps between automatic rebuilds (default: 20% of max steps)
         """
         self.callback_handler = callback_handler
         self.memory = memory_instance
+        self.has_memory_path = has_memory_path
         self.config = config
         self.target = target
         self.objective = objective
         self.operation_id = str(operation_id)
         self.max_steps = max_steps
         self.module = module
+        self.tools_context = tools_context
 
         # Rebuild tracking
         self.last_rebuild_step = 0
-        self.rebuild_interval = rebuild_interval
+        self.rebuild_interval = self.compute_rebuild_interval(
+            max_steps) if rebuild_interval is None else rebuild_interval
         self.force_rebuild = False
         self.last_phase = None
         self.last_exec_prompt_mtime = None
+
+        config_manager = get_config_manager()
 
         # Determine operation folder path
         if operation_root:
             self.operation_folder = Path(operation_root)
         else:
-            output_dir = Path(getattr(config, "output_dir", "outputs"))
+            output_dir = Path(getattr(config, "output_dir", get_default_base_dir()))
             from modules.handlers.utils import sanitize_target_name
 
             target_name = sanitize_target_name(target)
@@ -101,9 +131,13 @@ class PromptRebuildHook(HookProvider):
             except Exception:
                 self.last_exec_prompt_mtime = None
 
+        self.paths = config_manager.ensure_operation_output_dirs(
+            config_manager.get_provider(), self.target, self.operation_id, module=self.module
+        )
+
         logger.info(
             "PromptRebuildHook initialized: interval=%d, operation=%s",
-            rebuild_interval,
+            self.rebuild_interval,
             self.operation_id,
         )
 
@@ -119,13 +153,14 @@ class PromptRebuildHook(HookProvider):
             event: BeforeToolCallEvent from Strands SDK
         """
         current_step = self.callback_handler.current_step
+        execution_prompt_modified = self._execution_prompt_modified()
 
         # Determine if rebuild needed
         should_rebuild = (
             self.force_rebuild
             or (current_step - self.last_rebuild_step >= self.rebuild_interval)
             or self._phase_changed()
-            or self._execution_prompt_modified()
+            or execution_prompt_modified
         )
 
         if not should_rebuild:
@@ -153,17 +188,28 @@ class PromptRebuildHook(HookProvider):
                 operation_id=self.operation_id,
                 current_step=current_step,
                 max_steps=self.max_steps,
-                memory_overview=memory_overview,
-                plan_snapshot=plan_snapshot,
-                plan_current_phase=plan_current_phase,
                 provider=getattr(self.config, "provider", None),
+                has_memory_path=bool(self.has_memory_path),
+                has_existing_memories=(memory_overview["total_count"] > 0) if memory_overview else False,
+                memory_overview=memory_overview,
+                tools_context=self.tools_context,
                 output_config={
                     "base_dir": str(self.operation_folder.parent.parent),
                     "target_name": getattr(self.config, "target", self.target),
+                    "artifacts_path": self.paths.get("artifacts"),
+                    "tools_path": self.paths.get("tools"),
                 },
+                plan_snapshot=plan_snapshot,
+                plan_current_phase=plan_current_phase,
             )
 
-            # Reload execution prompt from disk (may have been optimized)
+            # AUTO-OPTIMIZE EXECUTION PROMPT (if enabled and step > rebuild_interval)
+            # Disabled by default to prevent LLM-based prompt modifications
+            if os.environ.get("CYBER_ENABLE_PROMPT_OPTIMIZER", "false").lower() == "true":
+                if current_step >= self.rebuild_interval and not execution_prompt_modified:
+                    self._auto_optimize_execution_prompt(parent_agent=event.agent)
+
+            # Reload execution prompt from disk (may have been optimized above or by prompt_optimizer tool)
             try:
                 module_loader = get_module_loader()
                 execution_prompt = module_loader.load_module_execution_prompt(
@@ -211,18 +257,14 @@ class PromptRebuildHook(HookProvider):
             self.last_rebuild_step = current_step
             self.force_rebuild = False
 
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("system_prompt_payload %s", new_prompt)
+
             logger.info(
                 "Prompt rebuilt: %d chars (~%d tokens)",
                 len(new_prompt),
                 len(new_prompt) // 4,
             )
-
-            # AUTO-OPTIMIZE EXECUTION PROMPT (if enabled and step 20+)
-            # Disabled by default to prevent LLM-based prompt modifications
-            if os.environ.get("CYBER_ENABLE_PROMPT_OPTIMIZER", "false").lower() == "true":
-                if current_step >= 20:
-                    self._auto_optimize_execution_prompt(parent_agent=event.agent)
-
         except Exception as e:
             logger.error("Failed to rebuild prompt: %s", e, exc_info=True)
             # Continue operation with existing prompt on rebuild failure
@@ -294,7 +336,7 @@ class PromptRebuildHook(HookProvider):
         # Find nearest checkpoint
         nearest_checkpoint = None
         for threshold in checkpoint_thresholds:
-            if progress_pct >= threshold - 5 and progress_pct <= threshold + 5:
+            if threshold - 5 <= progress_pct <= threshold + 5:
                 nearest_checkpoint = threshold
                 break
 
@@ -541,6 +583,28 @@ Without category='finding', your work will NOT appear in the final report.
                 return
 
             logger.info("Found %d recent memories", len(recent_memories))
+            # keep only relevant information
+            recent_memories = [
+                {
+                    k: v for k, v in
+                    {
+                        "memory": memory.get("memory", ""),
+                        "content": memory.get("content", ""),
+                        "category": memory.get("metadata", {}).get("category", ""),
+                        "vulnerability": memory.get("metadata", {}).get("vulnerability", ""),
+                        "severity": memory.get("metadata", {}).get("severity", ""),
+                        "confidence": memory.get("metadata", {}).get("confidence", ""),
+                        "validation_status": memory.get("metadata", {}).get("validation_status", ""),
+                        "location": memory.get("metadata", {}).get("location", ""),
+                        "impact": memory.get("metadata", {}).get("impact", ""),
+                        "evidence": memory.get("metadata", {}).get("evidence", ""),
+                        "steps": memory.get("metadata", {}).get("steps", ""),
+                    }.items()
+                    if v is not None and len(str(v)) > 0
+                }
+                for memory in recent_memories
+                if isinstance(memory, dict) and memory.get("memory", "")
+            ]
 
             # Phase 2: Load current execution prompt
             if not self.exec_prompt_path.exists():
@@ -560,8 +624,6 @@ Without category='finding', your work will NOT appear in the final report.
                 return
 
             # Phase 3: Prepare raw memory context for LLM
-            import json
-
             memory_context = json.dumps(recent_memories, indent=2, default=str)[
                 :5000
             ]  # Context size limit

@@ -17,7 +17,7 @@ Static prompts suffer from fundamental limitations that degrade performance over
 ### The Meta-Prompting Approach
 
 Our system implements true AGI principles through natural language understanding:
-- **Automatic Optimization**: Every 20 steps, the LLM reviews operational history
+- **Automatic Optimization**: Every N steps (20% of max steps), the LLM reviews operational history
 - **Natural Language Processing**: Raw memories interpreted without pattern matching
 - **Pattern-Free Design**: No regex or hardcoded rules, handles any format
 - **Context Preservation**: Critical sections protected through XML tagging
@@ -101,7 +101,7 @@ hook_instance = PromptRebuildHook(
     target=target,
     objective=objective,
     operation_id=operation_id,
-    rebuild_interval=20  # Optimization frequency (steps)
+    max_steps=100  # Optimization frequency (steps) is computed at 20% to match checkpoints
 )
 
 strands_sdk = StrandsSDK(
@@ -336,7 +336,7 @@ The system processes raw memories without pattern extraction:
 
 | Trigger           | When                                   | Action                          | Configuration        |
 |-------------------|----------------------------------------|---------------------------------|----------------------|
-| **Interval**      | Every N steps (default: 20)            | Auto-optimize + context refresh | `rebuild_interval`   |
+| **Interval**      | Every N steps (default: 20% of max)    | Auto-optimize + context refresh | `rebuild_interval`   |
 | **Phase Change**  | Phase transition detected in plan      | Rebuild with new phase context  | Automatic            |
 | **File Modified** | execution_prompt_optimized.txt changed | Reload from disk                | Automatic            |
 | **Manual**        | Force rebuild flag set                 | Immediate optimization          | `force_rebuild=True` |
@@ -376,7 +376,7 @@ prompt_optimizer(
 **Rebuild Cooldown**:
 - Minimum interval enforced via `last_rebuild_step` tracking
 - Prevents excessive optimization overhead
-- Default: 20 steps between automatic optimizations
+- Default: 20% of max steps between automatic optimizations
 
 ## Performance Metrics
 
@@ -474,7 +474,7 @@ PromptRebuildHook(
     target=target,
     objective=objective,
     operation_id=operation_id,
-    rebuild_interval=20  # Override default interval
+    rebuild_interval=30  # Override default interval
 )
 ```
 

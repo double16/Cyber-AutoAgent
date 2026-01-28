@@ -250,6 +250,7 @@ def create_agent(
     prompt_token_limit = _resolve_prompt_token_limit(
         config.provider, config.model_id
     )
+    logger.info("Prompt token limit (input tokens): %d", prompt_token_limit)
 
     # Tool router to prevent unknown-tool failures by routing to shell before execution
     # Allow configurable truncation of large tool outputs via env var
@@ -765,7 +766,8 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         logger.warning("Failed to create SystemContentBlock, falling back to plain text: %s", e)
         system_prompt_payload = system_prompt
 
-    logger.debug("system_prompt_payload %s", json.dumps(system_prompt_payload))
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("system_prompt_payload %s", json.dumps(system_prompt_payload))
 
     # It works in both CLI and React modes
     from modules.handlers.react.react_bridge_handler import ReactBridgeHandler
@@ -844,7 +846,6 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         artifact_threshold=artifact_threshold,
     )
 
-
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
     hooks: List[HookProvider] = [tool_router_hook, react_hooks, prompt_budget_hook]
     swarm_hooks: List[HookProvider] = [tool_router_hook, prompt_budget_hook]
@@ -854,6 +855,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         from modules.handlers.prompt_rebuild_hook import PromptRebuildHook
         prompt_rebuild_hook = PromptRebuildHook(
             callback_handler=callback_handler,
+            has_memory_path=bool(config.memory_path),
             memory_instance=memory_client,
             config=config,
             target=config.target,
@@ -861,7 +863,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
             operation_id=operation_id,
             max_steps=config.max_steps,
             module=config.module,
-            rebuild_interval=20,
+            tools_context=full_tools_context if full_tools_context else None,
         )
         hooks.append(prompt_rebuild_hook)
 
@@ -870,15 +872,22 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     agent_logger.debug("Creating autonomous agent")
 
     # Update conversation window size from SDK config (kept for reference)
-    conversation_window = getattr(server_config.sdk, "conversation_window_size", None)
     try:
-        window_size = (
-            int(conversation_window) if conversation_window is not None else 80
-        )
+        if config_manager.getenv("CYBER_CONVERSATION_WINDOW"):
+            window_size = max(10, config_manager.getenv_int("CYBER_CONVERSATION_WINDOW", 100))
+        else:
+            # base on prompt token limit
+            if prompt_token_limit >= 400_000:
+                window_size = 300
+            elif prompt_token_limit >= 128_000:
+                window_size = 200
+            else:
+                conversation_window = getattr(server_config.sdk, "conversation_window_size", None)
+                window_size = (
+                    int(conversation_window) if conversation_window is not None else 80
+                )
     except (TypeError, ValueError):
         window_size = 80
-    # Cap window size to 120 (default 80) for balance between context and performance
-    window_size = min(120, max(10, window_size))
 
     # Create and register conversation manager for all agents (including swarm children)
     # Use environment variables for preservation to enable effective pruning

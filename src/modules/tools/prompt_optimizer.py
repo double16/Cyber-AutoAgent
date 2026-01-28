@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import re
+
+import logging
 import os
 import shutil
 from copy import deepcopy
@@ -14,7 +17,6 @@ from typing import Any, Dict, List, Optional
 from strands import ToolContext, tool
 
 from modules.config.system.logger import get_logger
-from modules.utils.telemetry import flush_traces
 
 OVERLAY_FILENAME = "adaptive_prompt.json"
 logger = get_logger("Tools.PromptOptimizer")
@@ -616,6 +618,10 @@ def _extract_protected_blocks(text: str) -> List[str]:
     return blocks
 
 
+_CURRENT_PROMPT_PROLOGUE_RE = re.compile(r"^(\s*<current_prompt>)?(\s*\d+\s+chars,\s*\d+\s+lines)?\s*")
+_CURRENT_PROMPT_EPILOGUE_RE = re.compile(r"\s*</current_prompt>$")
+
+
 def _llm_rewrite_execution_prompt(
     current_prompt: str,
     learned_patterns: str,
@@ -890,20 +896,13 @@ CRITICAL: Output must be ≤ {len(current_prompt)} chars. This is STRICT.
     # allows test mocks
     from strands import Agent
 
-    try:
-        from opentelemetry import trace
-        span = trace.get_current_span()
-        sc = span.get_span_context()
-        logger.info(f"otel span valid? {sc.is_valid}, trace_id: {hex(sc.trace_id)}")
-    except Exception as e:
-        logger.warning(f"otel info", exc_info=e)
-
     rewriter = Agent(
         model=model,
         name=f"Cyber-prompt_optimizer {operation_id}",
         system_prompt=system_prompt,
         hooks=[ToolUseIdHook()],
         trace_attributes=trace_attributes,
+        conversation_manager=parent_agent.conversation_manager if parent_agent else None,
     )
 
     # Build the rewrite request
@@ -973,6 +972,11 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
         logger.debug("Calling LLM rewriter with %d char prompt", len(request))
         result = rewriter(request)
         rewritten = str(result).strip()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("LLM rewrite raw result: %s", repr(result))
+
+        rewritten = _CURRENT_PROMPT_PROLOGUE_RE.sub("", rewritten)
+        rewritten = _CURRENT_PROMPT_EPILOGUE_RE.sub("", rewritten)
         logger.debug("LLM rewrite returned %d chars", len(rewritten))
 
         # FLEXIBLE BOUNDS: Allow ±15% for execution prompt (one layer of multi-prompt system)
@@ -1045,4 +1049,3 @@ Length: ≤ {len(current_prompt)} chars (STRICT enforcement, zero tolerance)
             rewriter.cleanup()
         except Exception as e:
             logger.debug("Cleaning up prompt optimizer agent", exc_info=e)
-        flush_traces(rewriter)

@@ -57,6 +57,7 @@ pie title Vulnerability Distribution by Severity
     "High ({high_count})" : {high_count}
     "Medium ({medium_count})" : {medium_count}
     "Low ({low_count})" : {low_count}
+    "Info ({info_count})" : {info_count}
 ```
 
 ## REMEDIATION ROADMAP

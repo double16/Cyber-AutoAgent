@@ -8,15 +8,15 @@ SDK Contract Compliance:
 """
 
 import logging
-import os
 import re
+import json
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from strands.hooks import BeforeToolCallEvent, HookProvider  # type: ignore
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, HookProvider  # type: ignore
 from strands.types.tools import ToolResultContent
 
 from modules.handlers import sanitize_target_name
@@ -58,8 +58,6 @@ class ToolRouterHook(HookProvider):
             logger.warning("artifact_threshold > max_result_chars, truncation will occur without persisting output")
 
     def register_hooks(self, registry) -> None:  # type: ignore[no-untyped-def]
-        from strands.hooks import AfterToolCallEvent
-
         registry.add_callback(BeforeToolCallEvent, self._on_before_tool_async)
         registry.add_callback(AfterToolCallEvent, self._truncate_large_results_async)
 
@@ -88,9 +86,7 @@ class ToolRouterHook(HookProvider):
             params = {"options": str(raw_input)}
             if isinstance(raw_input, str) and raw_input.strip().startswith("{"):
                 try:
-                    import json as _json
-
-                    maybe = _json.loads(raw_input)
+                    maybe = json.loads(raw_input)
                     if isinstance(maybe, dict):
                         params = maybe
                 except Exception:
@@ -194,12 +190,9 @@ class ToolRouterHook(HookProvider):
                 artifact_path = self._persist_artifact(tool_name, payload_bytes, ext)
 
                 if artifact_path is not None:
-                    try:
-                        relative_path = os.path.relpath(artifact_path, os.getcwd())
-                    except Exception:
-                        relative_path = str(artifact_path)
+                    # use absolute paths, some models will hallucinate filesystem roots
                     summary_lines.append(
-                        f"[Tool output: {artifact_path.stat().st_size} bytes | File: {relative_path}]"
+                        f"[Tool output: {artifact_path.stat().st_size} bytes | File: {artifact_path}]"
                     )
                     logger.debug("saved tool output file to %s", artifact_path)
                 else:
@@ -284,18 +277,14 @@ class ToolRouterHook(HookProvider):
                 snippet = text[:truncate_target]
 
                 if externalized and artifact_path is not None:
-                    try:
-                        relative_path = os.path.relpath(artifact_path, os.getcwd())
-                    except Exception:
-                        relative_path = str(artifact_path)
-
+                    # use absolute paths, some models will hallucinate filesystem roots
                     summary_lines.extend(
                         [
-                            f"[Tool output: {original_size:,} chars | Inline: {len(snippet):,} chars | Full: {relative_path}]",
+                            f"[Tool output: {original_size:,} chars | Inline: {len(snippet):,} chars | Full: {artifact_path}]",
                             "",
                             snippet,
                             "",
-                            f"[Complete output saved to: {relative_path}]",
+                            f"[Complete output saved to: {artifact_path}]",
                         ]
                     )
                 else:
