@@ -130,6 +130,8 @@ class ConfigManager:
     def get_thinking_models(self) -> List[str]:
         """Get list of models that support thinking capabilities."""
         return [
+            "global.anthropic.claude-opus-4-5-20251101-v1:0",
+            "us.anthropic.claude-opus-4-5-20251101-v1:0",
             "us.anthropic.claude-opus-4-20250514-v1:0",
             "us.anthropic.claude-opus-4-1-20250805-v1:0",
             "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -482,7 +484,7 @@ class ConfigManager:
         except Exception:
             pass
         # Final fallback to safe default aligned with Bedrock memory/evaluation defaults
-        return "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+        return "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
     def get_unified_output_path(
         self,
@@ -507,12 +509,12 @@ class ConfigManager:
         output_config = self.get_output_config(server, **overrides)
         sanitized_target = sanitize_target_name(target_name)
 
-        return get_output_path(
+        return os.path.abspath(get_output_path(
             target_name=sanitized_target,
             operation_id=operation_id,
             subdir=subdir,
             base_dir=output_config.base_dir,
-        )
+        ))
 
     def ensure_operation_output_dirs(
         self,
@@ -1109,7 +1111,7 @@ class ConfigManager:
     ) -> OutputConfig:
         """Get output configuration with environment variable and override support."""
         # Get base output directory
-        base_dir = (
+        base_dir = os.path.abspath(
             overrides.get("output_dir")
             or self.getenv("CYBER_AGENT_OUTPUT_DIR")
             or get_default_base_dir()
@@ -1239,7 +1241,7 @@ def check_existing_memories(target: str, _provider: str = "bedrock") -> bool:
         else:
             # FAISS - check if local store exists with actual memory content
             # Use default relative outputs directory for compatibility with tests
-            output_dir = "outputs"
+            output_dir = get_default_base_dir()
             # Keep relative path for compatibility with tests and local runs
             # Important: tests expect the sanitized target to include dot preserved (test.com)
             # Our sanitize_target_name preserves dots, so join directly

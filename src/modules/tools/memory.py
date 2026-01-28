@@ -143,6 +143,7 @@ from strands import tool
 
 from modules.config.manager import MEM0_PROVIDER_MAP, get_config_manager
 from modules.config.system.logger import get_logger
+from modules.config.types import get_default_base_dir
 
 # Set up logging
 logger = get_logger("Tools.Memory")
@@ -198,13 +199,13 @@ TOOL_SPEC = {
         "For action='store_plan', content MUST be a dict/object (NOT a string!).\n\n"
         "EXACT FORMAT (copy this structure):\n"
         '  mem0_memory(action="store_plan", content={\n'
-        '    "objective": "CTF Challenge 63360",\n'
+        '    "objective": "Assess web application for vulnerabilities",\n'
         '    "current_phase": 1,\n'
         '    "total_phases": 3,\n'
         '    "phases": [\n'
-        '      {"id": 1, "title": "Analysis", "status": "active", "criteria": "source reviewed"},\n'
-        '      {"id": 2, "title": "Exploit", "status": "pending", "criteria": "flag extracted"},\n'
-        '      {"id": 3, "title": "Submit", "status": "pending", "criteria": "flag accepted"}\n'
+        '      {"id": 1, "title": "Discovery", "status": "active", "criteria": "Identify services running and understand attack surface"},\n'
+        '      {"id": 2, "title": "Exploit", "status": "pending", "criteria": "extract data"},\n'
+        '      {"id": 3, "title": "Validation", "status": "pending", "criteria": "confirm data is sensitive"}\n'
         "    ]\n"
         "  })\n\n"
         "Phase fields (REQUIRED, do NOT use other field names):\n"
@@ -299,17 +300,30 @@ class Mem0ServiceClient:
     """
 
     @staticmethod
+    def _remove_inactive(payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if payload is None:
+            return []
+        if not isinstance(payload, list):
+            return payload
+        payload[:] = [
+            memory
+            for memory in payload
+            if not isinstance(memory, dict) or bool(memory.get("metadata", {}).get("active", True))
+        ]
+        return payload
+
+    @staticmethod
     def _normalise_results_list(payload: Any) -> List[Dict[str, Any]]:
         """Best-effort conversion of Mem0 responses to a list of memory dicts."""
         if payload is None:
             return []
         if isinstance(payload, list):
-            return payload
+            return Mem0ServiceClient._remove_inactive(payload)
         if isinstance(payload, dict):
             for key in ("results", "memories", "data"):
                 value = payload.get(key)
                 if isinstance(value, list):
-                    return value
+                    return Mem0ServiceClient._remove_inactive(value)
         return []
 
     @staticmethod
@@ -520,7 +534,7 @@ class Mem0ServiceClient:
 
             # Get output directory from environment or config
             output_dir = os.environ.get("CYBER_AGENT_OUTPUT_DIR") or merged_config.get(
-                "output_dir", "outputs"
+                "output_dir", get_default_base_dir()
             )
 
             # Memory isolation strategy (controlled via MEMORY_ISOLATION env var)
@@ -1825,6 +1839,11 @@ def get_memory_client(silent: bool = False) -> Optional[Mem0ServiceClient]:
     return _MEMORY_CLIENT
 
 
+def clear_memory_client() -> None:
+    global _MEMORY_CLIENT
+    _MEMORY_CLIENT = None
+
+
 @tool
 def mem0_memory(
     action: str,
@@ -1840,21 +1859,21 @@ def mem0_memory(
     Memory management with automatic operation scoping and cross-session learning.
 
     QUICK START:
-        # Store finding ONLY after flag submission succeeds
+        # Store finding ONLY after verification succeeds
         mem0_memory(action="store",
-            content="[FINDING] Challenge 54373 - Flag: HTB{...} - Technique: buffer_overflow",
-            metadata={"category": "finding", "severity": "HIGH", "challenge_id": "54373",
-                      "status": "verified", "validation_status": "submission_accepted",
-                      "technique": "buffer_overflow", "artifact_hash": "sha256_of_artifact"})
+            content="[FINDING] XSS Vulnerability confirmed on [URL] endpoint with name parameter. - Technique: stored_xss",
+            metadata={"category": "finding", "severity": "HIGH",
+                      "status": "verified", "validation_status": "verified",
+                      "technique": "stored_xss", "artifact_hash": "sha256_of_artifact"})
 
         # Store observation during reconnaissance
         mem0_memory(action="store",
             content="[OBSERVATION] Discovered 15 endpoints, JWT auth, admin panel at /admin returns 403",
             metadata={"category": "observation"})
 
-        # Query verified challenges before attempting (avoid duplicate work)
-        mem0_memory(action="retrieve", query="verified challenges",
-            metadata={"category": "finding", "status": "verified", "validation_status": "submission_accepted"})
+        # Query verified findings before attempting (avoid duplicate work)
+        mem0_memory(action="retrieve", query="verified findings",
+            metadata={"category": "finding", "status": "verified", "validation_status": "verified"})
 
     ACTIONS:
         store       Store finding/observation with content and metadata
@@ -1899,7 +1918,7 @@ def mem0_memory(
 
         Cross-Learning Query Examples:
         - Learn from past: retrieve(query="SQLi techniques", cross_operation=True)
-        - Skip verified: metadata={"status": "verified"} to find solved challenges
+        - Skip verified: metadata={"status": "verified"} to find verified findings
         - Learn techniques: metadata={"category": "discovery"}
         - Avoid failures: query for failed_technique or blocker in metadata
 
@@ -1926,7 +1945,7 @@ def mem0_memory(
         query: Semantic search query for retrieve
         user_id: User ID (defaults to 'cyber_agent')
         agent_id: Agent ID
-        metadata: Dict with category (required), severity, technique, challenge_id, status, etc.
+        metadata: Dict with category (required), severity, technique, status, etc.
         cross_operation: If True, search/list across ALL operations (for cross-learning).
                         Default False = scoped to current operation only.
 
@@ -2090,16 +2109,17 @@ def mem0_memory(
 
             # Validate category field exists (CRITICAL for report generation)
             # Category is REQUIRED - agents must explicitly specify finding vs observation
+            VALID_CATEGORIES = {"finding", "signal", "observation", "discovery", "plan", "decision"}
             if "category" not in metadata:
                 raise ValueError(
                     "MISSING CATEGORY: metadata must include 'category' field.\n"
                     "  - category='finding' for exploits, vulns, flags (APPEARS IN REPORTS)\n"
                     "  - category='observation' for recon, failed attempts (background context)\n"
+                    f"VALID CATEGORIES: {', '.join(VALID_CATEGORIES)}\n"
                     "Example: metadata={'category': 'finding', 'severity': 'HIGH'}"
                 )
 
             # Validate category is a known value
-            VALID_CATEGORIES = {"finding", "signal", "observation", "discovery", "plan", "decision"}
             category_val = str(metadata.get("category", "")).lower()
             if category_val and category_val not in VALID_CATEGORIES:
                 logger.warning(
@@ -2112,13 +2132,21 @@ def mem0_memory(
             logger.debug("Category validation: category=%s", metadata.get("category"))
 
             # Consolidated validation for findings (single pass)
+            if metadata.get("category") in ["observation", "discovery"] and metadata.get("severity", "INFO") != "INFO":
+                logger.warning("category '%s' != 'finding' with severity != 'INFO', changing category to 'finding'", metadata.get("category"))
+                metadata["category"] = "finding"
+                if isinstance(cleaned_content, str):
+                    cleaned_content = (cleaned_content
+                                       .replace("[OBSERVATION]", "[FINDING]")
+                                       .replace("[DISCOVERY]", "[FINDING]"))
+
             if metadata.get("category") == "finding":
                 # 0. Warn on forbidden status="solved" (ambiguous - use verified/hypothesis)
                 status_val = str(metadata.get("status", "")).lower()
                 if status_val == "solved":
                     logger.warning(
                         "FORBIDDEN status='solved' detected - this is ambiguous. "
-                        "Use status='verified' (after submission success) or status='hypothesis' (unconfirmed). "
+                        "Use status='verified' (after verification/submission success) or status='hypothesis' (unconfirmed). "
                         "Changing to 'hypothesis' to prevent memory contamination."
                     )
                     metadata["status"] = "hypothesis"

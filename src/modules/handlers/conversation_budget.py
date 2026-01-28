@@ -154,10 +154,10 @@ CONTEXT_LIMIT = _get_context_limit()
 # Legacy alias for backward compatibility
 PROMPT_TOKEN_FALLBACK_LIMIT = CONTEXT_LIMIT
 PROMPT_TELEMETRY_THRESHOLD = max(
-    0.1, min(_get_env_float("CYBER_PROMPT_TELEMETRY_THRESHOLD", 0.65), 0.95)
+    0.1, min(_get_env_float("CYBER_PROMPT_TELEMETRY_THRESHOLD", 0.85), 0.95)
 )
 PROMPT_CACHE_RELAX = max(0.0, min(_get_env_float("CYBER_PROMPT_CACHE_RELAX", 0.1), 0.3))
-NO_REDUCTION_WARNING_RATIO = 0.8  # Warn when at 80% of limit with no reductions
+NO_REDUCTION_WARNING_RATIO = 0.9  # Warn when at 90% of limit with no reductions
 
 # Compression threshold - aligned with ToolRouterHook externalization threshold
 _TOOL_ARTIFACT_THRESHOLD = 10000
@@ -579,6 +579,43 @@ class LargeToolResultMapper:
         return ", ".join(rendered)
 
 
+class SlidingWindowConversationManagerWithPreservation(SlidingWindowConversationManager):
+    def __init__(
+            self,
+            window_size: int = 40,
+            should_truncate_results: bool = True,
+            *,
+            per_turn: bool | int = False,
+            preserve_first_messages: int = PRESERVE_FIRST_DEFAULT,
+    ):
+        super().__init__(window_size, should_truncate_results, per_turn=per_turn)
+        self.preserve_first_messages = preserve_first_messages
+
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
+        if self.preserve_first_messages < 1:
+            super().reduce_context(agent, e, **kwargs)
+        else:
+            preserve = agent.messages[:self.preserve_first_messages]
+            before_reduce_count = len(agent.messages)
+            super().reduce_context(agent, e, **kwargs)
+            messages = agent.messages
+            preserved_count = 0
+            for idx, msg in enumerate(preserve):
+                if len(messages) <= idx:
+                    messages.append(msg)
+                    preserved_count += 1
+                    self.removed_message_count -= 1
+                else:
+                    if messages[idx] != msg:
+                        messages.insert(idx, msg)
+                        preserved_count += 1
+                        self.removed_message_count -= 1
+            after_reduce_count = len(agent.messages)
+            logger.info("Preserved %d messages after sliding manager reduction", preserved_count)
+            if after_reduce_count >= before_reduce_count:
+                raise ContextWindowOverflowException("Unable to trim conversation context!") from e
+
+
 class MappingConversationManager(SummarizingConversationManager):
     """Sliding window trimming with summarization fallback and tool compression.
 
@@ -630,9 +667,10 @@ class MappingConversationManager(SummarizingConversationManager):
             summary_ratio=summary_ratio,
             preserve_recent_messages=preserve_recent_messages,
         )
-        self._sliding = SlidingWindowConversationManager(
+        self._sliding = SlidingWindowConversationManagerWithPreservation(
             window_size=window_size,
             should_truncate_results=False,  # Use our layers instead of SDK truncation
+            preserve_first_messages=preserve_first_messages,
         )
         self.mapper = tool_result_mapper or LargeToolResultMapper()
         self.preserve_first = max(0, preserve_first_messages)
@@ -817,7 +855,7 @@ class MappingConversationManager(SummarizingConversationManager):
         if len(messages) > window_size * 1.2:  # 20% buffer
             logger.warning(
                 "FORCE PRUNING: Message count %d exceeds window %d with buffer "
-                "(token estimation may be inaccurate - V17 was 87x off)",
+                "(token estimation may be inaccurate)",
                 len(messages),
                 window_size
             )
@@ -1381,6 +1419,27 @@ def _strip_reasoning_content(agent: Agent) -> None:
             "Removed %d reasoningContent blocks for model without reasoning support",
             removed_blocks,
         )
+
+
+def _strip_continue_messages(agent: Agent) -> None:
+    # Remove messages that start with "<continue_instructions>"
+    def _predicate(message) -> bool:
+        if not isinstance(message.get("content"), list):
+            return True
+        content = message.get("content")
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("text", "").startswith("<continue_instructions>"):
+                return False
+        return True
+
+    messages = getattr(agent, "messages", [])
+    messages[:] = [
+        message
+        for message in messages
+        if _predicate(message)
+    ]
 
 
 def _ensure_prompt_within_budget(agent: Agent) -> None:

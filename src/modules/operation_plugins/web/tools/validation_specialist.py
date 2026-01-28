@@ -12,7 +12,6 @@ from modules.config.models.factory import create_strands_model
 from modules.agents.patches import ToolUseIdHook
 from modules.handlers.utils import get_tool_name
 from modules.config.manager import ConfigManager
-from modules.utils.telemetry import flush_traces
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +177,7 @@ def validation_specialist(
             tools=tools,
             hooks=[ToolUseIdHook()],
             trace_attributes=trace_attributes,
+            conversation_manager=agent.conversation_manager if agent else None,
         )
 
         task = f"""Validate security finding:
@@ -228,4 +228,3 @@ Execute 7-gate validation checklist. Return JSON only."""
                 validator.cleanup()
             except Exception as e:
                 logger.debug("Cleaning up validation_specialist agent", exc_info=e)
-            flush_traces(validator)

@@ -1085,18 +1085,18 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
         updates.temperature = null;
       } else if (value === 'bedrock') {
         // Set AWS Bedrock defaults - Latest Opus 4.5 with effort parameter support
-        updates.modelId = 'global.anthropic.claude-opus-4-5-20251124-v1:0';
+        updates.modelId = 'global.anthropic.claude-opus-4-5-20251101-v1:0';
         updates.embeddingModel = 'amazon.titan-embed-text-v2:0';
-        updates.evaluationModel = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0';
-        updates.swarmModel = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0';
+        updates.evaluationModel = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+        updates.swarmModel = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
         // Clear temperature to null so backend uses model-specific defaults
         updates.temperature = null;
       } else if (value === 'litellm') {
         // Set LiteLLM defaults
-        updates.modelId = 'bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0';
+        updates.modelId = 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0';
         updates.embeddingModel = 'bedrock/amazon.titan-embed-text-v2:0';
-        updates.evaluationModel = 'bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0';
-        updates.swarmModel = 'bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0';
+        updates.evaluationModel = 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+        updates.swarmModel = 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0';
         // Clear temperature to null so backend uses model-specific defaults
         updates.temperature = null;
       }

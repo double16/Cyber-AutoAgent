@@ -163,3 +163,77 @@ class ToolUseIdHook(HookProvider):
             if isinstance(result, dict) and "toolUseId" in result:
                 result["_toolUseId"] = tool_use_id
                 result["toolUseId"] = tool_name
+
+
+_OLLAMA_MODEL_TOKEN_USAGE_PATCH_ATTR = "_caa_ollama_usage_patch_v1"
+
+
+def patch_ollama_model_token_usage(
+        *,
+        module_name: str = "strands.models.ollama",
+        cls_name: str = "OllamaModel",
+        validate: bool = True,
+) -> None:
+    """
+    Monkey-patch OllamaModel.format_chunk to correct usage token mapping.
+
+    Correct mapping for Ollama:
+      - prompt_eval_count -> inputTokens (prompt)
+      - eval_count        -> outputTokens (completion)
+
+    Notes:
+        - Idempotent: repeated calls do not stack patches.
+    """
+    mod = __import__(module_name, fromlist=[cls_name])
+    OllamaModel: Type[Any] = getattr(mod, cls_name)
+
+    if not hasattr(OllamaModel, "format_chunk"):
+        raise RuntimeError(f"{module_name}.{cls_name} has no format_chunk method")
+
+    # If already patched, do nothing (idempotent).
+    existing = getattr(OllamaModel, _OLLAMA_MODEL_TOKEN_USAGE_PATCH_ATTR, None)
+    if isinstance(existing, dict) and existing.get("is_patched") is True:
+        return
+
+    original_format_chunk = OllamaModel.format_chunk
+
+    def patched_format_chunk(self: Any, event: dict[str, Any]) -> Any:
+        out = original_format_chunk(self, event)
+
+        # Only touch metadata chunks that contain usage dict.
+        try:
+            if isinstance(out, dict) and "metadata" in out:
+                md = out.get("metadata") or {}
+                usage = md.get("usage")
+
+                if isinstance(usage, dict):
+                    data = event.get("data")
+
+                    # Ollama python client event has these fields on the event object.
+                    prompt_eval_count = getattr(data, "prompt_eval_count", None)
+                    eval_count = getattr(data, "eval_count", None)
+
+                    # Only rewrite when we can confidently read both values.
+                    if prompt_eval_count is not None and eval_count is not None:
+                        usage["inputTokens"] = int(prompt_eval_count)
+                        usage["outputTokens"] = int(eval_count)
+                        usage["totalTokens"] = int(prompt_eval_count) + int(eval_count)
+        except Exception:
+            # Never break streaming due to patch logic.
+            return out
+
+        return out
+
+    # Apply patch and record original for safe restoration.
+    OllamaModel.format_chunk = patched_format_chunk  # type: ignore[method-assign]
+    setattr(
+        OllamaModel,
+        _OLLAMA_MODEL_TOKEN_USAGE_PATCH_ATTR,
+        {
+            "is_patched": True,
+            "original": original_format_chunk,
+        },
+    )
+
+    if validate and OllamaModel.format_chunk is original_format_chunk:
+        raise RuntimeError("Patch did not apply (method reference unchanged)")

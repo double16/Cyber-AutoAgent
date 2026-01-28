@@ -13,6 +13,7 @@ from typing import List
 
 import yaml
 
+from modules.config.types import get_default_base_dir
 from modules.handlers.utils import print_status
 from modules.config.system.logger import get_logger, initialize_logger_factory
 
@@ -36,8 +37,9 @@ def clean_operation_memory(operation_id: str, target_name: str = None):
         return
 
     # Unified output structure - per-target memory
+    output_dir = get_default_base_dir()
     memory_path = os.path.join(
-        "outputs", target_name, "memory", f"mem0_faiss_{target_name}"
+        output_dir, target_name, "memory", f"mem0_faiss_{target_name}"
     )
     logger.debug("Checking memory path: %s", memory_path)
 

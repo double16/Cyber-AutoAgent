@@ -96,7 +96,7 @@ export const ENV_DETECTION = {
 
 // Default model settings
 export const MODEL_DEFAULTS = {
-  BEDROCK_MODEL: 'global.anthropic.claude-opus-4-5-20251124-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
+  BEDROCK_MODEL: 'global.anthropic.claude-opus-4-5-20251101-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
   BEDROCK_REGION: 'us-east-1',
   OPENAI_MODEL: 'gpt-5.1',
   OLLAMA_MODEL: 'llama2',

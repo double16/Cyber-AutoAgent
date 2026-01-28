@@ -11,6 +11,7 @@ import json
 import os
 import threading
 import time
+import re
 from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
@@ -39,6 +40,7 @@ _LF_TEMPLATE_TO_NAME = {
     "system_prompt.md": "cyber/system/system_prompt",
     "tools_guide.md": "cyber/system/tools_guide",
     "report_agent_system_prompt.md": "cyber/report/report_agent_system_prompt",
+    "report_agent_prompt.md": "cyber/report/report_agent_prompt",
     "report_template.md": "cyber/report/report_template",
     "report_generation_prompt.md": "cyber/report/report_generation_prompt",
 }
@@ -559,6 +561,9 @@ def _render_overlay_block(
     return "\n".join(block_lines)
 
 
+_PROMPT_VARIABLE_RE = re.compile(r"\{\{ (\w+) }}")
+
+
 def get_system_prompt(
     target: str,
     objective: str,
@@ -577,52 +582,12 @@ def get_system_prompt(
     plan_current_phase: Optional[int] = None,
 ) -> str:
     """Build the system prompt using the master template."""
-    
+
+    if remaining_steps is None:
+        remaining_steps = max(0, max_steps - current_step)
+
     # 1. Calculate Reflection Snapshot (Budget & Checkpoints)
-    reflection_snapshot = ""
-    try:
-        _budget_pct = int((current_step / max_steps) * 100) if max_steps > 0 else 0
-        _checkpoints = [int(max_steps * pct) for pct in [0.2, 0.4, 0.6, 0.8]]
-        _next_checkpoint = next((cp for cp in _checkpoints if cp > current_step), max_steps)
-        _steps_until = max(0, _next_checkpoint - current_step)
-
-        lines = []
-        lines.append(f"Budget Used: {_budget_pct}% ({current_step}/{max_steps})")
-
-        # Checkpoint-specific actionable guidance
-        if current_step in _checkpoints or (current_step > 0 and current_step == _checkpoints[0]):
-            checkpoint_idx = _checkpoints.index(current_step) if current_step in _checkpoints else 0
-            checkpoint_pct = [20, 40, 60, 80][checkpoint_idx]
-            lines.append(f"**CHECKPOINT {checkpoint_pct}% REACHED**")
-
-            if checkpoint_pct == 20:
-                lines.append("ACTION: Call get_plan. Evaluate: What capabilities gained? Phase 1 criteria met?")
-            elif checkpoint_pct == 40:
-                lines.append("ACTION: Call get_plan. Evaluate: Confidence trend rising/flat/falling? Flat = pivot NOW.")
-            elif checkpoint_pct == 60:
-                lines.append("ACTION: Call get_plan. If stuck (no findings), deploy swarm with different approach classes.")
-            elif checkpoint_pct == 80:
-                lines.append("ACTION: Call get_plan. Focus ONLY on highest-confidence path. No new exploration.")
-        else:
-            lines.append(f"Next Checkpoint: Step {_next_checkpoint} (in {_steps_until} steps)")
-            # Add warning if close to checkpoint
-            if _steps_until <= 3 and _steps_until > 0:
-                lines.append(f"Checkpoint approaching. Prepare to evaluate plan.")
-
-        if plan_current_phase is not None:
-            lines.append(f"Current Phase: {plan_current_phase}")
-
-        # Budget-based urgency
-        if _budget_pct >= 90:
-            lines.append("FINAL: Budget >90%. Verify objective complete before stop(). Check termination_policy.")
-        elif _budget_pct >= 80:
-            lines.append("CRITICAL: Budget >80%. Focus on single highest-confidence path only.")
-        elif _budget_pct >= 60:
-            lines.append("WARNING: Budget >60%. If no findings yet, deploy specialists/swarm NOW.")
-
-        reflection_snapshot = "\n".join(lines)
-    except Exception:
-        reflection_snapshot = "Budget: Unknown"
+    reflection_snapshot = get_reflection_snapshot(current_step, max_steps, plan_current_phase)
 
     # 2. Extract and format operation directories from output_config
     operation_paths_block = ""
@@ -630,23 +595,13 @@ def get_system_prompt(
         artifacts_path = output_config.get("artifacts_path", "")
         tools_path = output_config.get("tools_path", "")
 
+        # Use absolute paths, LLMs can get confused with relative paths and prepend a false root
         path_lines = []
         if isinstance(artifacts_path, str) and artifacts_path:
-            # Make path relative for cleaner display (strip /app/ prefix if present)
-            rel_artifacts = (
-                artifacts_path.replace("/app/", "")
-                if "/app/" in artifacts_path
-                else artifacts_path
-            )
-            path_lines.append(f"**ARTIFACTS DIRECTORY**: `{rel_artifacts}`")
+            path_lines.append(f"**ARTIFACTS DIRECTORY**: `{artifacts_path}`")
 
         if isinstance(tools_path, str) and tools_path:
-            rel_tools = (
-                tools_path.replace("/app/", "")
-                if "/app/" in tools_path
-                else tools_path
-            )
-            path_lines.append(f"**TOOLS DIRECTORY**: `{rel_tools}`")
+            path_lines.append(f"**TOOLS DIRECTORY**: `{tools_path}`")
 
         if path_lines:
             operation_paths_block = "\n".join(path_lines)
@@ -681,6 +636,7 @@ def get_system_prompt(
     prompt = prompt.replace("{{ operation_id }}", str(operation_id))
     prompt = prompt.replace("{{ current_step }}", str(current_step))
     prompt = prompt.replace("{{ max_steps }}", str(max_steps))
+    prompt = prompt.replace("{{ remaining_steps }}", str(remaining_steps))
     prompt = prompt.replace("{{ memory_context }}", memory_context_text)
     prompt = prompt.replace("{{ reflection_snapshot }}", reflection_snapshot)
     prompt = prompt.replace("{{ tools_guide }}", tools_guide_text)
@@ -697,7 +653,59 @@ def get_system_prompt(
     if overlay_block:
         prompt += f"\n\n{overlay_block}"
 
+    missing_variables = [m.group(1) for m in _PROMPT_VARIABLE_RE.finditer(prompt)]
+    if missing_variables:
+        logger.warning("System prompt has unknown variables: %s ", ", ".join(missing_variables))
+
     return prompt
+
+
+def get_reflection_snapshot(current_step: int, max_steps: int, plan_current_phase: int | None) -> str:
+    reflection_snapshot = ""
+    try:
+        _budget_pct = int((current_step / max_steps) * 100) if max_steps > 0 else 0
+        _checkpoints = [int(max_steps * pct) for pct in [0.2, 0.4, 0.6, 0.8]]
+        _next_checkpoint = next((cp for cp in _checkpoints if cp > current_step), max_steps)
+        _steps_until = max(0, _next_checkpoint - current_step)
+
+        lines = [f"Budget Used: {_budget_pct}% ({current_step}/{max_steps})"]
+
+        # Checkpoint-specific actionable guidance
+        if current_step in _checkpoints or (current_step > 0 and current_step == _checkpoints[0]):
+            checkpoint_idx = _checkpoints.index(current_step) if current_step in _checkpoints else 0
+            checkpoint_pct = [20, 40, 60, 80][checkpoint_idx]
+            lines.append(f"**CHECKPOINT {checkpoint_pct}% REACHED**")
+
+            if checkpoint_pct == 20:
+                lines.append("ACTION: Call get_plan. Evaluate: What capabilities gained? Phase 1 criteria met?")
+            elif checkpoint_pct == 40:
+                lines.append("ACTION: Call get_plan. Evaluate: Confidence trend rising/flat/falling? Flat = pivot NOW.")
+            elif checkpoint_pct == 60:
+                lines.append(
+                    "ACTION: Call get_plan. If stuck (no findings), deploy swarm with different approach classes.")
+            elif checkpoint_pct == 80:
+                lines.append("ACTION: Call get_plan. Focus ONLY on highest-confidence path. No new exploration.")
+        else:
+            lines.append(f"Next Checkpoint: Step {_next_checkpoint} (in {_steps_until} steps)")
+            # Add warning if close to checkpoint
+            if 3 >= _steps_until > 0:
+                lines.append(f"Checkpoint approaching. Prepare to evaluate plan.")
+
+        if plan_current_phase is not None:
+            lines.append(f"Current Phase: {plan_current_phase}")
+
+        # Budget-based urgency
+        if _budget_pct >= 90:
+            lines.append("FINAL: Budget >90%. Verify objective complete before stop(). Check termination_policy.")
+        elif _budget_pct >= 80:
+            lines.append("CRITICAL: Budget >80%. Focus on single highest-confidence path only.")
+        elif _budget_pct >= 60:
+            lines.append("WARNING: Budget >60%. If no findings yet, deploy specialists/swarm NOW.")
+
+        reflection_snapshot = "\n".join(lines)
+    except Exception:
+        reflection_snapshot = "Budget: Unknown"
+    return reflection_snapshot
 
 
 def get_report_generation_prompt(
@@ -735,6 +743,14 @@ def get_report_agent_system_prompt() -> str:
         "You are a reporting specialist. Produce a clear, structured security assessment report\n"
         "with an executive summary, key findings, and remediation recommendations."
     )
+
+
+def get_report_agent_prompt() -> str:
+    """Minimal system prompt for the dedicated report agent."""
+    template = load_prompt_template("report_agent_prompt.md")
+    if template:
+        return template
+    raise FileNotFoundError("Missing report_agent_prompt.md")
 
 
 # --- Module Prompt Loader ---
@@ -985,42 +1001,6 @@ def _get_current_date() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def _generate_findings_table(evidence_text: str) -> str:
-    """Generate a simple findings table from evidence_text (legacy).
-
-    Note: This parser is heuristic and retained for backward compatibility.
-    Prefer generate_findings_summary_table(evidence) for structured output.
-    """
-    if not evidence_text:
-        return "No findings identified during assessment."
-    findings = {"CRITICAL": [], "HIGH": [], "MEDIUM": [], "LOW": []}
-    lines = evidence_text.split("\n")
-    for line in lines:
-        for severity in findings:
-            if f"[{severity}]" in line or f"| {severity}" in line:
-                content = line
-                for marker in [f"[{severity}]", f"| {severity}]", f"| {severity} |"]:
-                    content = content.replace(marker, "")
-                content = content.strip()
-                if content.startswith("]"):
-                    content = content[1:].strip()
-                if len(content) > 80:
-                    content = content[:80] + "..."
-                if content:
-                    findings[severity].append(content)
-                break
-    table = "| Severity | Count | Key Findings |\n"
-    table += "|----------|-------|--------------|\n"
-    for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
-        count = len(findings[severity])
-        if count > 0:
-            key_findings = "; ".join(findings[severity][:2])
-            if count > 2:
-                key_findings += f" (+{count - 2} more)"
-            table += f"| {severity} | {count} | {key_findings} |\n"
-    return table
-
-
 def generate_findings_summary_table(evidence: List[Dict[str, Any]]) -> str:
     """Generate an actionable KEY FINDINGS table from structured evidence.
 
@@ -1033,19 +1013,17 @@ def generate_findings_summary_table(evidence: List[Dict[str, Any]]) -> str:
     - Confidence shows min–max range across findings in the severity group using numeric confidences
     """
     # Helper: slugify heading text to markdown anchor (GitHub-style best effort)
-    import re as _re
-
     def _slugify(text: str) -> str:
         s = text.lower()
-        s = _re.sub(r"[^a-z0-9\-\s]", "", s)
-        s = _re.sub(r"\s+", "-", s)
-        s = _re.sub(r"-+", "-", s)
+        s = re.sub(r"[^a-z0-9\-\s]", "", s)
+        s = re.sub(r"\s+", "-", s)
+        s = re.sub(r"-+", "-", s)
         return s.strip("-")
 
     def _parse_num_conf(val: str) -> Optional[float]:
         if not val:
             return None
-        m = _re.search(r"([0-9]+(?:\.[0-9]+)?)", str(val))
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)", str(val))
         if not m:
             return None
         try:
@@ -1062,6 +1040,7 @@ def generate_findings_summary_table(evidence: List[Dict[str, Any]]) -> str:
         "HIGH": [],
         "MEDIUM": [],
         "LOW": [],
+        "INFO": [],
     }
     for item in evidence or []:
         if item.get("category") != "finding":
@@ -1076,7 +1055,7 @@ def generate_findings_summary_table(evidence: List[Dict[str, Any]]) -> str:
     )
 
     rows: List[str] = []
-    for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+    for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
         items = groups[sev]
         if not items:
             continue
@@ -1086,7 +1065,7 @@ def generate_findings_summary_table(evidence: List[Dict[str, Any]]) -> str:
         parsed = top.get("parsed", {}) if isinstance(top.get("parsed"), dict) else {}
         vuln = (
             parsed.get("vulnerability")
-            or _safe_truncate(str(top.get("content", "")), 60)
+            or safe_truncate(str(top.get("content", "")), 60)
         ).strip()
         where = (parsed.get("where") or "").strip()
         if not where:
@@ -1150,9 +1129,19 @@ def generate_findings_summary_table(evidence: List[Dict[str, Any]]) -> str:
     )
 
 
-def _safe_truncate(text: str, n: int) -> str:
-    text = text.strip()
-    return text if len(text) <= n else text[: n - 3] + "..."
+def safe_truncate(text: str, n: int) -> str:
+    """Safely truncate text to n characters, preserving readability.
+
+    Adds an ellipsis when truncation occurs and handles None/empty inputs.
+    """
+    if text is None:
+        return ""
+    s = str(text).strip()
+    if len(s) <= max(0, n):
+        return s
+    if n <= 3:
+        return s[: max(0, n)]
+    return s[: n - 3] + "..."
 
 
 def _indent_text(text: str, spaces: int) -> str:
@@ -1203,13 +1192,13 @@ def format_evidence_for_report(
                 status = str(item.get("validation_status") or "").strip()
 
                 # Format the finding with parsed evidence if available
-                if "parsed" in item and item["parsed"]:
+                if "parsed" in item and any(item["parsed"].values()):
                     parsed = item["parsed"]
                     vuln_title = parsed.get("vulnerability", "Finding")
                     if vuln_title:
                         evidence_text += f"#### {finding_number}. {vuln_title}\n"
                     else:
-                        evidence_text += f"#### {finding_number}. Finding\n"
+                        evidence_text += f"#### {finding_number}. {category.capitalize()}\n"
 
                     # Display raw item severity if available, otherwise use group label
                     disp_sev = item.get("severity", severity)
@@ -1288,7 +1277,7 @@ def format_evidence_for_report(
                         evidence_text += line + "\n\n"
                         evidence_text += f"**Details:**\n```\n{content}\n```"
                     else:
-                        evidence_text += f"#### {finding_number}. {category}\n"
+                        evidence_text += f"#### {finding_number}. {category.capitalize()}\n"
                         evidence_text += f"```\n{content}\n```"
 
                 evidence_text += "\n"
@@ -1324,9 +1313,6 @@ def format_tools_summary(tools_used: List[str] | Dict[str, int]) -> str:
 
     # Deterministic order: by descending count then name
     items = sorted(tools_summary.items(), key=lambda kv: (-kv[1], kv[0]))
-
-    def pluralize(n: int, word: str) -> str:
-        return f"{n} {word}" + ("es" if word.endswith("s") else ("s" if n != 1 else ""))
 
     # Use proper pluralization for "use"
     lines = []

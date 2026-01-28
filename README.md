@@ -393,6 +393,9 @@ Cyber-AutoAgent supports multiple model providers for maximum flexibility:
 - **Supported**: 100+ models from OpenAI, Anthropic, Cohere, Google, Azure, etc.
 - **Benefits**: Switch providers easily, fallback support, unified API
 
+**OpenRouter free models**: Use [Cyber-AutoAgent-OpenRouter-CompatCheck](https://github.com/EvanThomasLuke/Cyber-AutoAgent-OpenRouter-CompatCheck) to find free models.
+(Note: your prompts are likely saved and/or used for training.)
+
 ### Comparison
 
 | Feature         | Bedrock      | Ollama             | LiteLLM            |
@@ -450,7 +453,7 @@ export ENABLE_AUTO_EVALUATION=true
 | `ENABLE_OBSERVABILITY`         | `true`                                         | Enable/disable Langfuse tracing   |
 | `ENABLE_AUTO_EVALUATION`       | `false`                                        | Enable automatic Ragas evaluation |
 | `LANGFUSE_HOST`                | `http://langfuse-web:3000`                     | Langfuse server URL               |
-| `CYBER_AGENT_EVALUATION_MODEL` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Model for evaluation              |
+| `CYBER_AGENT_EVALUATION_MODEL` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Model for evaluation              |
 
 ### Evaluation Metrics
 

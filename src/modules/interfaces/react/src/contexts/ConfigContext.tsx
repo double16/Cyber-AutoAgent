@@ -337,10 +337,10 @@ const deploymentDefaults = getDeploymentDefaults();
 export const defaultConfig: Config = {
   // Model Provider Settings
   modelProvider: 'bedrock',
-  modelId: 'global.anthropic.claude-opus-4-5-20251124-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
+  modelId: 'global.anthropic.claude-opus-4-5-20251101-v1:0', // Latest Opus 4.5 with effort parameter support (cross-region)
   embeddingModel: 'amazon.titan-embed-text-v2:0',
-  evaluationModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-  swarmModel: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+  evaluationModel: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+  swarmModel: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
   temperature: 0.95,
   awsRegion: process.env.AWS_REGION || 'us-east-1',
   awsBearerToken: process.env.AWS_BEARER_TOKEN_BEDROCK,
@@ -383,7 +383,7 @@ export const defaultConfig: Config = {
       description: 'MXBAI Embeddings - Local Ollama model (free)'
     },
     // Anthropic Claude Models (Verified AWS CLI pricing)
-    'global.anthropic.claude-opus-4-5-20251124-v1:0': {
+    'global.anthropic.claude-opus-4-5-20251101-v1:0': {
       inputCostPer1k: 0.005,
       outputCostPer1k: 0.025,
       description: 'Claude Opus 4.5 - Flagship model with effort parameter support (AWS Bedrock cross-region)'

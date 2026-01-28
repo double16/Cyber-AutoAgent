@@ -310,8 +310,7 @@ class TestConfigManager:
         assert remote_config.llm.provider == ModelProvider.AWS_BEDROCK
         assert "claude" in remote_config.llm.model_id
         assert remote_config.llm.temperature == 0.7
-        # Swarm max_tokens now uses models.dev safe defaults (50% of limit, fallback 4096)
-        assert remote_config.llm.max_tokens == 4096
+        assert remote_config.llm.max_tokens == 6000
 
     def test_get_mem0_service_config(self):
         """Test getting Mem0 service configuration."""
@@ -690,7 +689,7 @@ class TestConfigManager:
         with patch.dict(os.environ, {}, clear=True):
             self.config_manager.set_environment_variables("bedrock")
 
-            assert "claude-3-5-sonnet" in os.environ["MEM0_LLM_MODEL"]
+            assert "claude-sonnet-4-5" in os.environ["MEM0_LLM_MODEL"]
             assert "titan-embed" in os.environ["MEM0_EMBEDDING_MODEL"]
 
     @patch.dict(os.environ, {"CYBER_MCP_ENABLED": "false"})
@@ -1054,6 +1053,8 @@ class TestEnvironmentIntegration:
 
         # Test specific thinking models
         expected_models = [
+            "global.anthropic.claude-opus-4-5-20251101-v1:0",
+            "us.anthropic.claude-opus-4-5-20251101-v1:0",
             "us.anthropic.claude-opus-4-20250514-v1:0",
             "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
             "us.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -1062,6 +1063,8 @@ class TestEnvironmentIntegration:
             assert model in thinking_models
 
         # Test is_thinking_model method
+        assert config_manager.is_thinking_model("global.anthropic.claude-opus-4-5-20251101-v1:0")
+        assert config_manager.is_thinking_model("us.anthropic.claude-opus-4-5-20251101-v1:0")
         assert config_manager.is_thinking_model("us.anthropic.claude-opus-4-20250514-v1:0")
         assert config_manager.is_thinking_model("us.anthropic.claude-sonnet-4-20250514-v1:0")
         assert not config_manager.is_thinking_model("us.anthropic.claude-3-5-sonnet-20241022-v2:0")
@@ -1083,7 +1086,7 @@ class TestEnvironmentIntegration:
 
         # Test standard model configuration
         standard_config = config_manager.get_standard_model_config(
-            "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "us-east-1", "bedrock"
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "us-east-1", "bedrock"
         )
         assert standard_config["temperature"] == 0.95
         assert standard_config["max_tokens"] == MAX_TOKENS_LIMIT  # clamped

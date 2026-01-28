@@ -550,6 +550,9 @@ def create_ollama_model(
     Raises:
         Exception: If model creation fails
     """
+    from modules.agents.patches import patch_ollama_model_token_usage
+    patch_ollama_model_token_usage()
+
     # Get centralized configuration
     config_manager = _get_config_manager()
     config = config_manager.get_local_model_config(model_id, provider)

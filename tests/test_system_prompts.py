@@ -2,10 +2,13 @@
 
 import json
 import os
+import re
 import sys
 from unittest.mock import patch
 
 import pytest
+
+from modules.prompts.factory import get_reflection_snapshot
 
 # Add src to path for imports
 
@@ -269,6 +272,117 @@ class TestMemoryInstructions:
         assert "CRITICAL FIRST ACTION" in prompt
         assert "Starting fresh assessment with no previous context" in prompt
 
+
+class TestReflectionSnapshot:
+    """Test reflection snapshot logic in system prompts"""
+
+    @pytest.mark.parametrize("max_steps", [
+        100,
+        90,
+    ])
+    def test_first_step(self, max_steps):
+        snapshot = get_reflection_snapshot(0, max_steps, None)
+        assert f"Budget Used: 0% (0/{max_steps})" in snapshot
+        assert "\nNext Checkpoint: Step" in snapshot
+        assert "\nCurrent Phase:" not in snapshot
+
+    @pytest.mark.parametrize("current_step, max_steps, plan_phase", [
+        (19, 100, None),
+        (19, 100, 1),
+        (17, 90, None),
+        (17, 90, 1),
+    ])
+    def test_almost_first_checkpoint(self, current_step, max_steps, plan_phase):
+        snapshot = get_reflection_snapshot(current_step, max_steps, None)
+        assert re.search(rf"Budget Used: \d+% \({current_step}/{max_steps}\)", snapshot)
+        assert f"\nNext Checkpoint: Step {current_step + 1} (in 1 steps)" in snapshot
+        assert "\nCheckpoint approaching. Prepare to evaluate plan." in snapshot
+        if plan_phase is None:
+            assert "\nCurrent Phase:" not in snapshot
+        else:
+            assert f"\nCurrent Phase: {plan_phase}" not in snapshot
+
+    @pytest.mark.parametrize("current_step, max_steps, plan_phase", [
+        (20, 100, None),
+        (20, 100, 1),
+        (18, 90, None),
+        (18, 90, 1),
+    ])
+    def test_first_checkpoint(self, current_step, max_steps, plan_phase):
+        snapshot = get_reflection_snapshot(current_step, max_steps, None)
+        assert f"Budget Used: 20% ({current_step}/{max_steps})" in snapshot
+        assert "\n**CHECKPOINT 20% REACHED**" in snapshot
+        assert "\nACTION: Call get_plan. Evaluate: What capabilities gained? Phase 1 criteria met?" in snapshot
+        if plan_phase is None:
+            assert "\nCurrent Phase:" not in snapshot
+        else:
+            assert f"\nCurrent Phase: {plan_phase}" not in snapshot
+
+    @pytest.mark.parametrize("current_step, max_steps, plan_phase", [
+        (40, 100, None),
+        (40, 100, 2),
+        (36, 90, None),
+        (36, 90, 2),
+    ])
+    def test_second_checkpoint(self, current_step, max_steps, plan_phase):
+        snapshot = get_reflection_snapshot(current_step, max_steps, None)
+        assert f"Budget Used: 40% ({current_step}/{max_steps})" in snapshot
+        assert "\n**CHECKPOINT 40% REACHED**" in snapshot
+        assert "\nACTION: Call get_plan. Evaluate: Confidence trend rising/flat/falling? Flat = pivot NOW." in snapshot
+        if plan_phase is None:
+            assert "\nCurrent Phase:" not in snapshot
+        else:
+            assert f"\nCurrent Phase: {plan_phase}" not in snapshot
+
+    @pytest.mark.parametrize("current_step, max_steps, plan_phase", [
+        (60, 100, None),
+        (60, 100, 3),
+        (54, 90, None),
+        (54, 90, 3),
+    ])
+    def test_third_checkpoint(self, current_step, max_steps, plan_phase):
+        snapshot = get_reflection_snapshot(current_step, max_steps, None)
+        assert f"Budget Used: 60% ({current_step}/{max_steps})" in snapshot
+        assert "\n**CHECKPOINT 60% REACHED**" in snapshot
+        assert "\nACTION: Call get_plan. If stuck (no findings), deploy swarm with different approach classes." in snapshot
+        assert "\nWARNING: Budget >60%. If no findings yet, deploy specialists/swarm NOW." in snapshot
+        if plan_phase is None:
+            assert "\nCurrent Phase:" not in snapshot
+        else:
+            assert f"\nCurrent Phase: {plan_phase}" not in snapshot
+
+    @pytest.mark.parametrize("current_step, max_steps, plan_phase", [
+        (80, 100, None),
+        (80, 100, 4),
+        (72, 90, None),
+        (72, 90, 4),
+    ])
+    def test_fourth_checkpoint(self, current_step, max_steps, plan_phase):
+        snapshot = get_reflection_snapshot(current_step, max_steps, None)
+        assert f"Budget Used: 80% ({current_step}/{max_steps})" in snapshot
+        assert "\n**CHECKPOINT 80% REACHED**" in snapshot
+        assert "\nACTION: Call get_plan. Focus ONLY on highest-confidence path. No new exploration." in snapshot
+        assert "\nCRITICAL: Budget >80%. Focus on single highest-confidence path only." in snapshot
+        if plan_phase is None:
+            assert "\nCurrent Phase:" not in snapshot
+        else:
+            assert f"\nCurrent Phase: {plan_phase}" not in snapshot
+
+    @pytest.mark.parametrize("current_step, max_steps, plan_phase", [
+        (95, 100, None),
+        (95, 100, 4),
+        (86, 90, None),
+        (86, 90, 4),
+    ])
+    def test_ninety_five(self, current_step, max_steps, plan_phase):
+        snapshot = get_reflection_snapshot(current_step, max_steps, None)
+        assert f"Budget Used: 95% ({current_step}/{max_steps})" in snapshot
+        assert f"\nNext Checkpoint: Step {max_steps}" in snapshot
+        assert "\nFINAL: Budget >90%. Verify objective complete before stop(). Check termination_policy." in snapshot
+        if plan_phase is None:
+            assert "\nCurrent Phase:" not in snapshot
+        else:
+            assert f"\nCurrent Phase: {plan_phase}" not in snapshot
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

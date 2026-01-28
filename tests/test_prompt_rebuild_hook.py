@@ -256,6 +256,7 @@ def test_execution_prompt_modification_detection(
     hook = PromptRebuildHook(
         callback_handler=mock_callback_handler,
         memory_instance=mock_memory,
+        has_memory_path=True,
         config=mock_config,
         target="test-target",
         objective="test objective",
@@ -475,3 +476,31 @@ def test_rebuild_handles_errors_gracefully(
 
     # Verify prompt was not changed
     assert mock_event.agent.system_prompt == "original prompt"
+
+
+def test_default_computed_rebuild_interval(
+        mock_callback_handler, mock_memory, mock_config
+):
+    """Test that rebuilt prompt includes fresh memory and plan context."""
+    hook = PromptRebuildHook(
+        callback_handler=mock_callback_handler,
+        memory_instance=mock_memory,
+        config=mock_config,
+        target="test-target",
+        objective="test objective",
+        operation_id="OP_TEST123",
+        max_steps=120,
+    )
+
+    assert hook.rebuild_interval == 24
+
+
+def test_compute_rebuild_interval():
+    assert PromptRebuildHook.compute_rebuild_interval(100) == 20
+    assert PromptRebuildHook.compute_rebuild_interval(120) == 24
+    assert PromptRebuildHook.compute_rebuild_interval(200) == 20
+    assert PromptRebuildHook.compute_rebuild_interval(400) == 20
+    assert PromptRebuildHook.compute_rebuild_interval(1200) == 30
+    assert PromptRebuildHook.compute_rebuild_interval(10) == 2
+    assert PromptRebuildHook.compute_rebuild_interval(20) == 4
+    assert PromptRebuildHook.compute_rebuild_interval(1) == 5

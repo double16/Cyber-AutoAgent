@@ -7,6 +7,7 @@ across the entire system after the recent refactoring.
 
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from modules.config.system.environment import clean_operation_memory
@@ -294,7 +295,7 @@ class TestMemoryToolsPathConstruction:
 
         # Verify makedirs was called with correct path (includes operation_id in default mode)
         # Default MEMORY_ISOLATION=operation creates per-operation stores
-        expected_path = os.path.join("outputs", "example.com", "memory", "OP_20250718_123456")
+        expected_path = str((Path.cwd() / ".." / "outputs" / "example.com" / "memory" / "OP_20250718_123456").resolve())
         mock_makedirs.assert_called_with(expected_path, exist_ok=True)
 
     @patch("modules.tools.memory.get_config_manager")

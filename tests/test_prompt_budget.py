@@ -5,6 +5,7 @@ from modules.handlers.conversation_budget import (
     _ensure_prompt_within_budget,
     _estimate_prompt_tokens_for_agent,
     _strip_reasoning_content,
+    _strip_continue_messages,
 )
 
 
@@ -18,6 +19,7 @@ class AgentStub:
     def __init__(self, messages, limit=None, telemetry=None, output_tokens=None):
         self.messages = messages
         self.model = ModelStub(output_tokens=output_tokens)
+        self.tool_names = []
         self._prompt_token_limit = limit
         self.conversation_manager = types.SimpleNamespace(
             calls=[],
@@ -56,7 +58,7 @@ def test_ensure_prompt_reduces_context_when_near_limit():
 
 
 def test_ensure_prompt_reduces_context_when_near_limit_consider_output_tokens():
-    messages = [_make_message("x" * 2000)]
+    messages = [_make_message('user_prompt'), _make_message("x" * 2500)]
     agent = AgentStub(messages, limit=1000, output_tokens=100)
     _ensure_prompt_within_budget(agent)
     assert agent.conversation_manager.calls, "Expected reduce_context to be invoked"
@@ -65,7 +67,7 @@ def test_ensure_prompt_reduces_context_when_near_limit_consider_output_tokens():
 def test_ensure_prompt_skips_when_under_budget():
     # Use very high limit to ensure estimated tokens are under budget
     # (system prompt adds significant baseline tokens)
-    agent = AgentStub([_make_message("short text")], limit=100000)
+    agent = AgentStub([_make_message('user_prompt'), _make_message("short text")], limit=100000)
     _ensure_prompt_within_budget(agent)
     assert not agent.conversation_manager.calls
 
@@ -74,7 +76,7 @@ def test_ensure_prompt_telemetry_trigger():
     # Create messages with enough content to exceed threshold with 3.7 ratio
     # Need ~800 tokens estimated (80% of 1000 limit)
     # 800 tokens * 3.7 chars/token = ~2960 chars
-    messages = [_make_message("x" * 1500)] * 2  # 3000 chars total
+    messages = [_make_message(''), _make_message("x" * 1500), _make_message("x" * 1500)] # 3000 chars total
     agent = AgentStub(messages, limit=1000, telemetry=900)
     _ensure_prompt_within_budget(agent)
     assert agent.conversation_manager.calls, (
@@ -96,3 +98,12 @@ def test_strip_reasoning_content_keeps_when_allowed():
     setattr(agent, "_allow_reasoning_content", True)
     _strip_reasoning_content(agent)
     assert agent.messages[0]["content"] == message["content"]
+
+
+def test_strip_continue_messages():
+    messages = [_make_message(''), _make_message("<continue_instructions>\n"), _make_message("xyz")]
+    agent = AgentStub(messages)
+    _strip_continue_messages(agent)
+    assert len(agent.messages) == 2
+    assert agent.messages[0]["content"][0]["text"] == ''
+    assert agent.messages[1]["content"][0]["text"] == 'xyz'
