@@ -27,6 +27,8 @@ from strands.hooks import HookProvider, HookRegistry
 from modules.config import get_config_manager
 from modules.config.system.logger import get_logger
 from modules.config.types import get_default_base_dir
+from modules.tools import Mem0ServiceClient
+from modules.tools.memory import memory_sort_by_create_time, memory_is_cross_operation
 
 logger = get_logger("Handlers.PromptRebuildHook")
 
@@ -63,17 +65,17 @@ class PromptRebuildHook(HookProvider):
     def __init__(
         self,
         callback_handler,
-        memory_instance,
+        memory_instance: Mem0ServiceClient,
         config,
         target: str,
         objective: str,
         operation_id: str,
         max_steps: int = 100,
         module: str = "web",
-            rebuild_interval: Optional[int] = None,
+        rebuild_interval: Optional[int] = None,
         operation_root: Optional[str] = None,
-            tools_context: Optional[str] = None,
-            has_memory_path: Optional[bool] = None,
+        tools_context: Optional[str] = None,
+        has_memory_path: Optional[bool] = None,
     ):
         """Initialize the prompt rebuild hook.
 
@@ -547,33 +549,33 @@ Without category='finding', your work will NOT appear in the final report.
             return
 
         try:
-            # Phase 1: Retrieve recent memories without preprocessing
+            # Phase 1: Load current execution prompt
+            if not self.exec_prompt_path.exists():
+                logger.warning(
+                    "Execution prompt not found at %s", self.exec_prompt_path
+                )
+                return
+
+            current_prompt = self.exec_prompt_path.read_text()
+
+            # Validate prompt is not empty or placeholder
+            if not current_prompt.strip() or len(current_prompt) < 100:
+                logger.warning(
+                    "Execution prompt is empty or too short (%d chars) - skipping optimization",
+                    len(current_prompt),
+                )
+                return
+
+            # Phase 2: Retrieve recent memories
             logger.info("Gathering recent operation context...")
 
-            recent_memories = []
             try:
+                cross_operation = memory_is_cross_operation()
                 # Try to get all recent memories
-                if hasattr(self.memory, "list_memories"):
-                    memories = self.memory.list_memories(user_id="cyber_agent")
-                    # Handle both dict and list return types
-                    if isinstance(memories, dict):
-                        recent_memories = (
-                            memories.get("results", [])
-                            or memories.get("memories", [])
-                            or []
-                        )
-                    elif isinstance(memories, list):
-                        recent_memories = memories
-                    # Limit to 30 most recent
-                    recent_memories = recent_memories[:30] if recent_memories else []
-                elif hasattr(self.memory, "get_all"):
-                    recent_memories = self.memory.get_all(user_id="cyber_agent")[:30]
-                else:
-                    # Fallback to search_memories
-                    recent_memories = self.memory.search_memories(
-                        query="",  # Empty query to get all
-                        user_id="cyber_agent",
-                    )[:30]
+                recent_memories = self.memory.list_memories(
+                    user_id="cyber_agent",
+                    run_id=self.operation_id if not cross_operation else None,
+                )
             except Exception as e:
                 logger.warning("Could not retrieve memories: %s", e)
                 return
@@ -581,6 +583,18 @@ Without category='finding', your work will NOT appear in the final report.
             if not recent_memories:
                 logger.info("No memories found - skipping optimization")
                 return
+
+            # Limit to 30 most recent
+            recent_memories.sort(key=memory_sort_by_create_time, reverse=True)
+            # limit to the latest plan
+            plan_ids = list(map(lambda m: m["id"], filter(lambda m: m.get("metadata", {}).get("category", "") == "plan", recent_memories)))
+            plan_id = plan_ids[0] if plan_ids else None
+            recent_memories = [
+                memory
+                for memory in recent_memories
+                if memory.get("metadata", {}).get("category", "") != "plan" or memory.get("id", "") == plan_id
+            ]
+            recent_memories = recent_memories[:30]
 
             logger.info("Found %d recent memories", len(recent_memories))
             # keep only relevant information
@@ -605,23 +619,6 @@ Without category='finding', your work will NOT appear in the final report.
                 for memory in recent_memories
                 if isinstance(memory, dict) and memory.get("memory", "")
             ]
-
-            # Phase 2: Load current execution prompt
-            if not self.exec_prompt_path.exists():
-                logger.warning(
-                    "Execution prompt not found at %s", self.exec_prompt_path
-                )
-                return
-
-            current_prompt = self.exec_prompt_path.read_text()
-
-            # Validate prompt is not empty or placeholder
-            if not current_prompt.strip() or len(current_prompt) < 100:
-                logger.warning(
-                    "Execution prompt is empty or too short (%d chars) - skipping optimization",
-                    len(current_prompt),
-                )
-                return
 
             # Phase 3: Prepare raw memory context for LLM
             memory_context = json.dumps(recent_memories, indent=2, default=str)[

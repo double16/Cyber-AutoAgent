@@ -12,17 +12,13 @@ import os
 import threading
 import time
 import re
+import yaml
 from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import parse as _urlparse
 from urllib import request as _urlreq
-
-try:
-    import yaml  # type: ignore
-except Exception:  # pragma: no cover
-    yaml = None  # Fallback when PyYAML is unavailable
 
 from modules.config.system.logger import get_logger
 
@@ -36,11 +32,14 @@ _LF_SEEDED = False
 _LF_SEEDED_LOCK = threading.Lock()
 
 # Mapping local template filenames -> remote Langfuse prompt names
+LF_SYSTEM_PROMPT_NAME = "cyber/system/system_prompt"
+LF_REPORT_AGENT_SYSTEM_PROMPT_NAME = "cyber/report/report_agent_system_prompt"
+LF_REPORT_AGENT_PROMPT_NAME = "cyber/report/report_agent_prompt"
 _LF_TEMPLATE_TO_NAME = {
-    "system_prompt.md": "cyber/system/system_prompt",
+    "system_prompt.md": LF_SYSTEM_PROMPT_NAME,
     "tools_guide.md": "cyber/system/tools_guide",
-    "report_agent_system_prompt.md": "cyber/report/report_agent_system_prompt",
-    "report_agent_prompt.md": "cyber/report/report_agent_prompt",
+    "report_agent_system_prompt.md": LF_REPORT_AGENT_SYSTEM_PROMPT_NAME,
+    "report_agent_prompt.md": LF_REPORT_AGENT_PROMPT_NAME,
     "report_template.md": "cyber/report/report_template",
     "report_generation_prompt.md": "cyber/report/report_generation_prompt",
 }
@@ -305,8 +304,6 @@ def _read_module_yaml_for_tags(module_dir: Path) -> List[str]:
     """
     tags: List[str] = []
     try:
-        if yaml is None:
-            return tags
         for fname in ("module.yaml", "module.yml"):
             ypath = module_dir / fname
             if ypath.exists() and ypath.is_file():
@@ -943,32 +940,31 @@ class ModulePromptLoader:
         """Discover module-specific tool files under operation_plugins.
 
         Returns a list of Python file paths for tools in modules/operation_plugins/<module>/tools.
-        If module.yaml defines a 'tools' whitelist, only those tool stems are returned.
+        If module.yaml defines a 'tools' allowlist, only those tool stems are returned.
         """
         results: List[str] = []
+        allowed_tools: Optional[List[str]] = None
         try:
             tools_dir = self.plugins_dir / module_name / "tools"
             if not (tools_dir.exists() and tools_dir.is_dir()):
                 return results, None
 
-            # Attempt to read module.yaml to honor a tools whitelist
-            allowed_tools: Optional[List[str]] = None
+            # Attempt to read module.yaml to honor a tools allowlist
             try:
-                if yaml is not None:
-                    for fname in ("module.yaml", "module.yml"):
-                        ypath = self.plugins_dir / module_name / fname
-                        if ypath.exists() and ypath.is_file():
-                            data = yaml.safe_load(ypath.read_text(encoding="utf-8"))  # type: ignore[no-untyped-call]
-                            if isinstance(data, dict) and isinstance(
-                                data.get("tools"), list
-                            ):
-                                allowed_tools = [
-                                    str(t).strip() for t in data.get("tools", []) if t
-                                ]
-                            break
+                for fname in ("module.yaml", "module.yml"):
+                    ypath = self.plugins_dir / module_name / fname
+                    if ypath.exists() and ypath.is_file():
+                        data = yaml.safe_load(ypath.read_text(encoding="utf-8"))  # type: ignore[no-untyped-call]
+                        if isinstance(data, dict) and isinstance(
+                            data.get("tools"), list
+                        ):
+                            allowed_tools = [
+                                str(t).strip() for t in data.get("tools", []) if t
+                            ]
+                        break
             except Exception as ye:
                 logger.debug(
-                    "discover_module_tools: unable to parse tools whitelist for '%s': %s",
+                    "discover_module_tools: unable to parse tools allowlist for '%s': %s",
                     module_name,
                     ye,
                 )
@@ -979,7 +975,7 @@ class ModulePromptLoader:
                 stem = py.stem
                 if allowed_tools is not None:
                     if stem not in allowed_tools:
-                        # Skip non-whitelisted tools
+                        # Skip non-allowlisted tools
                         continue
                     allowed_tools.remove(stem)
                 results.append(str(py.resolve()))

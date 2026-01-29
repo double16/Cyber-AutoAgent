@@ -23,7 +23,7 @@ from modules.prompts.factory import (
     generate_findings_summary_table,
     safe_truncate,
 )
-from modules.tools.memory import Mem0ServiceClient
+from modules.tools.memory import Mem0ServiceClient, memory_sort_by_create_time, memory_is_cross_operation
 from modules.config.manager import get_config_manager
 from modules.config.system.logger import get_logger
 from modules.handlers.utils import sanitize_target_name, get_output_path
@@ -116,7 +116,7 @@ def build_report_sections(
         # Initialize memory client and retrieve evidence and plans
         evidence = []
         operation_plan = None
-        cross_operation = os.getenv("MEMORY_ISOLATION", "operation").lower() == "shared"
+        cross_operation = memory_is_cross_operation()
 
         # Prefer the existing global memory client to ensure identical backend/path
         try:
@@ -214,10 +214,7 @@ def build_report_sections(
                             plan_candidates.append(m)
 
                 # Sort by created_at descending
-                def _dt(m: Dict[str, Any]) -> str:
-                    return str(m.get("created_at", ""))
-
-                plan_candidates.sort(key=_dt, reverse=True)
+                plan_candidates.sort(key=memory_sort_by_create_time, reverse=True)
                 # Pick the first active one; else first candidate
                 for m in plan_candidates:
                     meta = m.get("metadata", {}) or {}

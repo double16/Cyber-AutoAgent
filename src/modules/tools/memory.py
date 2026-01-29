@@ -191,6 +191,14 @@ def _format_plan_as_toon(plan_content: Dict[str, Any]) -> str:
     return "\n".join([*overview_lines, *phase_lines]).strip()
 
 
+def memory_sort_by_create_time(m: Dict[str, Any]) -> str:
+    return str(m.get("created_at", ""))
+
+
+def memory_is_cross_operation() -> bool:
+    return os.getenv("MEMORY_ISOLATION", "operation").lower() == "shared"
+
+
 TOOL_SPEC = {
     "name": "mem0_memory",
     "description": (
@@ -313,17 +321,37 @@ class Mem0ServiceClient:
         return payload
 
     @staticmethod
+    def _coerce_entry(entry: Any) -> Dict[str, Any]:
+        """Ensure every entry behaves like a memory dict."""
+        if isinstance(entry, dict):
+            return entry
+        if isinstance(entry, str):
+            return {"memory": entry, "metadata": {}}
+        if entry is None:
+            return {"memory": "", "metadata": {}}
+        # Fallback stringify for unexpected types (lists/tuples/etc.)
+        try:
+            text = (
+                json.dumps(entry)
+                if isinstance(entry, (list, tuple, set))
+                else str(entry)
+            )
+        except Exception:  # pragma: no cover - defensive conversion
+            text = str(entry)
+        return {"memory": text, "metadata": {}}
+
+    @staticmethod
     def _normalise_results_list(payload: Any) -> List[Dict[str, Any]]:
         """Best-effort conversion of Mem0 responses to a list of memory dicts."""
         if payload is None:
             return []
         if isinstance(payload, list):
-            return Mem0ServiceClient._remove_inactive(payload)
+            return Mem0ServiceClient._remove_inactive([Mem0ServiceClient._coerce_entry(entry) for entry in payload])
         if isinstance(payload, dict):
             for key in ("results", "memories", "data"):
                 value = payload.get(key)
                 if isinstance(value, list):
-                    return Mem0ServiceClient._remove_inactive(value)
+                    return Mem0ServiceClient._remove_inactive([Mem0ServiceClient._coerce_entry(entry) for entry in value])
         return []
 
     @staticmethod
@@ -889,7 +917,7 @@ class Mem0ServiceClient:
         limit: Optional[int] = None,
         page: int = 1,
         run_id: Optional[str] = None,
-    ):
+    ) -> List[Dict[str, Any]]:
         """List memories for a user/agent with safe defaults and pagination.
 
         Args:
@@ -952,11 +980,7 @@ class Mem0ServiceClient:
             logger.debug("mem0.get_all returned type: %s", type(result))
             # Normalize structures
             normalised = self._normalise_results_list(result)
-            if normalised:
-                return normalised[:eff_limit]
-            if isinstance(result, list):
-                return result[:eff_limit]
-            return result
+            return normalised[:eff_limit]
         except Exception as e:
             logger.error("Error in mem0.get_all: %s", e)
             raise
@@ -967,7 +991,7 @@ class Mem0ServiceClient:
             user_id: Optional[str] = None,
             agent_id: Optional[str] = None,
             run_id: Optional[str] = None,
-    ):
+    ) -> List[Dict[str, Any]]:
         """Search memories using semantic search."""
         if not user_id and not agent_id:
             raise ValueError("Either user_id or agent_id must be provided")
@@ -1009,25 +1033,6 @@ class Mem0ServiceClient:
         filters = filters or {}
         top_k = max(int(limit or 100), 1)
 
-        def _coerce_entry(entry: Any) -> Dict[str, Any]:
-            """Ensure every entry behaves like a memory dict."""
-            if isinstance(entry, dict):
-                return entry
-            if isinstance(entry, str):
-                return {"memory": entry, "metadata": {}}
-            if entry is None:
-                return {"memory": "", "metadata": {}}
-            # Fallback stringify for unexpected types (lists/tuples/etc.)
-            try:
-                text = (
-                    json.dumps(entry)
-                    if isinstance(entry, (list, tuple, set))
-                    else str(entry)
-                )
-            except Exception:  # pragma: no cover - defensive conversion
-                text = str(entry)
-            return {"memory": text, "metadata": {}}
-
         # Try native Mem0 search first (covers FAISS/OpenSearch/Platform backends)
         if hasattr(self.mem0, "search"):
             search_kwargs: Dict[str, Any] = {"user_id": user_id}
@@ -1049,11 +1054,7 @@ class Mem0ServiceClient:
                     results = self.mem0.search(query=query, **search_kwargs)
                     normalised = self._normalise_results_list(results)
                     if normalised:
-                        coerced = [_coerce_entry(entry) for entry in normalised]
-                        return coerced[:top_k]
-                    if isinstance(results, list):
-                        coerced = [_coerce_entry(entry) for entry in results]
-                        return coerced[:top_k]
+                        return normalised[:top_k]
                 except TypeError:
                     search_kwargs.pop(size_kw, None)
                 except Exception as exc:  # pragma: no cover - backend specific
@@ -1070,17 +1071,11 @@ class Mem0ServiceClient:
             logger.warning("Fallback memory listing failed during search: %s", exc)
             return []
 
-        raw_entries = self._normalise_results_list(all_memories)
-        if not raw_entries and isinstance(all_memories, list):
-            raw_entries = all_memories
-
-        raw_entries = [_coerce_entry(entry) for entry in raw_entries]
-
         # If run_id was provided but list_memories didn't filter (backend limitation),
         # apply local filtering by operation_id in metadata
         if run_id:
-            raw_entries = [
-                e for e in raw_entries
+            all_memories = [
+                e for e in all_memories
                 if e.get("metadata", {}).get("operation_id") == run_id
                 or e.get("run_id") == run_id
             ]
@@ -1104,7 +1099,7 @@ class Mem0ServiceClient:
             terms = []
 
         results: List[Dict[str, Any]] = []
-        for entry in raw_entries:
+        for entry in all_memories:
             if filters and not _matches_filters(entry):
                 continue
 
@@ -1424,10 +1419,7 @@ class Mem0ServiceClient:
                 return None
 
             # Sort by created_at (desc). If missing, keep original order.
-            def _dt(x: Dict[str, Any]) -> str:
-                return str(x.get("metadata", {}).get("created_at", ""))
-
-            plan_items.sort(key=_dt, reverse=True)
+            plan_items.sort(key=memory_sort_by_create_time, reverse=True)
 
             # Prefer the first active plan; if none, return most recent plan
             for m in plan_items:

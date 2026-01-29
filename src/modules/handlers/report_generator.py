@@ -20,7 +20,7 @@ from modules.agents.report_agent import ReportGenerator
 from modules.config import get_config_manager
 from modules.config.system.logger import get_logger
 from modules.prompts.factory import get_report_agent_prompt
-from modules.tools.memory import get_memory_client
+from modules.tools.memory import get_memory_client, memory_is_cross_operation
 
 logger = get_logger("Handlers.ReportGenerator")
 
@@ -209,7 +209,7 @@ def _retrieve_evidence_from_memory(_operation_id: str) -> List[Dict[str, Any]]:
         List of evidence dictionaries
     """
     evidence = []
-    cross_operation = os.getenv("MEMORY_ISOLATION", "operation").lower() == "shared"
+    cross_operation = memory_is_cross_operation()
 
     try:
         # Use pre-imported memory client with silent mode to prevent output during report generation

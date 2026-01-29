@@ -1899,7 +1899,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             if not s:
                 return s
             # Grab segments ending with . ! ? : (plus following whitespace) or the tail
-            # TODO: "reasoning" text becomes confusing
+            # TODO: "reasoning" text becomes confusing, look at text_reducer.collapse_first_repeated_sequence
             parts = re.findall(r".*?(?:[\.!\?:](?=\s)|$)\s*", s, flags=re.S)
             out = []
             prev_norm = None

@@ -73,6 +73,16 @@ def auto_setup(skip_mem0_cleanup: bool = False) -> List[str]:
     """Setup directories and discover available cyber tools"""
     # Disable Mem0 telemetry to prevent PostHog connection attempts
     os.environ.setdefault("MEM0_TELEMETRY", "false")
+    try:
+        import mem0.memory.telemetry as _mem0_telemetry
+        if hasattr(_mem0_telemetry, "MEM0_TELEMETRY"):
+            setattr(_mem0_telemetry, "MEM0_TELEMETRY", False)
+        if hasattr(_mem0_telemetry, "client_telemetry"):
+            client_telemetry = _mem0_telemetry.client_telemetry
+            if hasattr(client_telemetry, "posthog"):
+                client_telemetry.posthog.disabled = True
+    except Exception:
+        pass
 
     # Create necessary directories in proper locations
     try:

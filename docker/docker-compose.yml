@@ -90,6 +90,7 @@ services:
       - MEM0_EMBEDDING_MODEL=${MEM0_EMBEDDING_MODEL}
       - MEM0_LLM_MODEL=${MEM0_LLM_MODEL}
       - OPENSEARCH_HOST=${OPENSEARCH_HOST}
+      - MEM0_TELEMETRY=false
 
       # Observability configuration (auto-detected by default, forced true in compose mode)
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}

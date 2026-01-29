@@ -150,6 +150,7 @@ cyber_tools:
   # Basics
   netcat:
     description: "Network utility for reading/writing data"
+    command: "nc"
   curl:
     description: "HTTP client for web requests"
   tcpdump:
