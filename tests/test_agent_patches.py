@@ -10,7 +10,7 @@ from modules.agents.patches import patch_model_class_tool_use_id, unpatch_model_
 def _list_id_factory(ids: list[str]):
     it = iter(ids)
 
-    def factory() -> str:
+    def factory(marker: str) -> str:
         try:
             return next(it)
         except StopIteration as e:
@@ -25,7 +25,7 @@ def _list_id_factory(ids: list[str]):
 
 class FakeModelBasicBad:
     """
-    toolUseId == name (bad) and delta repeats it.
+    toolUseId == name (bad) and delta repeats it. "contentBlockStart" before "current_tool_use"
     """
     async def stream(self):
         yield {
@@ -35,10 +35,59 @@ class FakeModelBasicBad:
         }
         yield {
             "contentBlockDelta": {
+                "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+
+
+class FakeModelBasicBad2:
+    """
+    toolUseId == name (bad) and delta repeats it. "current_tool_use" before "contentBlockStart"
+    """
+
+    async def stream(self):
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+        yield {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+        yield {
+            "contentBlockDelta": {
+                "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+
+
+class FakeModelConcurrentBad:
+    """
+    toolUseId == name (bad) and delta repeats it. Concurrent uses.
+    """
+
+    async def stream(self):
+        yield {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+        yield {
+            "contentBlockDelta": {
+                "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+        yield {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 2}}}
+            }
+        }
+        yield {
+            "contentBlockDelta": {
                 "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 2}}}
             }
         }
-        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 3}}}
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 2}}}
 
 
 class FakeModelHallucinatedName:
@@ -89,6 +138,66 @@ class FakeModelMissingNameForcedBad:
         yield {"current_tool_use": {"name": "", "toolUseId": "mytool", "input": {"x": 2}}}
 
 
+class FakeModelCurrentToolUseOnlyBad:
+    """
+    Start event has missing/empty name but a toolUseId, but "current_tool_use" only.
+    """
+
+    async def stream(self):
+        yield {"current_tool_use": {"name": "", "toolUseId": "mytool", "input": {"x": 1}}}
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 2}}}
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 3}}}
+
+
+class FakeModelCurrentToolUseOnlyGood:
+    """
+    Start event has missing/empty name but a toolUseId, but "current_tool_use" only.
+    """
+
+    async def stream(self):
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "call-123", "input": {"x": 1}}}
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "call-124", "input": {"x": 2}}}
+        yield {"current_tool_use": {"name": "mytool", "toolUseId": "call-125", "input": {"x": 3}}}
+
+
+class FakeModelContentBlockOnly:
+    """
+    toolUseId == name (bad) and delta repeats it. Concurrent uses.
+    """
+
+    async def stream(self):
+        yield {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+        yield {
+            "contentBlockDelta": {
+                "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 1}}}
+            }
+        }
+        yield {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 2}}}
+            }
+        }
+        yield {
+            "contentBlockDelta": {
+                "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 2}}}
+            }
+        }
+        yield {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 3}}}
+            }
+        }
+        yield {
+            "contentBlockDelta": {
+                "delta": {"toolUse": {"name": "mytool", "toolUseId": "mytool", "input": {"x": 3}}}
+            }
+        }
+
+
 # ----------------------------
 # Fixtures to undo class patch
 # ----------------------------
@@ -125,6 +234,23 @@ async def test_rewrites_bad_tooluseid_and_keeps_consistent_for_delta_and_current
 
 
 @pytest.mark.asyncio
+async def test_rewrites_bad_tooluseid_and_keeps_consistent_for_content_blocks():
+    patch_model_class_tool_use_id(FakeModelBasicBad2, id_factory=_list_id_factory(["fixed-1"]))
+
+    m = FakeModelBasicBad2()
+    out = [ev async for ev in m.stream()]
+
+    ctu = out[0]["current_tool_use"]
+    start = out[1]["contentBlockStart"]["start"]["toolUse"]
+    delta = out[2]["contentBlockDelta"]["delta"]["toolUse"]
+
+    assert start["toolUseId"] == "fixed-1"
+    assert delta["toolUseId"] == "fixed-1"
+    assert ctu["toolUseId"] == "fixed-1"
+    assert start["name"] == "mytool"  # name preserved in normal case
+
+
+@pytest.mark.asyncio
 async def test_state_is_per_stream_call_new_id_each_time():
     patch_model_class_tool_use_id(FakeModelBasicBad, id_factory=_list_id_factory(["fixed-1", "fixed-2"]))
 
@@ -133,11 +259,96 @@ async def test_state_is_per_stream_call_new_id_each_time():
     out1 = [ev async for ev in m.stream()]
     out2 = [ev async for ev in m.stream()]
 
-    id1 = out1[0]["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
-    id2 = out2[0]["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
+    id1cbs = out1[0]["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
+    id1ctu = out1[2]["current_tool_use"]["toolUseId"]
+    id2cbs = out2[0]["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
+    id2ctu = out2[2]["current_tool_use"]["toolUseId"]
 
-    assert id1 == "fixed-1"
-    assert id2 == "fixed-2"
+    assert id1cbs == "fixed-1"
+    assert id1ctu == "fixed-1"
+    assert id2cbs == "fixed-2"
+    assert id2ctu == "fixed-2"
+
+
+@pytest.mark.asyncio
+async def test_rewrites_bad_tooluseid_and_keeps_consistent_for_delta_concurrent():
+    patch_model_class_tool_use_id(FakeModelConcurrentBad, id_factory=_list_id_factory(["fixed-1", "fixed-2"]))
+
+    m = FakeModelConcurrentBad()
+    out = [ev async for ev in m.stream()]
+
+    start1 = out[0]["contentBlockStart"]["start"]["toolUse"]
+    delta1 = out[1]["contentBlockDelta"]["delta"]["toolUse"]
+    ctu1 = out[2]["current_tool_use"]
+    start2 = out[3]["contentBlockStart"]["start"]["toolUse"]
+    delta2 = out[4]["contentBlockDelta"]["delta"]["toolUse"]
+    ctu2 = out[5]["current_tool_use"]
+
+    assert start1["toolUseId"] == "fixed-1"
+    assert delta1["toolUseId"] == "fixed-1"
+    assert ctu1["toolUseId"] == "fixed-1"
+    assert start1["name"] == "mytool"  # name preserved in normal case
+    assert start2["toolUseId"] == "fixed-2"
+    assert delta2["toolUseId"] == "fixed-2"
+    assert ctu2["toolUseId"] == "fixed-2"
+    assert start2["name"] == "mytool"  # name preserved in normal case
+
+
+@pytest.mark.asyncio
+async def test_rewrites_bad_tooluseid_current_tool_use_only():
+    patch_model_class_tool_use_id(FakeModelCurrentToolUseOnlyBad,
+                                  id_factory=_list_id_factory(["fixed-1", "fixed-2", "fixed-3"]))
+
+    m = FakeModelCurrentToolUseOnlyBad()
+    out = [ev async for ev in m.stream()]
+
+    ctu1 = out[0]["current_tool_use"]
+    ctu2 = out[1]["current_tool_use"]
+    ctu3 = out[2]["current_tool_use"]
+
+    assert ctu1["toolUseId"] == "fixed-1"
+    assert ctu2["toolUseId"] == "fixed-2"
+    assert ctu3["toolUseId"] == "fixed-3"
+
+
+@pytest.mark.asyncio
+async def test_does_not_change_good_tooluseid_current_tool_use_only():
+    patch_model_class_tool_use_id(FakeModelCurrentToolUseOnlyGood,
+                                  id_factory=_list_id_factory(["fixed-1", "fixed-2", "fixed-3"]))
+
+    m = FakeModelCurrentToolUseOnlyGood()
+    out = [ev async for ev in m.stream()]
+
+    ctu1 = out[0]["current_tool_use"]
+    ctu2 = out[1]["current_tool_use"]
+    ctu3 = out[2]["current_tool_use"]
+
+    assert ctu1["toolUseId"] == "call-123"
+    assert ctu2["toolUseId"] == "call-124"
+    assert ctu3["toolUseId"] == "call-125"
+
+
+@pytest.mark.asyncio
+async def test_rewrites_bad_tooluseid_content_block_only():
+    patch_model_class_tool_use_id(FakeModelContentBlockOnly,
+                                  id_factory=_list_id_factory(["fixed-1", "fixed-2", "fixed-3"]))
+
+    m = FakeModelContentBlockOnly()
+    out = [ev async for ev in m.stream()]
+
+    start1 = out[0]["contentBlockStart"]["start"]["toolUse"]
+    delta1 = out[1]["contentBlockDelta"]["delta"]["toolUse"]
+    start2 = out[2]["contentBlockStart"]["start"]["toolUse"]
+    delta2 = out[3]["contentBlockDelta"]["delta"]["toolUse"]
+    start3 = out[4]["contentBlockStart"]["start"]["toolUse"]
+    delta3 = out[5]["contentBlockDelta"]["delta"]["toolUse"]
+
+    assert start1["toolUseId"] == "fixed-1"
+    assert delta1["toolUseId"] == "fixed-1"
+    assert start2["toolUseId"] == "fixed-2"
+    assert delta2["toolUseId"] == "fixed-2"
+    assert start3["toolUseId"] == "fixed-3"
+    assert delta3["toolUseId"] == "fixed-3"
 
 
 @pytest.mark.asyncio
@@ -170,14 +381,8 @@ async def test_does_not_change_already_unique_tooluseid():
 
 @pytest.mark.asyncio
 async def test_missing_name_is_filled_with_old_tooluseid_when_forced_bad():
-    # Force the bad-id path when name is empty string, to cover:
-    #   if not name: tool_use["name"] = tuid
-    def force_bad_id(tool_use_id, tool_name) -> bool:
-        return not tool_name  # treat missing/empty name as bad
-
     patch_model_class_tool_use_id(
         FakeModelMissingNameForcedBad,
-        is_bad_id=force_bad_id,
         id_factory=_list_id_factory(["fixed-1", "fixed-2"]),
     )
 
@@ -245,7 +450,73 @@ def test_tooluseid_hook_registers_after_tool_call_callback():
     assert getattr(callback, "__func__", None) is ToolUseIdHook.revert_tool_use_id
 
 
-def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present():
+def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_E():
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_E-deadbeef"}
+            self.result = {"toolUseId": "tooluse_E-deadbeef", "ok": True}
+
+    ev = Event()
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    # tool_use reverted
+    assert ev.tool_use["name"] == "mem0_memory"
+    assert ev.tool_use["toolUseId"] == "mem0_memory"
+    assert ev.tool_use["_toolUseId"] == "tooluse_E-deadbeef"
+
+    # result reverted
+    assert "name" not in ev.result
+    assert ev.result["toolUseId"] == "mem0_memory"
+    assert ev.result["_toolUseId"] == "tooluse_E-deadbeef"
+
+
+def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_N():
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_N-deadbeef"}
+            self.result = {"toolUseId": "tooluse_N-deadbeef", "ok": True}
+
+    ev = Event()
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    # tool_use reverted
+    assert ev.tool_use["name"] == ""
+    assert ev.tool_use["toolUseId"] == "mem0_memory"
+    assert ev.tool_use["_toolUseId"] == "tooluse_N-deadbeef"
+
+    # result reverted
+    assert "name" not in ev.result
+    assert ev.result["toolUseId"] == "mem0_memory"
+    assert ev.result["_toolUseId"] == "tooluse_N-deadbeef"
+
+
+def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_X():
+    hook = ToolUseIdHook()
+
+    class Event:
+        def __init__(self):
+            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_X-deadbeef"}
+            self.result = {"toolUseId": "tooluse_X-deadbeef", "ok": True}
+
+    ev = Event()
+    hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
+
+    # tool_use reverted
+    assert ev.tool_use["name"] == "mem0_memory"
+    assert not ev.tool_use["toolUseId"]
+    assert ev.tool_use["_toolUseId"] == "tooluse_X-deadbeef"
+
+    # result reverted
+    assert "name" not in ev.result
+    assert not ev.result["toolUseId"]
+    assert ev.result["_toolUseId"] == "tooluse_X-deadbeef"
+
+
+def test_tooluseid_hook_preserves_hallucinated_tooluseid():
     hook = ToolUseIdHook()
 
     class Event:
@@ -257,12 +528,14 @@ def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present()
     hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
 
     # tool_use reverted
-    assert ev.tool_use["toolUseId"] == "mem0_memory"
-    assert ev.tool_use["_toolUseId"] == "tooluse_deadbeef"
+    assert ev.tool_use["name"] == "mem0_memory"
+    assert ev.tool_use["toolUseId"] == "tooluse_deadbeef"
+    assert "_toolUseId" not in ev.tool_use
 
     # result reverted
-    assert ev.result["toolUseId"] == "mem0_memory"
-    assert ev.result["_toolUseId"] == "tooluse_deadbeef"
+    assert "name" not in ev.result
+    assert ev.result["toolUseId"] == "tooluse_deadbeef"
+    assert "_toolUseId" not in ev.result
 
 
 @pytest.mark.parametrize(
@@ -297,14 +570,15 @@ def test_tooluseid_hook_ignores_non_dict_result():
 
     class Event:
         def __init__(self):
-            self.tool_use = {"name": "shell", "toolUseId": "tooluse_deadbeef"}
+            self.tool_use = {"name": "shell", "toolUseId": "tooluse_E-deadbeef"}
             self.result = "not a dict"
 
     ev = Event()
     hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
 
+    assert ev.tool_use["name"] == "shell"
     assert ev.tool_use["toolUseId"] == "shell"
-    assert ev.tool_use["_toolUseId"] == "tooluse_deadbeef"
+    assert ev.tool_use["_toolUseId"] == "tooluse_E-deadbeef"
     assert ev.result == "not a dict"
 
 

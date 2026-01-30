@@ -216,6 +216,8 @@ memory/
 /tools/
 epics/
 outputs/
+errors/
+repl_state/
 logs/
 .leann/
 
