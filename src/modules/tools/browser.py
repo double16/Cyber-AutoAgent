@@ -360,6 +360,12 @@ class BrowserService(EventEmitter):
         # Dedicated event loop running in its own thread via ThreadPoolExecutor
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_ready = threading.Event()
+        # Serialize Playwright/Stagehand operations; created/used only on the browser loop
+        self._op_lock: asyncio.Lock = asyncio.Lock()
+        # Debug counters for verifying single-flight execution on the browser loop
+        self._active_ops: int = 0
+        self._active_ops_peak: int = 0
+        self._active_ops_violations: int = 0
 
         def _loop_runner() -> None:
             loop = asyncio.new_event_loop()
@@ -379,10 +385,45 @@ class BrowserService(EventEmitter):
             self.stagehand.llm = LLMClientJSONResponsePatch(self.stagehand.llm)
 
     async def run_in_browser_loop(self, coro_factory):
-        """Run the coroutine produced by coro_factory on the dedicated browser event loop."""
+        """Run a coroutine factory on the dedicated browser event loop.
+
+        NOTE: Scheduling on a single event loop does *not* imply single-flight execution.
+        Tools may call this concurrently; Playwright/Stagehand page/context operations
+        are not safe to run concurrently. We therefore serialize all operations with an
+        asyncio.Lock that is created and used only on the browser loop.
+        """
         if self._loop is None:
             raise RuntimeError("BrowserService event loop not initialized")
-        cfut = asyncio.run_coroutine_threadsafe(coro_factory(), self._loop)
+
+        async def _runner():
+            async with self._op_lock:
+                # Count *executing* operations (not queued/waiting). Should never exceed 1.
+                self._active_ops += 1
+                if self._active_ops > self._active_ops_peak:
+                    self._active_ops_peak = self._active_ops
+                if self._active_ops > 1:
+                    self._active_ops_violations += 1
+                    logger.warning(
+                        "[BROWSER] concurrent browser ops detected (active=%d, peak=%d, violations=%d)",
+                        self._active_ops,
+                        self._active_ops_peak,
+                        self._active_ops_violations,
+                    )
+                try:
+                    return await coro_factory()
+                finally:
+                    self._active_ops -= 1
+
+        # If we're already on the browser loop, run directly (prevents deadlock)
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+
+        if running is self._loop:
+            return await _runner()
+
+        cfut = asyncio.run_coroutine_threadsafe(_runner(), self._loop)
         return await asyncio.wrap_future(cfut)
 
     @asynccontextmanager
@@ -1032,7 +1073,20 @@ def close_browser():
         logger.debug("Closing BrowserService")
         with _BROWSER_LOCK:
             try:
-                asyncio.run_coroutine_threadsafe(_BROWSER.stagehand.close(), _BROWSER._loop).result(10)
+                if _BROWSER._loop is None:
+                    raise RuntimeError("BrowserService event loop not initialized")
+
+                async def _close_impl():
+                    async with _BROWSER._op_lock:
+                        logger.debug(
+                            "[BROWSER] close stats: active=%d peak=%d violations=%d",
+                            _BROWSER._active_ops,
+                            _BROWSER._active_ops_peak,
+                            _BROWSER._active_ops_violations,
+                        )
+                        await _BROWSER.stagehand.close()
+
+                asyncio.run_coroutine_threadsafe(_close_impl(), _BROWSER._loop).result(10)
             except Exception:
                 logger.exception("Closing BrowserService")
             logger.debug("Stopping BrowserService event loop")
