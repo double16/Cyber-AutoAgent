@@ -692,6 +692,8 @@ class ConfigManager:
                     "azure_endpoint": self.getenv("AZURE_API_BASE"),
                     "api_version": self.getenv("AZURE_API_VERSION"),
                 }
+            elif mem0_provider == "ollama":
+                embedder_config["config"]["model"] = model_name
         elif server == "gemini":
             raise ValueError(f"Unsupported provider: {server}")
         elif server == "bedrock":
@@ -738,6 +740,8 @@ class ConfigManager:
                     "azure_endpoint": self.getenv("AZURE_API_BASE"),
                     "api_version": self.getenv("AZURE_API_VERSION"),
                 }
+            if mem0_llm_provider == "ollama":
+                llm_config["config"]["model"] = model_name
         elif server == "gemini":
             raise ValueError(f"Unsupported provider: {server}")
         elif server == "bedrock":

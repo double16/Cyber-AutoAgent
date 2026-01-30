@@ -656,6 +656,7 @@ class Mem0ServiceClient:
                 display_llm_provider = _provider_label(
                     {
                         "bedrock": "aws_bedrock",
+                        "ollama": "ollama",
                         "azure": "azure_openai",
                         "openai": "openai",
                         "anthropic": "anthropic",

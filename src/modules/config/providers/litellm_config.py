@@ -172,6 +172,8 @@ def align_litellm_defaults(
                     dims = 384
                 elif "titan" in embed_model and "v2" in embed_model:
                     dims = 1024
+                elif "mxbai-embed-large" in embed_model:
+                    dims = 1024
                 else:
                     dims = 1536
                     logger.warning(
