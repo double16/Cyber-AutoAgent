@@ -85,6 +85,7 @@ Tools Utilized:
 {tools_summary}
 
 Execution Metrics:
+- Main Model: {main_model}
 - Input Tokens: {input_tokens}
 - Output Tokens: {output_tokens}
 - Total Tokens: {total_tokens}

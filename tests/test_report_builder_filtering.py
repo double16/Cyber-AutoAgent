@@ -8,6 +8,7 @@ Tests for report_builder operation_id filtering logic.
 """
 import json
 import os
+import re
 from unittest.mock import patch
 
 import pytest
@@ -240,6 +241,7 @@ def test_report_builder_full_range_of_evidence(mock_client_cls, tmp_path):
         assert out.get("evidence_count") == 15
         assert out.get("canonical_findings", {}).keys() == {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'}
 
+        assert re.search(r".+/.+", out.get("main_model"))
         assert out.get("input_tokens") == 234695
         assert out.get("output_tokens") == 1165
         assert out.get("total_tokens") == 235860

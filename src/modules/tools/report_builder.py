@@ -23,7 +23,7 @@ from modules.prompts.factory import (
     generate_findings_summary_table,
     safe_truncate,
 )
-from modules.tools.memory import Mem0ServiceClient, memory_sort_by_create_time, memory_is_cross_operation
+from modules.tools.memory import Mem0ServiceClient, get_memory_client, memory_sort_by_create_time, memory_is_cross_operation
 from modules.config.manager import get_config_manager
 from modules.config.system.logger import get_logger
 from modules.handlers.utils import sanitize_target_name, get_output_path
@@ -117,12 +117,11 @@ def build_report_sections(
         evidence = []
         operation_plan = None
         cross_operation = memory_is_cross_operation()
+        manager = get_config_manager()
 
         # Prefer the existing global memory client to ensure identical backend/path
         try:
-            from modules.tools.memory import get_memory_client as _get_mem_client
-
-            memory_client = _get_mem_client(silent=True)
+            memory_client = get_memory_client(silent=True)
         except Exception:
             memory_client = None
 
@@ -135,7 +134,6 @@ def build_report_sections(
                 and "config" in config["vector_store"]
             ):
                 try:
-                    manager = get_config_manager()
                     unified_path = manager.get_unified_memory_path(
                         server="bedrock",  # memory path base does not depend on model provider semantics
                         target_name=sanitize_target_name(target),
@@ -146,7 +144,7 @@ def build_report_sections(
                         unified_path = os.path.join(unified_path, operation_id)
                     config["vector_store"]["config"]["path"] = unified_path
                 except Exception:
-                    # Fallback to sanitized path logic if manager is unavailable
+                    # Fallback to sanitized path logic if manager is unavailable: is a config_manager() failure possible?
                     safe_target_name = sanitize_target_name(target)
                     memory_path = get_output_path(target_name=safe_target_name, subdir="memory", operation_id="")
                     if not cross_operation and operation_id:
@@ -521,6 +519,7 @@ def build_report_sections(
             "evidence_count": len(evidence),
             "canonical_findings": canonical_findings,
             # Execution metrics for direct insertion into the template
+            "main_model": f"{manager.get_provider()}/{manager.get_llm_config(manager.get_provider()).model_id}",
             "input_tokens": metrics_input,
             "output_tokens": metrics_output,
             "total_tokens": metrics_total or (metrics_input + metrics_output),
