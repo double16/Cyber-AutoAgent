@@ -4,7 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from modules.tools.browser import BrowserService
+from modules.tools import initialize_browser, browser_get_cookies
+from modules.tools.browser import BrowserService, browser_evaluate_js, close_browser, _BROWSER, get_browser
 
 
 def _stop_browser_loop(browser: BrowserService, timeout: float = 2.0) -> None:
@@ -36,6 +37,22 @@ def _run_in_thread(barrier: threading.Barrier, browser: BrowserService, delay_s:
     """
     barrier.wait()
     return asyncio.run(_tool_like_call(browser, delay_s))
+
+
+def _run_evaluate_js_thread(barrier: threading.Barrier) -> int:
+    """
+    Simulate a Strands tool execution thread: each thread has its own event loop via asyncio.run().
+    """
+    barrier.wait()
+    return int(asyncio.run(browser_evaluate_js("1")))
+
+
+def _run_get_cookies_thread(barrier: threading.Barrier) -> int:
+    """
+    Simulate a Strands tool execution thread: each thread has its own event loop via asyncio.run().
+    """
+    barrier.wait()
+    return 1 if bool(asyncio.run(browser_get_cookies())) else 0
 
 
 @pytest.mark.parametrize("concurrency", [1, 2, 5, 10, 20])
@@ -70,6 +87,37 @@ def test_browser_run_in_browser_loop_is_single_flight(concurrency: int, rounds: 
 
     finally:
         _stop_browser_loop(browser)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("concurrency", [1, 2, 5, 10, 20])
+@pytest.mark.parametrize("rounds", [1, 3])
+async def test_browser_run_in_browser_loop_is_single_flight_evaluate_js(concurrency: int, rounds: int, tmp_path) -> None:
+    try:
+        initialize_browser(provider="ollama", model="llama3.2:3b")
+
+        for _ in range(rounds):
+            barrier = threading.Barrier(concurrency)
+
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futures = [
+                    pool.submit(_run_evaluate_js_thread, barrier) if idx % 2 == 0 else pool.submit(_run_get_cookies_thread, barrier)
+                    for idx in range(concurrency)
+                ]
+                results = [f.result(timeout=10) for f in futures]
+
+            # all calls should have completed successfully
+            assert sum(results) == concurrency
+
+        # single-flight invariants (your instrumentation counters)
+        async with get_browser() as browser:
+            assert browser is not None
+            assert browser._active_ops == 0
+            assert browser._active_ops_peak == 1, f"peak={browser._active_ops_peak}"
+            assert browser._active_ops_violations == 0, f"violations={browser._active_ops_violations}"
+
+    finally:
+        close_browser()
 
 
 def test_browser_run_in_browser_loop_is_reentrant(tmp_path) -> None:
@@ -156,3 +204,54 @@ def test_browser_single_flight_across_multiple_threadpool_executors(
         assert browser._active_ops_violations == 0, f"violations={browser._active_ops_violations}"
     finally:
         _stop_browser_loop(browser)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("executors", [2, 4])
+@pytest.mark.parametrize("workers_per_executor", [1, 3])
+@pytest.mark.parametrize("rounds", [1, 2])
+async def test_browser_single_flight_across_multiple_threadpool_executors_evaluate_js(
+        executors: int,
+        workers_per_executor: int,
+        rounds: int,
+        tmp_path,
+) -> None:
+    """Mimic Strands ConcurrentToolExecutor behavior by using multiple thread pools.
+
+    Each ThreadPoolExecutor represents a separate pool that may run tools concurrently.
+    The browser must remain single-flight across all pools.
+    """
+    try:
+        initialize_browser(provider="ollama", model="llama3.2:3b")
+
+        total_workers = executors * workers_per_executor
+
+        for _ in range(rounds):
+            barrier = threading.Barrier(total_workers)
+
+            pools: list[ThreadPoolExecutor] = [
+                ThreadPoolExecutor(max_workers=workers_per_executor)
+                for _ in range(executors)
+            ]
+            try:
+                futures = []
+                for pool in pools:
+                    for _i in range(workers_per_executor):
+                        if _i % 2 == 0:
+                            futures.append(pool.submit(_run_evaluate_js_thread, barrier))
+                        else:
+                            futures.append(pool.submit(_run_get_cookies_thread, barrier))
+
+                results = [f.result(timeout=15) for f in futures]
+                assert sum(results) == total_workers
+            finally:
+                for pool in pools:
+                    pool.shutdown(wait=True, cancel_futures=True)
+
+        # Invariants: still single-flight across all pools
+        async with get_browser() as browser:
+            assert browser._active_ops == 0
+            assert browser._active_ops_peak == 1, f"peak={browser._active_ops_peak}"
+            assert browser._active_ops_violations == 0, f"violations={browser._active_ops_violations}"
+    finally:
+        close_browser()

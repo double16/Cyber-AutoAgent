@@ -411,7 +411,18 @@ class BrowserService(EventEmitter):
             # lazily create lock to ensure it's not used in another event loop
             if self._op_lock is None:
                 self._op_lock = asyncio.Lock()
+            # Log that we're about to wait for the single-flight lock.
+            logger.debug(
+                "[BROWSER] waiting for op_lock (depth=%d) %s",
+                _BROWSER_OP_DEPTH.get(),
+                coro_factory.__qualname__,
+            )
             async with self._op_lock:
+                logger.debug(
+                    "[BROWSER] acquired op_lock (depth=%d) %s",
+                    _BROWSER_OP_DEPTH.get(),
+                    coro_factory.__qualname__,
+                )
                 # Count *executing* operations (not queued/waiting). Should never exceed 1.
                 self._active_ops += 1
                 if self._active_ops > self._active_ops_peak:
@@ -427,6 +438,11 @@ class BrowserService(EventEmitter):
                 try:
                     return await _run_with_depth()
                 finally:
+                    logger.debug(
+                        "[BROWSER] released op_lock (depth=%d) %s",
+                        _BROWSER_OP_DEPTH.get(),
+                        coro_factory.__qualname__,
+                    )
                     self._active_ops -= 1
 
         # If we're already on the browser loop, run directly (prevents deadlock)
@@ -511,8 +527,12 @@ class BrowserService(EventEmitter):
 
             async def handle_dialog(dialog: Dialog):
                 """Auto accept all dialogs"""
-                await dialog.accept()
-                await self.emit_async("dialog", dialog)
+
+                async def _accept_and_emit():
+                    await dialog.accept()
+                    await self.emit_async("dialog", dialog)
+
+                await self.run_in_browser_loop(_accept_and_emit)
 
             async def handle_download(download: Download):
                 """Auto-save downloads to artifacts_dir"""
@@ -520,8 +540,12 @@ class BrowserService(EventEmitter):
                     self.artifacts_dir,
                     f"download_{time.time_ns()}_{download.suggested_filename}",
                 )
-                await download.save_as(download_path)
-                await self.emit_async("download", download_path)
+
+                async def _save_and_emit():
+                    await download.save_as(download_path)
+                    await self.emit_async("download", download_path)
+
+                await self.run_in_browser_loop(_save_and_emit)
 
             self.page.on("dialog", handle_dialog)
             self.page.on("download", handle_download)
@@ -962,16 +986,14 @@ class BrowserService(EventEmitter):
 
             Parameters:
                 msg (ConsoleMessage): The console message to be captured.
-
-            Raises:
-                None
-
-            Returns:
-                None
             """
-            args: list[Any] = []
-            for arg in msg.args:
-                args.append(await arg.json_value())
+            async def _extract_args() -> list[Any]:
+                extracted: list[Any] = []
+                for arg in msg.args:
+                    extracted.append(await arg.json_value())
+                return extracted
+
+            args = await self.run_in_browser_loop(_extract_args)
             collector.logs.append(
                 {
                     "type": msg.type,
@@ -1111,7 +1133,7 @@ def close_browser():
             except Exception:
                 logger.exception("Closing BrowserService")
             logger.debug("Stopping BrowserService event loop")
-            _BROWSER._loop.stop()
+            _BROWSER._loop.call_soon_threadsafe(_BROWSER._loop.stop)
         logger.debug("BrowserService stopped")
         _BROWSER = None
 
