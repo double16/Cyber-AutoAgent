@@ -32,7 +32,7 @@ After direct fails: Pivot to different attack vector (NOT encoding variations)
 
 <web_pentest_execution>
 **Checkpoint Protocol** (checkpoints ONLY at 20%/40%/60%/80% budget):
-- Steps 20/50/80/110/140/170/200: get_plan → evaluate → update ONCE
+- Budget checkpoints 20%/40%/60%/80%: get_plan → evaluate → update ONCE
 - Between checkpoints: NO plan calls unless phase status changes (active→done/partial_failure/blocked)
 - **Thinking mode** (use ONLY for): Checkpoint decisions (continue vs pivot?) | Before swarm (confidence analysis?) | Before stop() (all classes tried?) | After 3+ same failures (pattern?)
 

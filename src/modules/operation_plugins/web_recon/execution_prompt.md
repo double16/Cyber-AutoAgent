@@ -48,7 +48,7 @@ Report the top-level items as separate observations:
 - Report as individual findings using **Evidence Standards**
 
 **Checkpoint Protocol** (checkpoints ONLY at 20%/40%/60%/80% budget):
-- Steps 20/50/80/110/140/170/200: get_plan → evaluate → update ONCE
+- Budget checkpoints 20%/40%/60%/80%: get_plan → evaluate → update ONCE
 - Between checkpoints: NO plan calls unless phase status changes (active→done/partial_failure/blocked)
 - **Thinking mode** (use ONLY for): Checkpoint decisions (continue vs pivot?) | Before swarm (coverage gaps?) | Before stop() (all major areas mapped?) | After 3+ same failures (pattern?)
 

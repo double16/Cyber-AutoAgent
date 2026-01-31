@@ -166,7 +166,8 @@ class ConfigManager:
             default_thinking_budget = 10000
 
         # Allow override via environment variables
-        max_tokens = self.getenv_int("MAX_TOKENS", default_max_tokens)
+        max_tokens_limit = self.getenv_int("MAX_TOKENS_REASONING_LIMIT", MAX_TOKENS_REASONING_LIMIT)
+        max_tokens = self.getenv_int("MAX_TOKENS", min(default_max_tokens, max_tokens_limit))
         thinking_budget = self.getenv_int("THINKING_BUDGET", default_thinking_budget)
 
         return {

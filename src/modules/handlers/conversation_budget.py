@@ -26,6 +26,7 @@ from strands.tools.registry import ToolRegistry
 
 from modules.config.models.dev_client import get_models_client
 from modules.config.models.factory import get_model_id_from_agent
+from modules.utils.text_reducer import reduce_lines_lossy, collapse_first_repeated_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -860,6 +861,71 @@ class MappingConversationManager(SummarizingConversationManager):
                 window_size
             )
 
+        # Remove reasoning, it can be large
+        before_tokens = safe_estimate_tokens(agent)
+        _strip_reasoning_content(agent, force=True, preserve_recent_messages=max(1, self.preserve_recent_messages))
+        after_tokens = safe_estimate_tokens(agent)
+        if not (before_tokens and after_tokens):
+            pass
+        elif after_tokens == before_tokens:
+            # Remove most of the reasoning content. Thinking models require the last assistant message to include reasoning content.
+            _strip_reasoning_content(agent, force=True, preserve_recent_messages=1)
+            after_tokens = safe_estimate_tokens(agent)
+            if after_tokens and after_tokens < before_tokens:
+                logger.info(
+                    "Context reduced via reasoning removal of all messages: est tokens %s->%s",
+                    before_tokens,
+                    after_tokens,
+                )
+        else:
+            logger.info(
+                "Context reduced via reasoning removal of older messages: est tokens %s->%s",
+                before_tokens,
+                after_tokens,
+            )
+
+        # Check last message for reasoning loop and reduce it
+        # A reasoning loop will fill up all output tokens. Our typical output isn't large, < 1000 tokens.
+        # If the last assistant message is much larger, it could be a reasoning loop.
+        if len(messages) > 3 and messages[-1].get("role", "") == "assistant":
+            assistant_messages_tokens = [
+                estimate_prompt_tokens("", [message], None, None, None)
+                for message in messages
+                if message.get("role", "") == "assistant"
+            ]
+            assistant_messages_tokens = list(filter(bool, assistant_messages_tokens))
+            if len(assistant_messages_tokens) > 5:
+                assistant_messages_tokens.sort()
+                avg_assistant_messages_tokens = sum(assistant_messages_tokens[:-3]) / (len(assistant_messages_tokens) - 3)
+                if assistant_messages_tokens[-1] > avg_assistant_messages_tokens * 10:
+                    logger.info(
+                        "Context reduction detected reasoning loop, last message tokens are much greater than average: %s > %s",
+                        assistant_messages_tokens[-1],
+                        avg_assistant_messages_tokens,
+                    )
+                    truncated_message = "".join([block.get("text", "") for block in messages[-1].get("content", [])])
+                    reduced_text = reduce_lines_lossy(
+                        collapse_first_repeated_sequence(truncated_message),
+                        similarity_threshold=0.5
+                    ).to_text().strip()
+                    # Consider adding user instructions similar to the main agent loop to reduce the change of another reasoning loop.
+                    reduced_message_content = [
+                        {
+                            "type": "text",
+                            "text": reduced_text
+                        }
+                    ]
+                    reduced_text_tokens = estimate_prompt_tokens(
+                        "",
+                        [{"role": "assistant", "content": reduced_message_content}],
+                        None, None, None)
+                    if reduced_text_tokens < avg_assistant_messages_tokens * 5:
+                        logger.info(
+                            "Context reduced via reasoning loop compression, est tokens of last message %s->%s",
+                            assistant_messages_tokens[-1],
+                            reduced_text_tokens,
+                        )
+                        messages[-1]["content"] = reduced_message_content
 
         # Apply mapper compression
         self._apply_mapper(agent)
@@ -1335,12 +1401,14 @@ def estimate_prompt_tokens(
                 if isinstance(reasoning, dict):
                     if "reasoningText" in reasoning:
                         message_chars += len(reasoning["reasoningText"].get("text", ""))
+                    elif "redactedContent" in reasoning:
+                        message_chars += len(reasoning["redactedContent"])
                     # Fallback: stringify entire reasoning block
                     elif reasoning:
                         message_chars += len(str(reasoning))
 
             else:
-                message_chars += _json_to_compact_str(block)
+                message_chars += len(_json_to_compact_str(block))
 
     overhead_chars = 0
     extra_content_list = []
@@ -1394,16 +1462,22 @@ def estimate_prompt_tokens(
     return estimated_tokens
 
 
-def _strip_reasoning_content(agent: Agent) -> None:
+def _strip_reasoning_content(agent: Agent, force: bool = False, preserve_recent_messages: Optional[int] = None) -> None:
     # Check agent._allow_reasoning_content attribute (set by _supports_reasoning_model())
     # True: Keep reasoning blocks (reasoning-capable models)
     # False: Strip reasoning blocks (non-reasoning models)
-    if getattr(agent, "_allow_reasoning_content", True):
+    if getattr(agent, "_allow_reasoning_content", True) and not force:
         return
 
     messages = getattr(agent, "messages", [])
     removed_blocks = 0
-    for message in messages:
+    end_idx = len(messages)
+    if preserve_recent_messages is not None:
+        if preserve_recent_messages < len(messages):
+            end_idx = len(messages) - preserve_recent_messages
+        else:
+            return
+    for message in messages[:end_idx]:
         content = message.get("content")
         if not isinstance(content, list):
             continue
@@ -1414,6 +1488,20 @@ def _strip_reasoning_content(agent: Agent) -> None:
             if not isinstance(block, dict) or "reasoningContent" not in block
         ]
         removed_blocks += original_len - len(content)
+
+    # remove empty messages
+    def _predicate(message) -> bool:
+        if not isinstance(message.get("content"), list):
+            return True
+        content = message.get("content")
+        return len(content) > 0
+
+    messages[:] = [
+        message
+        for message in messages
+        if _predicate(message)
+    ]
+
     if removed_blocks:
         logger.warning(
             "Removed %d reasoningContent blocks for model without reasoning support",

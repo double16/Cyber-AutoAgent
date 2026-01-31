@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import types
+import pytest
 
 from modules.handlers.conversation_budget import (
     _ensure_prompt_within_budget,
@@ -89,7 +90,7 @@ def test_strip_reasoning_content_removes_when_disallowed():
     agent = AgentStub([message])
     setattr(agent, "_allow_reasoning_content", False)
     _strip_reasoning_content(agent)
-    assert agent.messages[0]["content"] == []
+    assert len(agent.messages) == 0
 
 
 def test_strip_reasoning_content_keeps_when_allowed():
@@ -98,6 +99,35 @@ def test_strip_reasoning_content_keeps_when_allowed():
     setattr(agent, "_allow_reasoning_content", True)
     _strip_reasoning_content(agent)
     assert agent.messages[0]["content"] == message["content"]
+
+
+def test_strip_reasoning_content_removes_when_forced():
+    message = _make_reasoning_message()
+    agent = AgentStub([message])
+    setattr(agent, "_allow_reasoning_content", True)
+    _strip_reasoning_content(agent, force=True)
+    assert len(agent.messages) == 0
+
+
+def test_strip_reasoning_content_removes_when_forced_shared_message_content():
+    message = _make_reasoning_message()
+    message["content"].append({"type": "text", "text": "keep me"})
+    agent = AgentStub([message])
+    setattr(agent, "_allow_reasoning_content", True)
+    _strip_reasoning_content(agent, force=True)
+    assert len(agent.messages) == 1
+    assert len(agent.messages[0]["content"]) == 1
+    assert "reasoningContent" not in agent.messages[0]["content"][0]
+    assert agent.messages[0]["content"][0]["text"] == "keep me"
+
+
+@pytest.mark.parametrize("message_count", [1, 2, 5])
+def test_strip_reasoning_content_removes_preserving_recent_messages(message_count):
+    agent = AgentStub([ _make_reasoning_message() for _ in range(message_count)])
+    setattr(agent, "_allow_reasoning_content", False)
+    _strip_reasoning_content(agent, preserve_recent_messages=1)
+    assert len(agent.messages) == 1
+    assert len(agent.messages[0]["content"]) > 0
 
 
 def test_strip_continue_messages():

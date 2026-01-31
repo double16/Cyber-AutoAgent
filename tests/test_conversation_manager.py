@@ -20,6 +20,20 @@ def _make_message(text: str) -> dict[str, Any]:
     return {"role": "assistant", "content": [{"type": "text", "text": text}]}
 
 
+def _make_reasoning_message(text="thinking"):
+    return {
+        "role": "assistant",
+        "content": [{"reasoningContent": {"reasoningText": {"text": text}}}],
+    }
+
+
+def _make_redacted_reasoning_message(text: str) -> dict[str, Any]:
+    return {
+        "role": "assistant",
+        "content": [{"reasoningContent": {"redactedContent": {"text": text}}}],
+    }
+
+
 def test_pruning_conversation_manager_sliding_trims_messages():
     """Test that conversation manager prunes to the configured target when window exceeded.
 
@@ -188,3 +202,50 @@ def test_reduce_context_records_event(monkeypatch):
     event = history[-1]
     assert event["reason"] == "telemetry tokens 900"
     assert event["removed_messages"] > 0
+
+
+def test_pruning_conversation_manager_removes_reasoning():
+    """Test that conversation manager removes reasoning content.
+    """
+    manager = MappingConversationManager(
+        window_size=3, summary_ratio=0.5, preserve_recent_messages=1
+    )
+    messages = []
+    for i in range(5):
+        messages.append(_make_message(str(i)))
+        messages.append(_make_reasoning_message(str(i)))
+        messages.append(_make_redacted_reasoning_message(str(i)))
+    agent = _AgentStub(messages)
+
+    manager.reduce_context(agent)
+
+    assert len(agent.messages) == 4
+    assert not any([ "reasoningContent" in message["content"][0] for message in agent.messages])
+
+
+def test_pruning_conversation_manager_reduces_reasoning_loop():
+    """Test that conversation manager removes reasoning content.
+    """
+    manager = MappingConversationManager(
+        window_size=10, summary_ratio=0.5, preserve_recent_messages=5
+    )
+    messages = [_make_message(str(i)) for i in range(5)]
+    messages.append(_make_message("In a reasoning loop. " * 100))
+    agent = _AgentStub(messages)
+
+    manager.reduce_context(agent)
+
+    assert len(agent.messages) == 5
+    assert len(agent.messages[-1]["content"][0]["text"]) < 100
+    assert "In a reasoning loop." in agent.messages[-1]["content"][0]["text"]
+
+
+def test_preserve_recent_messages_scaling():
+    manager = MappingConversationManager(window_size=1000)
+    assert manager.preserve_recent_messages == 150
+    manager = MappingConversationManager(window_size=100)
+    assert manager.preserve_recent_messages == 15
+    manager = MappingConversationManager(window_size=10)
+    assert manager.preserve_recent_messages == 4
+    manager = MappingConversationManager(window_size=5)
+    assert manager.preserve_recent_messages == 1
