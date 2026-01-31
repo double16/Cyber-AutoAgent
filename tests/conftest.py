@@ -222,3 +222,17 @@ def clear_lru_caches():
     yield
     for fn in fns:
         fn.cache_clear()
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--browser",
+        action="store_true",
+        default=False,
+        help="Run tests that require the browser."
+    )
+
+
+def pytest_runtest_setup(item):
+    if "browser" in item.keywords and not item.config.getoption("--browser"):
+        pytest.skip("Test requires --browser option to run.")

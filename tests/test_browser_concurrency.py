@@ -89,6 +89,7 @@ def test_browser_run_in_browser_loop_is_single_flight(concurrency: int, rounds: 
         _stop_browser_loop(browser)
 
 
+@pytest.mark.browser
 @pytest.mark.asyncio
 @pytest.mark.parametrize("concurrency", [1, 2, 5, 10, 20])
 @pytest.mark.parametrize("rounds", [1, 3])
@@ -205,7 +206,7 @@ def test_browser_single_flight_across_multiple_threadpool_executors(
     finally:
         _stop_browser_loop(browser)
 
-
+@pytest.mark.browser
 @pytest.mark.asyncio
 @pytest.mark.parametrize("executors", [2, 4])
 @pytest.mark.parametrize("workers_per_executor", [1, 3])
