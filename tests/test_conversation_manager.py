@@ -214,13 +214,30 @@ def test_pruning_conversation_manager_removes_reasoning():
     for i in range(5):
         messages.append(_make_message(str(i)))
         messages.append(_make_reasoning_message(str(i)))
+    agent = _AgentStub(messages)
+
+    manager.reduce_context(agent)
+
+    assert len(agent.messages) == 4
+    assert not any(["reasoningContent" in message["content"][0] for message in agent.messages[:-1]])
+
+
+def test_pruning_conversation_manager_removes_redacted_reasoning():
+    """Test that conversation manager removes reasoning content.
+    """
+    manager = MappingConversationManager(
+        window_size=3, summary_ratio=0.5, preserve_recent_messages=1
+    )
+    messages = []
+    for i in range(5):
+        messages.append(_make_message(str(i)))
         messages.append(_make_redacted_reasoning_message(str(i)))
     agent = _AgentStub(messages)
 
     manager.reduce_context(agent)
 
     assert len(agent.messages) == 4
-    assert not any([ "reasoningContent" in message["content"][0] for message in agent.messages])
+    assert not any(["reasoningContent" in message["content"][0] for message in agent.messages[:-1]])
 
 
 def test_pruning_conversation_manager_reduces_reasoning_loop():
