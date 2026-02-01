@@ -695,6 +695,7 @@ def main():
         # SDK-aligned execution loop with continuation support
         while not interrupted:
             last_step = callback_handler.current_step
+            last_tool_call_count = sum(callback_handler.tool_counts.values())
             try:
                 print_status(
                     f"Agent processing: {current_message[:100]}{' ...' if len(current_message) > 100 else ''}",
@@ -731,8 +732,12 @@ def main():
 
                 # Ensure step is incremented and detect lack of progress
                 if callback_handler and callback_handler.current_step == last_step:
-                    actionless_step_count += 1
+                    callback_handler.current_step += 1
                     tool_total_count = sum(callback_handler.tool_counts.values())
+                    if tool_total_count > last_tool_call_count:
+                        actionless_step_count = 0
+                    else:
+                        actionless_step_count += 1
                     logger.debug(
                         "Incrementing step because agent returned but callback_handler did not, actionless_step_count=%d, pending_step_header=%s, tool_total_count=%d, reasoning_emitted_since_last_step_header=%s",
                         actionless_step_count,
@@ -740,7 +745,6 @@ def main():
                         tool_total_count,
                         str(getattr(callback_handler, '_reasoning_emitted_since_last_step_header', None))
                     )
-                    callback_handler.current_step += 1
                 else:
                     actionless_step_count = 0
 

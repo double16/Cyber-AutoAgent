@@ -5,9 +5,47 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { loggingService } from '../services/LoggingService.js';
+
+const getModuleRoots = (): string[] => {
+  // Default root: src/modules/operation_plugins relative to the React app cwd
+  const defaultRoot = path.resolve(process.cwd(), '..', '..', 'operation_plugins');
+
+  const raw = (process.env.CYBER_MODULE_PATH || '').trim();
+  const roots: string[] = [];
+
+  const addRoot = (p: string) => {
+    let s = (p || '').trim();
+    if (!s) return;
+
+    // Expand leading ~ to HOME/USERPROFILE
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    if (home && (s === '~' || s.startsWith('~/'))) {
+      s = s === '~' ? home : path.join(home, s.slice(2));
+    }
+
+    const resolved = path.isAbsolute(s) ? s : path.resolve(process.cwd(), s);
+    if (!roots.includes(resolved)) roots.push(resolved);
+  };
+
+  for (const part of raw.split(':')) {
+    addRoot(part);
+  }
+
+  // Docker module directory
+  addRoot(path.resolve(process.cwd(), '..', '..', '..', '..', 'external_plugins'));
+
+  // User module directory
+  addRoot('~/.cyber-autoagent/modules');
+
+  // Always include the built-in operation_plugins LAST
+  addRoot(defaultRoot);
+
+  return roots;
+};
 
 export interface ModuleTool {
   name: string;
@@ -45,39 +83,48 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const loadAvailableModules = useCallback(async () => {
     try {
-      // The React app is located at: src/modules/interfaces/react
-      // The operation_plugins are at: src/modules/operation_plugins
-      // So we need to go up 2 directories from the react folder
-      const modulesDir = path.resolve(process.cwd(), '..', '..', 'operation_plugins');
-      
+      const moduleRoots = getModuleRoots();
+
       // Debug logging for module discovery
       if (process.env.DEBUG) {
-        loggingService.info('[ModuleContext] Looking for modules in:', modulesDir);
+        loggingService.info('[ModuleContext] Looking for modules in roots:', moduleRoots);
       }
-      
-      // Check if directory exists first
-      try {
-        await fs.access(modulesDir);
-      } catch {
-        // Directory doesn't exist yet - this is normal for new installations
-        // Don't log errors, just set empty modules
-        setAvailableModules({});
-        return;
-      }
-      
-      const entries = await fs.readdir(modulesDir, { withFileTypes: true });
-      
+
       const modules: Record<string, ModuleInfo> = {};
-      
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const moduleInfo = await loadModuleInfo(entry.name);
+
+      // Search roots in order; first root providing a module name wins.
+      for (const root of moduleRoots) {
+        try {
+          await fs.access(root);
+        } catch {
+          // Root doesn't exist / isn't mounted; skip quietly
+          continue;
+        }
+
+        let entries: Dirent[] = [];
+        try {
+          entries = await fs.readdir(root, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          if (modules[entry.name]) continue;
+
+          const moduleInfo = await loadModuleInfo(entry.name, root);
           if (moduleInfo) {
             modules[entry.name] = moduleInfo;
           }
         }
       }
-      
+
+      // If no roots had modules, just set empty.
+      if (Object.keys(modules).length === 0) {
+        setAvailableModules({});
+        return;
+      }
+
       // PREVENT UNNECESSARY UPDATES: Check if modules actually changed
       setAvailableModules(prevModules => {
         const prevStr = JSON.stringify(prevModules);
@@ -87,7 +134,7 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         return modules;
       });
-      
+
       // Load default module - use first available if web doesn't exist
       const moduleNames = Object.keys(modules);
       if (moduleNames.length > 0) {
@@ -111,10 +158,9 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     loadAvailableModules();
   }, [loadAvailableModules]);
 
-  const loadModuleInfo = async (moduleName: string): Promise<ModuleInfo | null> => {
+  const loadModuleInfo = async (moduleName: string, moduleRoot: string): Promise<ModuleInfo | null> => {
     try {
-      // Use the same relative path as loadAvailableModules
-      const modulePath = path.resolve(process.cwd(), '..', '..', 'operation_plugins', moduleName);
+      const modulePath = path.join(moduleRoot, moduleName);
       const yamlPath = path.join(modulePath, 'module.yaml');
       
       // Check if module.yaml exists

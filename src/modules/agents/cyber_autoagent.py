@@ -4,7 +4,9 @@ import fnmatch
 import json
 import logging
 import os
+import sys
 import warnings
+import importlib.util
 from datetime import datetime
 from math import ceil
 from pathlib import Path
@@ -319,9 +321,6 @@ def create_agent(
         module_tool_paths, module_tool_allowlist = module_loader.discover_module_tools(config.module)
 
         if module_tool_paths:
-            import importlib.util
-            import sys
-
             # Dynamically load each tool module
             for tool_path in module_tool_paths:
                 try:

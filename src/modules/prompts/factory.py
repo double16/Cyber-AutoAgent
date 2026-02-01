@@ -12,6 +12,8 @@ import os
 import threading
 import time
 import re
+from functools import lru_cache
+
 import yaml
 from datetime import datetime
 from pathlib import Path
@@ -790,185 +792,229 @@ class ModulePromptLoader:
         self.last_loaded_execution_prompt_source: Optional[str] = None
         self.last_loaded_report_prompt_source: Optional[str] = None
 
+    # --- Module inheritance helpers ---
+
+    @lru_cache
+    def _find_module_dir(self, module_name: str) -> Optional[Path]:
+        """Find the first matching module directory in plugin roots."""
+        for base in self.plugin_dirs:
+            try:
+                mdir = (base / module_name)
+                if mdir.exists() and mdir.is_dir():
+                    return mdir
+            except Exception:
+                continue
+        return None
+
+    @lru_cache
+    def _read_module_yaml(self, module_dir: Path) -> Dict[str, Any]:
+        """Read module.yaml/module.yml as a dict. Returns {} on any failure."""
+        try:
+            for fname in ("module.yaml", "module.yml"):
+                ypath = module_dir / fname
+                if ypath.exists() and ypath.is_file():
+                    data = yaml.safe_load(ypath.read_text(encoding="utf-8"))  # type: ignore[no-untyped-call]
+                    return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+        return {}
+
+    @lru_cache
+    def _get_extend_list(self, module_dir: Optional[Path]) -> List[str]:
+        """Return the ordered list of modules this module extends."""
+        if module_dir is None:
+            return []
+        data = self._read_module_yaml(module_dir)
+        raw = data.get("extend")
+        if not isinstance(raw, list):
+            return []
+        out: List[str] = []
+        for item in raw:
+            s = str(item).strip()
+            if s:
+                out.append(s)
+        return out
+
+    @lru_cache
+    def _inheritance_chain(self, module_name: str) -> List[str]:
+        """Return module inheritance resolution order.
+
+        Precedence order is:
+        1) The module itself
+        2) Direct parents in `extend` order
+        3) Their parents transitively (depth-first), preserving declared order
+
+        Cycles are detected and truncated.
+        """
+        chain: List[str] = []
+        visited: set[str] = set()
+        stack: set[str] = set()
+
+        def _dfs(name: str) -> None:
+            if name in stack:
+                logger.warning("Module inheritance cycle detected at '%s'; skipping", name)
+                return
+            if name in visited:
+                return
+            visited.add(name)
+            stack.add(name)
+            chain.append(name)
+
+            mdir = self._find_module_dir(name)
+            for parent in self._get_extend_list(mdir):
+                _dfs(parent)
+
+            stack.remove(name)
+
+        _dfs(module_name)
+        return chain
+
+    def _find_prompt_path(self, module_name: str, filename: str) -> Tuple[Optional[Path], Optional[Path]]:
+        """Find a prompt file for a module across plugin roots.
+
+        Returns (path, module_dir).
+        """
+        for base in self.plugin_dirs:
+            try:
+                p = base / module_name / filename
+                if p.exists() and p.is_file():
+                    return p, p.parent
+            except Exception:
+                continue
+        return None, None
+
+    def _find_tools_dir(self, module_name: str) -> Tuple[Optional[Path], Optional[Path]]:
+        """Find tools directory for a module across plugin roots.
+
+        Returns (tools_dir, module_dir).
+        """
+        for base in self.plugin_dirs:
+            try:
+                mdir = base / module_name
+                td = mdir / "tools"
+                if td.exists() and td.is_dir():
+                    return td, mdir
+            except Exception:
+                continue
+        return None, None
+
+    def _read_tools_allowlist(self, module_dir: Optional[Path]) -> Optional[List[str]]:
+        """Read tools allowlist from THIS module's module.yaml.
+
+        NOTE: The 'tools' key is NOT inherited.
+        """
+        if module_dir is None:
+            return None
+        try:
+            data = self._read_module_yaml(module_dir)
+            raw = data.get("tools")
+            if isinstance(raw, list):
+                return [str(t).strip() for t in raw if str(t).strip()]
+        except Exception:
+            return None
+        return None
+
+    def _load_module_prompt(self, module_name: str, kind: str, filename: str) -> Tuple[str, Optional[str]]:
+        """Load module-specific prompt, if available.
+
+        Order of resolution:
+        1) Langfuse-managed module prompt (when enabled): cyber/module/<module>/<kind>_prompt
+           - If missing remotely, seed from local file if present
+        2) Local file under <module_dir>/<module>/<filename>
+        Returns empty string if none present.
+        """
+
+        label = os.getenv("LANGFUSE_PROMPT_LABEL", "production")
+
+        # Resolve inheritance order (module first, then parents in extend order, transitively)
+        chain = self._inheritance_chain(module_name)
+
+        # 1) Try Langfuse remote first when enabled (walk inheritance chain)
+        if _lf_enabled():
+            for mod in chain:
+                try:
+                    rname = _lf_module_prompt_name(mod, kind)
+                    remote_text = _lf_resolve_prompt_by_name(rname, label=label)
+                    if isinstance(remote_text, str) and remote_text.strip():
+                        return remote_text.strip(), f"langfuse:{rname}@{label}"
+                except Exception:
+                    continue
+
+        # 2) Local candidate (walk inheritance chain)
+        local_candidate: Optional[Path] = None
+        local_module_dir: Optional[Path] = None
+        resolved_module: Optional[str] = None
+        for mod in chain:
+            path, mdir = self._find_prompt_path(mod, filename)
+            if path is not None:
+                local_candidate = path
+                local_module_dir = mdir
+                resolved_module = mod
+                break
+
+        # 3) If Langfuse is enabled but remote missing, seed from local
+        if _lf_enabled() and local_candidate is not None:
+            try:
+                content = local_candidate.read_text(encoding="utf-8").strip()
+                if content:
+                    seed_mod = resolved_module or module_name
+                    rname = _lf_module_prompt_name(seed_mod, kind)
+                    tags = _read_module_yaml_for_tags(local_module_dir) if local_module_dir else []
+                    created = _lf_create_prompt_version(
+                        name=rname,
+                        prompt_text=content,
+                        label=label,
+                        tags=tags,
+                        commit=f"seed module:{seed_mod} {kind}",
+                    )
+                    if created:
+                        return content, f"seeded:{local_candidate}"
+            except Exception:
+                pass
+
+        if local_candidate is not None:
+            try:
+                src_mod = resolved_module or module_name
+                return local_candidate.read_text(encoding="utf-8").strip(), f"{src_mod}:{local_candidate}"
+            except Exception:
+                pass
+        return "", None
+
     def load_module_execution_prompt(
-        self, module_name: str, operation_root: Optional[str] = None
+            self, module_name: str, operation_root: Optional[str] = None
     ) -> str:
         """Load a module-specific execution prompt if available.
 
         Order of resolution:
-        0) Operation-specific optimized version (if operation_root provided):
+        1) Operation-specific optimized version (if operation_root provided):
            <operation_root>/execution_prompt_optimized.txt
-        1) Langfuse-managed module prompt (when enabled): cyber/module/<module>/execution_prompt
+        2) Langfuse-managed module prompt (when enabled): cyber/module/<module>/<kind>_prompt
            - If missing remotely, seed from local file if present
-        2) Local file under operation_plugins/<module>/execution_prompt.(md|txt)
-        3) Fallback to shared templates candidates
+        3) Local file under <module_dir>/<module>/<filename>
         Returns empty string if not found.
         """
         # Reset tracker
         self.last_loaded_execution_prompt_source = None
 
-        # 0) Check for operation-specific optimized version FIRST
+        # Check for operation-specific optimized version FIRST
         if operation_root:
             try:
                 optimized_path = Path(operation_root) / "execution_prompt_optimized.txt"
                 if optimized_path.exists() and optimized_path.is_file():
                     content = optimized_path.read_text(encoding="utf-8").strip()
                     if content:
-                        self.last_loaded_execution_prompt_source = (
-                            f"optimized:{optimized_path}"
-                        )
-                        logger.debug(
-                            "Loaded optimized execution prompt from %s", optimized_path
-                        )
+                        self.last_loaded_execution_prompt_source = f"optimized:{optimized_path}"
+                        logger.debug("Loaded optimized execution prompt from %s", optimized_path)
                         return content
             except Exception as e:
                 logger.debug("Failed to load optimized execution prompt: %s", e)
-                # Continue to fallback options
 
-        # 1) Try Langfuse remote first when enabled
-        if _lf_enabled():
-            try:
-                rname = _lf_module_prompt_name(module_name, "execution")
-                label = os.getenv("LANGFUSE_PROMPT_LABEL", "production")
-                remote_text = _lf_resolve_prompt_by_name(rname, label=label)
-                if isinstance(remote_text, str) and remote_text.strip():
-                    self.last_loaded_execution_prompt_source = (
-                        f"langfuse:{rname}@{label}"
-                    )
-                    return remote_text.strip()
-            except Exception:
-                # continue to local resolution
-                pass
-
-        # 2) Prefer module roots to avoid noisy missing-template warnings
-        local_candidate: Optional[Path] = None
-        local_module_dir: Optional[Path] = None
-        for base in self.plugin_dirs:
-            try:
-                p = base / module_name / "execution_prompt.md"
-                if p.exists() and p.is_file():
-                    local_candidate = p
-                    local_module_dir = p.parent
-                    break
-            except Exception:
-                continue
-
-        # If Langfuse is enabled but remote was missing, try to seed from local
-        if _lf_enabled() and local_candidate is not None:
-            try:
-                content = local_candidate.read_text(encoding="utf-8").strip()
-                if content:
-                    rname = _lf_module_prompt_name(module_name, "execution")
-                    tags = _read_module_yaml_for_tags(local_module_dir)
-                    created = _lf_create_prompt_version(
-                        name=rname,
-                        prompt_text=content,
-                        label=os.getenv("LANGFUSE_PROMPT_LABEL", "production"),
-                        tags=tags,
-                        commit=f"seed module:{module_name} execution",
-                    )
-                    if created:
-                        self.last_loaded_execution_prompt_source = (
-                            f"seeded:{local_candidate}"
-                        )
-                        return content
-            except Exception:
-                # Seeding failed; fall through to local return
-                pass
-
-        # 3) Local candidate return
-        if local_candidate is not None:
-            try:
-                self.last_loaded_execution_prompt_source = str(local_candidate)
-                return local_candidate.read_text(encoding="utf-8").strip()
-            except Exception:
-                pass
-
-        # 4) Fallback to templates directory candidates
-        candidates = [
-            f"{module_name}_execution_prompt.md",
-            f"module_{module_name}_execution_prompt.md",
-            f"{module_name}.md",
-        ]
-        for name in candidates:
-            content = load_prompt_template(name)
-            if content:
-                self.last_loaded_execution_prompt_source = f"templates:{name}"
-                return content
-        return ""
+        content, self.last_loaded_execution_prompt_source = self._load_module_prompt(module_name, "execution", "execution_prompt.md")
+        return content
 
     def load_module_report_prompt(self, module_name: str) -> str:
-        """Load module-specific report prompt guidance if available.
-
-        Order of resolution:
-        1) Langfuse-managed module prompt (when enabled): cyber/module/<module>/report_prompt
-           - If missing remotely, seed from local file if present
-        2) Local file under operation_plugins/<module>/report_prompt.(txt|md)
-        Returns empty string if none present.
-        """
-        # Reset tracker
-        self.last_loaded_report_prompt_source = None
-
-        # 0) Try Langfuse remote first when enabled
-        if _lf_enabled():
-            try:
-                rname = _lf_module_prompt_name(module_name, "report")
-                label = os.getenv("LANGFUSE_PROMPT_LABEL", "production")
-                remote_text = _lf_resolve_prompt_by_name(rname, label=label)
-                if isinstance(remote_text, str) and remote_text.strip():
-                    self.last_loaded_report_prompt_source = f"langfuse:{rname}@{label}"
-                    return remote_text.strip()
-            except Exception:
-                pass
-
-        # 1) Local candidate (search CYBER_PLUGIN_PATH roots first, default last)
-        local_candidate: Optional[Path] = None
-        local_module_dir: Optional[Path] = None
-        for base in self.plugin_dirs:
-            try:
-                path = base / module_name / "report_prompt.md"
-                if path.exists() and path.is_file():
-                    local_candidate = path
-                    local_module_dir = path.parent
-                    break
-            except Exception as e:
-                logger.debug(
-                    "Failed to enumerate module report prompt for '%s' in '%s': %s",
-                    module_name,
-                    base,
-                    e,
-                )
-                continue
-
-        # If Langfuse is enabled but remote missing, seed from local
-        if _lf_enabled() and local_candidate is not None:
-            try:
-                content = local_candidate.read_text(encoding="utf-8").strip()
-                if content:
-                    rname = _lf_module_prompt_name(module_name, "report")
-                    tags = _read_module_yaml_for_tags(local_module_dir)
-                    created = _lf_create_prompt_version(
-                        name=rname,
-                        prompt_text=content,
-                        label=os.getenv("LANGFUSE_PROMPT_LABEL", "production"),
-                        tags=tags,
-                        commit=f"seed module:{module_name} report",
-                    )
-                    if created:
-                        self.last_loaded_report_prompt_source = (
-                            f"seeded:{local_candidate}"
-                        )
-                        return content
-            except Exception:
-                pass
-
-        if local_candidate is not None:
-            try:
-                self.last_loaded_report_prompt_source = str(local_candidate)
-                return local_candidate.read_text(encoding="utf-8").strip()
-            except Exception:
-                pass
-        return ""
+        content, self.last_loaded_report_prompt_source = self._load_module_prompt(module_name, "report", "report_prompt.md")
+        return content
 
     def discover_module_tools(self, module_name: str) -> Tuple[List[str], Optional[List[str]]]:
         """Discover module-specific tool files under operation_plugins.
@@ -979,50 +1025,50 @@ class ModulePromptLoader:
         results: List[str] = []
         allowed_tools: Optional[List[str]] = None
         try:
-            module_root: Optional[Path] = None
-            tools_dir: Optional[Path] = None
-            for base in self.plugin_dirs:
-                try:
-                    td = base / module_name / "tools"
-                    if td.exists() and td.is_dir():
-                        tools_dir = td
-                        module_root = base / module_name
-                        break
-                except Exception:
-                    continue
-            if tools_dir is None or module_root is None:
-                return results, None
+            # Resolve module inheritance order (module first, then parents)
+            chain = self._inheritance_chain(module_name)
 
-            # Attempt to read module.yaml to honor a tools allowlist
-            try:
-                for fname in ("module.yaml", "module.yml"):
-                    ypath = module_root / fname
-                    if ypath.exists() and ypath.is_file():
-                        data = yaml.safe_load(ypath.read_text(encoding="utf-8"))  # type: ignore[no-untyped-call]
-                        if isinstance(data, dict) and isinstance(
-                            data.get("tools"), list
-                        ):
-                            allowed_tools = [
-                                str(t).strip() for t in data.get("tools", []) if t
-                            ]
-                        break
-            except Exception as ye:
-                logger.debug(
-                    "discover_module_tools: unable to parse tools allowlist for '%s': %s",
-                    module_name,
-                    ye,
-                )
+            # Track selected stems to enforce precedence:
+            # module tools > first parent tools > later parent tools (transitively)
+            selected: Dict[str, str] = {}
 
-            for py in tools_dir.glob("*.py"):
-                if py.name == "__init__.py":
+            # Only the requested module's allowlist is returned to callers
+            base_tools_dir, base_module_dir = self._find_tools_dir(module_name)
+            allowed_tools = self._read_tools_allowlist(base_module_dir)
+            allowed_tools_missing = allowed_tools.copy() if allowed_tools is not None else None
+
+            for mod in chain:
+                tools_dir, module_root = self._find_tools_dir(mod)
+                if tools_dir is None or module_root is None:
                     continue
-                stem = py.stem
-                if allowed_tools is not None:
-                    if stem not in allowed_tools:
-                        # Skip non-allowlisted tools
+
+                for py in tools_dir.glob("*.py"):
+                    if py.name == "__init__.py":
                         continue
-                    allowed_tools.remove(stem)
-                results.append(str(py.resolve()))
+                    stem = py.stem
+
+                    # Apply allowlist
+                    if allowed_tools is not None and stem not in allowed_tools:
+                        continue
+
+                    # Precedence: first occurrence wins because chain is ordered by precedence
+                    if stem in selected:
+                        continue
+
+                    # If this is the base module, update missing list for return
+                    if allowed_tools_missing is not None and stem in allowed_tools_missing:
+                        allowed_tools_missing.remove(stem)
+
+                    selected[stem] = str(py.resolve())
+
+            # Emit results in deterministic precedence order (chain order, then filesystem glob order)
+            # selected already respects precedence; preserve insertion order by iterating values
+            results.extend(selected.values())
+
+            # Return missing allowlisted tools for the base module (if any)
+            if allowed_tools_missing is not None:
+                allowed_tools = allowed_tools_missing
+
         except Exception as e:
             logger.debug("discover_module_tools failed for '%s': %s", module_name, e)
         return results, allowed_tools

@@ -55,6 +55,118 @@ def test_module_prompt_loader_discovers_tools_allowlist(tmp_path, monkeypatch):
     assert tools_remaining == ['http_request', 'browser_*']
 
 
+def test_module_prompt_loader_discovers_tools_inheritance_union_and_precedence(tmp_path, monkeypatch):
+    """Tool discovery should union tools across inheritance with correct precedence."""
+    # app extends web, ctf
+    app_dir = tmp_path / "operation_plugins" / "app"
+    app_tools = app_dir / "tools"
+    app_tools.mkdir(parents=True)
+    (app_dir / "module.yaml").write_text("extend:\n  - web\n  - ctf\n")
+    (app_tools / "__init__.py").write_text("\n")
+    (app_tools / "recon.py").write_text("# app tool\n")
+    (app_tools / "shared.py").write_text("# app shared\n")
+
+    web_dir = tmp_path / "operation_plugins" / "web"
+    web_tools = web_dir / "tools"
+    web_tools.mkdir(parents=True)
+    (web_tools / "__init__.py").write_text("\n")
+    (web_tools / "web_only.py").write_text("# web only\n")
+    (web_tools / "shared.py").write_text("# web shared\n")
+
+    ctf_dir = tmp_path / "operation_plugins" / "ctf"
+    ctf_tools = ctf_dir / "tools"
+    ctf_tools.mkdir(parents=True)
+    (ctf_tools / "__init__.py").write_text("\n")
+    (ctf_tools / "ctf_only.py").write_text("# ctf only\n")
+    (ctf_tools / "shared.py").write_text("# ctf shared\n")
+
+    loader = ModulePromptLoader()
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    tools, tools_remaining = loader.discover_module_tools("app")
+    names = [Path(p).name for p in tools]
+
+    # union
+    assert "recon.py" in names
+    assert "shared.py" in names
+    assert "web_only.py" in names
+    assert "ctf_only.py" in names
+
+    # precedence: shared.py should come from app (module overrides parents)
+    shared_path = next(Path(p) for p in tools if Path(p).name == "shared.py")
+    assert str(shared_path).endswith("/app/tools/shared.py")
+
+    assert tools_remaining is None
+
+
+def test_module_prompt_loader_discovers_tools_parent_precedence_order(tmp_path, monkeypatch):
+    """If module lacks a tool but multiple parents provide it, extend order determines precedence."""
+    # app extends web, ctf; app has no shared.py
+    app_dir = tmp_path / "operation_plugins" / "app"
+    app_tools = app_dir / "tools"
+    app_tools.mkdir(parents=True)
+    (app_dir / "module.yaml").write_text("extend:\n  - web\n  - ctf\n")
+    (app_tools / "__init__.py").write_text("\n")
+
+    web_dir = tmp_path / "operation_plugins" / "web"
+    web_tools = web_dir / "tools"
+    web_tools.mkdir(parents=True)
+    (web_tools / "__init__.py").write_text("\n")
+    (web_tools / "shared.py").write_text("# web shared\n")
+
+    ctf_dir = tmp_path / "operation_plugins" / "ctf"
+    ctf_tools = ctf_dir / "tools"
+    ctf_tools.mkdir(parents=True)
+    (ctf_tools / "__init__.py").write_text("\n")
+    (ctf_tools / "shared.py").write_text("# ctf shared\n")
+
+    loader = ModulePromptLoader()
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    tools, _ = loader.discover_module_tools("app")
+    shared_path = next(Path(p) for p in tools if Path(p).name == "shared.py")
+    assert str(shared_path).endswith("/web/tools/shared.py")
+
+
+def test_module_prompt_loader_tools_allowlist_not_inherited(tmp_path, monkeypatch):
+    """Base module tools allowlist should not filter inherited module tools."""
+    # app extends web; app allowlists only recon
+    app_dir = tmp_path / "operation_plugins" / "app"
+    app_tools = app_dir / "tools"
+    app_tools.mkdir(parents=True)
+    (app_dir / "module.yaml").write_text(
+        "extend:\n  - web\n\ntools:\n  - recon\n  - missing_tool\n"
+    )
+    (app_tools / "__init__.py").write_text("\n")
+    (app_tools / "recon.py").write_text("# app recon\n")
+    (app_tools / "app_extra.py").write_text("# should be filtered by app allowlist\n")
+
+    web_dir = tmp_path / "operation_plugins" / "web"
+    web_tools = web_dir / "tools"
+    web_tools.mkdir(parents=True)
+    (web_dir / "module.yaml").write_text(
+        "tools:\n  - web_only\n"
+    )
+    (web_tools / "__init__.py").write_text("\n")
+    (web_tools / "web_only.py").write_text("# inherited tool should remain\n")
+
+    loader = ModulePromptLoader()
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    tools, tools_remaining = loader.discover_module_tools("app")
+    names = [Path(p).name for p in tools]
+
+    # app allowlist applies to app only
+    assert "recon.py" in names
+    assert "app_extra.py" not in names
+
+    # inherited tools still included
+    assert "web_only.py" not in names
+
+    # missing allowlisted tools returned only for base module
+    assert tools_remaining == ["missing_tool"]
+
+
 def test_module_prompt_loader_load_module_report_prompt(tmp_path, monkeypatch):
     # Create a report_prompt.md for module
     module_dir = tmp_path / "operation_plugins" / "web"
@@ -84,27 +196,67 @@ def test_module_prompt_loader_load_module_report_prompt_path_order(tmp_path, mon
     assert "Report Guidance" in content
 
 
-@patch("modules.prompts.factory.load_prompt_template")
-@patch("pathlib.Path.exists")
-def test_module_prompt_loader_execution_prompt_candidates(mock_exists, mock_loader):
-    # Mock that the file doesn't exist in operation_plugins so it falls back to templates
-    mock_exists.return_value = False
+def test_module_prompt_loader_report_prompt_inheritance_order(tmp_path, monkeypatch):
+    """If prompt is missing in module, it should be resolved from parents in extend order."""
+    # app extends web, ctf (web has priority)
+    app_dir = tmp_path / "operation_plugins" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "module.yaml").write_text("extend:\n  - web\n  - ctf\n")
 
-    # Simulate template availability only for the second candidate
-    def fake_load(name: str) -> str:
-        if name == "general_execution_prompt.md":
-            return ""  # first candidate missing
-        if name == "module_general_execution_prompt.md":
-            return "EXEC2"  # second candidate present
-        if name == "general.md":
-            return ""  # third candidate missing
-        return ""
+    web_dir = tmp_path / "operation_plugins" / "web"
+    web_dir.mkdir(parents=True)
+    (web_dir / "report_prompt.md").write_text("WEB REPORT\n")
 
-    mock_loader.side_effect = fake_load
+    ctf_dir = tmp_path / "operation_plugins" / "ctf"
+    ctf_dir.mkdir(parents=True)
+    (ctf_dir / "report_prompt.md").write_text("CTF REPORT\n")
 
     loader = ModulePromptLoader()
-    content = loader.load_module_execution_prompt("general")
-    assert content == "EXEC2"
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    content = loader.load_module_report_prompt("app")
+    assert content.strip() == "WEB REPORT"
+
+
+def test_module_prompt_loader_report_prompt_inheritance_transitive(tmp_path, monkeypatch):
+    """Inheritance should be transitive (depth-first) while preserving declared order."""
+    # app extends web; web extends ctf; only ctf has report_prompt
+    app_dir = tmp_path / "operation_plugins" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "module.yaml").write_text("extend:\n  - web\n")
+
+    web_dir = tmp_path / "operation_plugins" / "web"
+    web_dir.mkdir(parents=True)
+    (web_dir / "module.yaml").write_text("extend:\n  - ctf\n")
+
+    ctf_dir = tmp_path / "operation_plugins" / "ctf"
+    ctf_dir.mkdir(parents=True)
+    (ctf_dir / "report_prompt.md").write_text("CTF ONLY\n")
+
+    loader = ModulePromptLoader()
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    content = loader.load_module_report_prompt("app")
+    assert content.strip() == "CTF ONLY"
+
+
+def test_module_prompt_loader_report_prompt_inheritance_cycle_safe(tmp_path, monkeypatch):
+    """Cycles should not hang resolution; traversal should be truncated safely."""
+    # a extends b; b extends a; only b has report_prompt
+    a_dir = tmp_path / "operation_plugins" / "a"
+    a_dir.mkdir(parents=True)
+    (a_dir / "module.yaml").write_text("extend:\n  - b\n")
+
+    b_dir = tmp_path / "operation_plugins" / "b"
+    b_dir.mkdir(parents=True)
+    (b_dir / "module.yaml").write_text("extend:\n  - a\n")
+    (b_dir / "report_prompt.md").write_text("B REPORT\n")
+
+    loader = ModulePromptLoader()
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    content = loader.load_module_report_prompt("a")
+    assert content.strip() == "B REPORT"
 
 
 def test_module_prompt_loader_prioritizes_operation_optimized_prompt(
@@ -156,7 +308,7 @@ def test_module_prompt_loader_falls_back_to_master_when_no_optimized(
         "web", operation_root=str(operation_root)
     )
     assert content == "Master execution prompt"
-    assert loader.last_loaded_execution_prompt_source == str(master_path)
+    assert loader.last_loaded_execution_prompt_source == f"web:{master_path}"
 
 
 def test_module_prompt_loader_handles_invalid_operation_root(tmp_path, monkeypatch):
@@ -175,6 +327,7 @@ def test_module_prompt_loader_handles_invalid_operation_root(tmp_path, monkeypat
         "web", operation_root="/nonexistent/path"
     )
     assert content == "Master execution prompt"
+    assert loader.last_loaded_execution_prompt_source == f"web:{master_path}"
 
 
 def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch):
@@ -199,6 +352,7 @@ def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch
         "web", operation_root=str(operation_root)
     )
     assert content == "Master execution prompt"
+    assert loader.last_loaded_execution_prompt_source == f"web:{master_path}"
 
 
 def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
@@ -215,3 +369,4 @@ def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
     # Load with operation_root=None - should use master
     content = loader.load_module_execution_prompt("web", operation_root=None)
     assert content == "Master execution prompt"
+    assert loader.last_loaded_execution_prompt_source == f"web:{master_path}"

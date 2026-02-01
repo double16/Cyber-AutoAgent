@@ -3,7 +3,7 @@ version: 1.0.0
 description:  Web application security recon
 author: Cyber-AutoAgent Team
 license: MIT
-extends:
+extend:
   - web
 configuration:
   approach: Intelligence-driven web application security assessment leveraging specialized external tools

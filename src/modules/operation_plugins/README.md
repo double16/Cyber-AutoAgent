@@ -40,7 +40,7 @@ operation_plugins/
 
 ## Component Functions
 
-### Specialist Agents (General Module)
+### Specialist Agents (Web Module)
 The `web` module currently ships with a `validation_specialist` tool that spins up its own Strands `Agent` to run the seven-gate validation checklist before a finding is accepted. The tool lives under `tools/validation_specialist.py` and follows a repeatable pattern:
 
 - `_create_specialist_model()` pulls the same provider/model configuration used by the main agent.
@@ -59,6 +59,8 @@ version: 1.0.0
 cognitive_level: 4              # Sophistication rating (1-5)
 capabilities:
   - capability_description
+extend:
+  - web
 tools:
   - tool_name
   - 'browser_*'
@@ -245,6 +247,28 @@ def custom_scanner(target: str, depth: int = 3) -> str:
     # Scanner implementation
     return f"Scan completed: {target}"
 ```
+
+### Extending Other Modules
+
+A module may extend from one or more modules. The module "inherits" the prompts and custom tools from other modules. This
+allows specific customizations to existing modules. If a module does not provide a prompt or tool, it is used from the
+inherited modules.
+
+```yaml
+extend:
+  - web
+  - some_other_module
+```
+
+In the example above, the module `web` is checked, then `some_other_module`.
+
+The following are inherited:
+- `execution_prompt.md`
+- `report_prompt.md`
+- `tools`  # The tools property is NOT inherited. If missing, all built-in and custom tools are included.
+- tools/   # The tools directory is inherited from all modules. If two custom tools have the same name, the first in the extend list is used.
+
+Extending modules, is transitive, i.e. my_custom_ctf → ctf → web.
 
 ## Development Guidelines
 

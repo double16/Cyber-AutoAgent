@@ -4,6 +4,8 @@ description: CTF module with broad vulnerability coverage and flag extraction
 author: Cyber-AutoAgent Team
 license: MIT
 cognitive_level: 4
+extend:
+  - web
 configuration:
   approach: Family-driven discovery and exploitation with curated-first probes and explicit success-state termination
 capabilities:
@@ -26,6 +28,9 @@ tools:
   - 'channel_*'
   - 'oast_*'
   - '*_search'
+  - advanced_payload_coordinator
+  - auth_chain_analyzer
+  - validation_specialist
 module_interface:
   accepts_from: []
   provides_to: []
