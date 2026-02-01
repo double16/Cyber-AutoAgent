@@ -41,6 +41,7 @@ for _var in (
     "OLLAMA_HOST",
     "MAX_COMPLETION_TOKENS",
     "MAX_TOKENS",
+    "ENABLE_OBSERVABILITY",
 ):
     os.environ.pop(_var, None)
 

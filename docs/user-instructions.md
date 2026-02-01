@@ -249,7 +249,7 @@ Login: admin@cyber-autoagent.com / changeme
 outputs/
 └── <target>/
     ├── OP_<timestamp>/
-    │   ├── report.md              # Assessment report
+    │   ├── security_assessment_report.md    # Assessment report
     │   ├── logs/
     │   │   └── cyber_operations.log
     │   └── utils/

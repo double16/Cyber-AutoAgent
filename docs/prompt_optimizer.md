@@ -400,7 +400,7 @@ prompt_optimizer(
 outputs/<target>/OP_<id>/
 ├── execution_prompt_optimized.txt  # Copied from module template, then evolves
 ├── adaptive_prompt.json            # Optional overlay directives
-├── report.md                       # Final assessment report
+├── security_assessment_report.md   # Final assessment report
 ├── cyber_operations.log            # Operation log with all events
 ├── artifacts/                      # Ad-hoc files created during operation
 └── tools/                          # Custom tools created by agent
@@ -416,7 +416,7 @@ src/modules/operation_plugins/<module>/
 
 ### Isolation Model
 - **Operation Isolation**: Each operation gets a copy of execution_prompt.md as execution_prompt_optimized.txt
-- **Template Preservation**: Master templates in `operation_plugins/` remain unchanged
+- **Template Preservation**: Master templates in operation plugins remain unchanged
 - **Cross-Operation Learning**: Memory system provides context across operations for the same target
 - **Overlay System**: Optional `adaptive_prompt.json` provides temporary directive overlays with TTL support
 

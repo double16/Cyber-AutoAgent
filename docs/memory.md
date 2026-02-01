@@ -219,9 +219,9 @@ mem0_memory(
 ### Operation Output Structure
 ```
 ./outputs/<target>/<operation_id>/
-├── artifacts/           # Operation artifacts
-├── report.md            # Final assessment report
-└── logs/               # Operation logs
+├── artifacts/                     # Operation artifacts
+├── security_assessment_report.md  # Final assessment report
+└── logs/                          # Operation logs
     └── cyber_operations.log
 ```
 

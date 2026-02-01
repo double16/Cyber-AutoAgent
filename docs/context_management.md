@@ -320,7 +320,7 @@ outputs/<target>/<operation>/
 │   └── ...
 ├── logs/
 │   └── cyber_operations.log
-└── report.md
+└── security_assessment_report.md
 ```
 
 ### Artifact Lifecycle

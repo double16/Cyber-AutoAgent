@@ -58,7 +58,7 @@ parser.add_argument(
 ## Module Structure
 
 ```
-src/modules/operation_plugins/
+src/modules/operation_plugins/  (CYBER_PLUGIN_PATH, ~/.cyber-autoagent/modules/)
 ├── web/
 │   ├── execution_prompt.md    # Domain-specific system prompt
 │   ├── report_prompt.md       # Report generation guidance
@@ -296,7 +296,7 @@ sequenceDiagram
     T-->>A: Structured report sections
     A->>A: Generate final report markdown
     A-->>E: Complete report with findings
-    E->>E: Write report.md to operation directory
+    E->>E: Write security_assessment_report.md to operation directory
 ```
 
 The report generation uses a dedicated `build_report_sections` tool that retrieves evidence from memory, applies module-specific domain lenses, and produces structured sections for the report agent to format.

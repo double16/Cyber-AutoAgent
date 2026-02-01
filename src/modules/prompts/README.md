@@ -45,9 +45,9 @@ This directory stores the Markdown and text templates that form the building blo
 
 ## Plugin Loading Workflow (Operation Modules)
 
-The agent's capabilities are extended through **Operation Modules**, which are self-contained plugins located in `/src/modules/operation_plugins/`. The `ModulePromptLoader` in `factory.py` manages them as follows:
+The agent's capabilities are extended through **Operation Modules**, which are self-contained plugins. The `ModulePromptLoader` in `factory.py` manages them as follows:
 
-1.  **Discovery**: The loader scans the `operation_plugins` directory. Each subdirectory is considered a potential module.
+1.  **Discovery**: The loader scans `CYBER_PLUGIN_PATH`, `~/.cyber-autoagent/modules/`, `operation_plugins` directory. Each subdirectory is considered a potential module.
 2.  **Validation**: For each discovered module, the loader checks for a valid structure, typically requiring at least a `module.yaml`, `execution_prompt.md`, or `report_prompt.md` to be considered valid.
 3.  **Loading**: When a module is selected for an operation, the loader reads its files:
     - **`module.yaml`**: Contains metadata like the module's `name` and `description`.

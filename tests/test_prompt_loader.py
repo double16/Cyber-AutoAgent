@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-
+import os
 from pathlib import Path
 from unittest.mock import patch
 
 from modules.prompts.factory import ModulePromptLoader
+
+
+@patch.dict(os.environ, {"CYBER_PLUGIN_PATH": "/a:/b:/c"})
+def test_module_prompt_loader_parses_plugin_path(tmp_path, monkeypatch):
+    loader = ModulePromptLoader()
+    assert loader.plugin_dirs == [
+        Path("/a"),
+        Path("/b"),
+        Path("/c"),
+        Path("~/.cyber-autoagent/modules/").expanduser(),
+        (Path(__file__).parent.parent / "src" / "modules" / "operation_plugins").resolve()
+    ]
 
 
 def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
@@ -15,7 +27,7 @@ def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
 
     loader = ModulePromptLoader()
     # Point the loader at our temp plugins dir
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "does_not_exist", tmp_path / "operation_plugins"])
 
     tools, tools_remaining = loader.discover_module_tools("web")
     names = [Path(p).name for p in tools]
@@ -34,7 +46,7 @@ def test_module_prompt_loader_discovers_tools_allowlist(tmp_path, monkeypatch):
 
     loader = ModulePromptLoader()
     # Point the loader at our temp plugins dir
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
 
     tools, tools_remaining = loader.discover_module_tools("web")
     names = [Path(p).name for p in tools]
@@ -50,7 +62,23 @@ def test_module_prompt_loader_load_module_report_prompt(tmp_path, monkeypatch):
     (module_dir / "report_prompt.md").write_text("Report Guidance\n")
 
     loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
+
+    content = loader.load_module_report_prompt("web")
+    assert "Report Guidance" in content
+
+
+def test_module_prompt_loader_load_module_report_prompt_path_order(tmp_path, monkeypatch):
+    module_dir1 = tmp_path / "operation_plugins1" / "web"
+    module_dir1.mkdir(parents=True)
+    (module_dir1 / "report_prompt.md").write_text("Report Guidance\n")
+
+    module_dir2 = tmp_path / "operation_plugins2" / "web"
+    module_dir2.mkdir(parents=True)
+    (module_dir2 / "report_prompt.md").write_text("Wrong File!\n")
+
+    loader = ModulePromptLoader()
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins1", tmp_path / "operation_plugins2"])
 
     content = loader.load_module_report_prompt("web")
     assert "Report Guidance" in content
@@ -96,7 +124,7 @@ def test_module_prompt_loader_prioritizes_operation_optimized_prompt(
     master_path.write_text("Master execution prompt")
 
     loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
 
     # Load with operation_root - should get optimized version
     content = loader.load_module_execution_prompt(
@@ -121,7 +149,7 @@ def test_module_prompt_loader_falls_back_to_master_when_no_optimized(
     master_path.write_text("Master execution prompt")
 
     loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
 
     # Load with operation_root - should fall back to master
     content = loader.load_module_execution_prompt(
@@ -140,7 +168,7 @@ def test_module_prompt_loader_handles_invalid_operation_root(tmp_path, monkeypat
     master_path.write_text("Master execution prompt")
 
     loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
 
     # Load with non-existent operation_root - should fall back to master
     content = loader.load_module_execution_prompt(
@@ -164,7 +192,7 @@ def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch
     master_path.write_text("Master execution prompt")
 
     loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
 
     # Load with operation_root - should fall back to master since optimized is empty
     content = loader.load_module_execution_prompt(
@@ -182,7 +210,7 @@ def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
     master_path.write_text("Master execution prompt")
 
     loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugins_dir", tmp_path / "operation_plugins")
+    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
 
     # Load with operation_root=None - should use master
     content = loader.load_module_execution_prompt("web", operation_root=None)

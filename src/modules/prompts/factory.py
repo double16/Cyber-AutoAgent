@@ -758,10 +758,34 @@ class ModulePromptLoader:
 
     def __init__(self, templates_dir: Optional[Path] = None):
         self.templates_dir = templates_dir or (Path(__file__).parent / "templates")
-        # Base dir for operation plugins: modules/operation_plugins
-        self.plugins_dir = (
-            Path(__file__).parent.parent / "operation_plugins"
-        ).resolve()
+        # Support multiple module roots via CYBER_PLUGIN_PATH (PATH-style, ':' separated).
+        # Search order: CYBER_PLUGIN_PATH entries first, then built-in modules/operation_plugins last.
+        default_plugins_dir = (Path(__file__).parent.parent / "operation_plugins").resolve()
+
+        raw_paths = os.getenv("CYBER_PLUGIN_PATH", "")
+        plugin_dirs: List[Path] = []
+
+        def _add_dir(p: Path) -> None:
+            try:
+                rp = p.expanduser().resolve()
+            except Exception:
+                rp = p.expanduser()
+            # De-dupe while preserving order
+            if rp not in plugin_dirs:
+                plugin_dirs.append(rp)
+
+        for part in raw_paths.split(":"):
+            s = part.strip()
+            if not s:
+                continue
+            _add_dir(Path(s))
+
+        _add_dir(Path("~/.cyber-autoagent/modules/"))
+
+        # Always include the built-in operation_plugins directory LAST
+        _add_dir(default_plugins_dir)
+
+        self.plugin_dirs = plugin_dirs
         # Track sources for observability
         self.last_loaded_execution_prompt_source: Optional[str] = None
         self.last_loaded_report_prompt_source: Optional[str] = None
@@ -816,15 +840,18 @@ class ModulePromptLoader:
                 # continue to local resolution
                 pass
 
-        # 2) Prefer operation_plugins/<module>/execution_prompt first to avoid noisy missing-template warnings
+        # 2) Prefer module roots to avoid noisy missing-template warnings
         local_candidate: Optional[Path] = None
-        try:
-            p = self.plugins_dir / module_name / "execution_prompt.md"
-            if p.exists() and p.is_file():
-                local_candidate = p
-        except Exception:
-            # best-effort
-            local_candidate = None
+        local_module_dir: Optional[Path] = None
+        for base in self.plugin_dirs:
+            try:
+                p = base / module_name / "execution_prompt.md"
+                if p.exists() and p.is_file():
+                    local_candidate = p
+                    local_module_dir = p.parent
+                    break
+            except Exception:
+                continue
 
         # If Langfuse is enabled but remote was missing, try to seed from local
         if _lf_enabled() and local_candidate is not None:
@@ -832,7 +859,7 @@ class ModulePromptLoader:
                 content = local_candidate.read_text(encoding="utf-8").strip()
                 if content:
                     rname = _lf_module_prompt_name(module_name, "execution")
-                    tags = _read_module_yaml_for_tags(self.plugins_dir / module_name)
+                    tags = _read_module_yaml_for_tags(local_module_dir)
                     created = _lf_create_prompt_version(
                         name=rname,
                         prompt_text=content,
@@ -894,17 +921,24 @@ class ModulePromptLoader:
             except Exception:
                 pass
 
-        # 1) Local candidate
+        # 1) Local candidate (search CYBER_PLUGIN_PATH roots first, default last)
         local_candidate: Optional[Path] = None
-        try:
-            path = self.plugins_dir / module_name / "report_prompt.md"
-            if path.exists() and path.is_file():
-                local_candidate = path
-        except Exception as e:
-            logger.debug(
-                "Failed to enumerate module report prompt for '%s': %s", module_name, e
-            )
-            local_candidate = None
+        local_module_dir: Optional[Path] = None
+        for base in self.plugin_dirs:
+            try:
+                path = base / module_name / "report_prompt.md"
+                if path.exists() and path.is_file():
+                    local_candidate = path
+                    local_module_dir = path.parent
+                    break
+            except Exception as e:
+                logger.debug(
+                    "Failed to enumerate module report prompt for '%s' in '%s': %s",
+                    module_name,
+                    base,
+                    e,
+                )
+                continue
 
         # If Langfuse is enabled but remote missing, seed from local
         if _lf_enabled() and local_candidate is not None:
@@ -912,7 +946,7 @@ class ModulePromptLoader:
                 content = local_candidate.read_text(encoding="utf-8").strip()
                 if content:
                     rname = _lf_module_prompt_name(module_name, "report")
-                    tags = _read_module_yaml_for_tags(self.plugins_dir / module_name)
+                    tags = _read_module_yaml_for_tags(local_module_dir)
                     created = _lf_create_prompt_version(
                         name=rname,
                         prompt_text=content,
@@ -945,14 +979,24 @@ class ModulePromptLoader:
         results: List[str] = []
         allowed_tools: Optional[List[str]] = None
         try:
-            tools_dir = self.plugins_dir / module_name / "tools"
-            if not (tools_dir.exists() and tools_dir.is_dir()):
+            module_root: Optional[Path] = None
+            tools_dir: Optional[Path] = None
+            for base in self.plugin_dirs:
+                try:
+                    td = base / module_name / "tools"
+                    if td.exists() and td.is_dir():
+                        tools_dir = td
+                        module_root = base / module_name
+                        break
+                except Exception:
+                    continue
+            if tools_dir is None or module_root is None:
                 return results, None
 
             # Attempt to read module.yaml to honor a tools allowlist
             try:
                 for fname in ("module.yaml", "module.yml"):
-                    ypath = self.plugins_dir / module_name / fname
+                    ypath = module_root / fname
                     if ypath.exists() and ypath.is_file():
                         data = yaml.safe_load(ypath.read_text(encoding="utf-8"))  # type: ignore[no-untyped-call]
                         if isinstance(data, dict) and isinstance(

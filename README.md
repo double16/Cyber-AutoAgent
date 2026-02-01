@@ -800,7 +800,7 @@ cyber-autoagent/
 │       │   └── utils.py       # UI utilities and analysis
 │       ├── interfaces/
 │       │   └── react/         # React terminal interface
-│       └── operation_plugins/ # Security modules (general, ctf)
+│       └── operation_plugins/ # Security modules (web, ctf)
 ├── docs/                      # Documentation
 │   ├── architecture.md       # Agent architecture and tools
 │   ├── memory.md             # Memory system (Mem0 backends)
@@ -813,10 +813,10 @@ cyber-autoagent/
 ├── uv.lock                   # Dependency lockfile
 ├── .env.example              # Environment configuration template
 ├── outputs/                  # Unified output directory (auto-created)
-│   └── <target>/            # Target-specific organization
-│       ├── OP_<id>/        # Operation-specific files
-│       │   ├── report.md   # Security findings (when generated)
-│       │   ├── cyber_operations.log  # Operation log
+│   └── <target>/             # Target-specific organization
+│       ├── OP_<id>/          # Operation-specific files
+│       │   ├── security_assessment_report.md  # Security findings (when generated)
+│       │   ├── cyber_operations.log           # Operation log
 │       │   ├── artifacts/  # Ad-hoc files
 │       │   └── tools/      # Custom tools created by agent
 │       └── memory/         # Cross-operation memory

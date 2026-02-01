@@ -84,6 +84,7 @@ services:
       - CYBER_CONVERSATION_PRESERVE_LAST=${CYBER_CONVERSATION_PRESERVE_LAST}
       - CYBER_AGENT_OUTPUT_DIR=${CYBER_AGENT_OUTPUT_DIR}
       - BYPASS_TOOL_CONSENT=${BYPASS_TOOL_CONSENT}
+      - CYBER_PLUGIN_PATH=/app/external_plugins:/app/home_plugins
 
       # Memory configuration
       - MEM0_API_KEY=${MEM0_API_KEY}
@@ -120,6 +121,8 @@ services:
       # Use :delegated for Docker Desktop on macOS to fix permission issues
       - ../outputs:/app/outputs:delegated
       - ../tools:/app/tools:delegated
+      - ../external_plugins:/app/external_plugins:delegated
+      - ${HOME}/.cyber-autoagent/modules:/app/home_plugins:delegated
       - root_cache:/root/.cache
 
     # Network configuration

@@ -124,9 +124,10 @@ system_prompt = f"""
 Modules are discovered from multiple sources:
 
 **Search Paths:**
-1. Built-in: `src/modules/operation_plugins/`
-2. User-defined: `~/.cyberagent/modules/`
-3. Custom: `CYBERAGENT_MODULE_PATHS` environment variable
+1. Python CLI Custom: `CYBER_PLUGIN_PATH` environment variable, multiple paths separated by `:`
+2. Docker Custom: `./external_plugins/`        (mounted by docker-compose.yml)
+3. User-defined: `~/.cyber-autoagent/modules/` (mounted by docker-compose.yml)
+4. Built-in: `src/modules/operation_plugins/`
 
 **Validation Requirements:**
 - Valid `module.yaml` file
@@ -200,8 +201,8 @@ Report prompts guide structure and emphasis:
 ### Directory Setup
 
 ```bash
-mkdir -p ~/.cyberagent/modules/custom_module/tools
-cd ~/.cyberagent/modules/custom_module
+mkdir -p ~/.cyber-autoagent/modules/custom_module/tools
+cd ~/.cyber-autoagent/modules/custom_module
 ```
 
 ### Minimal Module
