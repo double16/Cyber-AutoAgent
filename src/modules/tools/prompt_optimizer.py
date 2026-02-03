@@ -16,7 +16,9 @@ from typing import Any, Dict, List, Optional
 
 from strands import ToolContext, tool
 
+from modules.config.models import create_strands_model
 from modules.config.system.logger import get_logger
+from modules.handlers.conversation_budget import get_shared_conversation_manager
 
 OVERLAY_FILENAME = "adaptive_prompt.json"
 logger = get_logger("Tools.PromptOptimizer")
@@ -653,83 +655,8 @@ def _llm_rewrite_execution_prompt(
         provider = "ollama"
         server_config = config_manager.get_server_config(provider)
 
-    region_name = config_manager.get_default_region()
     model_id = server_config.llm.model_id
-
-    # Set max_tokens=8000 for rewriter to handle full prompt output
-    if provider == "ollama":
-        from strands.models.ollama import OllamaModel
-
-        config = config_manager.get_local_model_config(model_id, provider)
-        model = OllamaModel(
-            host=config["host"],
-            model_id=config["model_id"],
-            temperature=config["temperature"],
-            max_tokens=8000,
-            ollama_client_args={
-                "timeout": config["timeout"],
-            },
-        )
-    elif provider == "bedrock":
-        from strands.models.bedrock import BedrockModel
-
-        config = config_manager.get_standard_model_config(
-            model_id, region_name, provider
-        )
-        model = BedrockModel(
-            model_id=config["model_id"],
-            region_name=config["region_name"],
-            temperature=config["temperature"],
-            max_tokens=8000,
-        )
-    elif provider == "gemini":
-        from strands.models.gemini import GeminiModel
-        from google.genai import types
-
-        config = config_manager.get_standard_model_config(
-            model_id, region_name, provider
-        )
-        params = {
-            "temperature": config["temperature"],
-            "max_tokens": 8000,
-        }
-        client_args: dict[str, Any] = {
-            "http_options": types.HttpOptions(
-                retry_options=types.HttpRetryOptions(
-                    attempts=10,
-                    exp_base=4.0,
-                )
-            )}
-
-        model = GeminiModel(
-            client_args=client_args,
-            model_id=config["model_id"],
-            params=params,
-        )
-    elif provider == "litellm":
-        from strands.models.litellm import LiteLLMModel
-
-        config = config_manager.get_standard_model_config(
-            model_id, region_name, provider
-        )
-        client_args = {}
-        params = {
-            "temperature": config["temperature"],
-            "max_tokens": 8000,
-        }
-        if model_id.startswith("bedrock/"):
-            client_args["aws_region_name"] = region_name
-            # Bedrock models don't support both temperature and top_p
-        else:
-            # Non-Bedrock models can use top_p
-            params["top_p"] = config.get("top_p", 0.95)
-        model = LiteLLMModel(
-            client_args=client_args,
-            model_id=config["model_id"],
-            params=params,
-        )
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
+    model = create_strands_model(provider, model_id, "primary")
 
     # Limit evidence input to 5K chars
     max_evidence_chars = 5000
@@ -902,7 +829,7 @@ CRITICAL: Output must be ≤ {len(current_prompt)} chars. This is STRICT.
         system_prompt=system_prompt,
         hooks=[ToolUseIdHook()],
         trace_attributes=trace_attributes,
-        conversation_manager=parent_agent.conversation_manager if parent_agent else None,
+        conversation_manager=parent_agent.conversation_manager if parent_agent else get_shared_conversation_manager(),
     )
 
     # Build the rewrite request

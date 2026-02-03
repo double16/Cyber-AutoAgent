@@ -33,6 +33,7 @@ from strands_tools import (
 )
 
 from modules import prompts, __version__
+from modules.agents.factory import AgentFactoryConfig, init_agent_factory
 from modules.agents.patches import ToolUseIdHook
 from modules.config import (
     AgentConfig,
@@ -986,6 +987,16 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         },
     }
 
+    # apply wrapper to provide agent_factory to any tool that has a parameter named such
+    agent_factory_config = AgentFactoryConfig(
+        hooks = swarm_hooks,
+        callback_handler = callback_handler,
+        conversation_manager = conversation_manager,
+        base_trace_attributes = agent_kwargs["trace_attributes"],
+    )
+    init_agent_factory(agent_factory_config)
+
+    # Register these in case something gets missed, strands will default to our config
     os.environ["STRANDS_PROVIDER"] = config.provider
     os.environ["STRANDS_MODEL_ID"] = config.model_id
     os.environ["STRANDS_MAX_TOKENS"] = str(server_config.llm.max_tokens)

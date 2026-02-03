@@ -13,15 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import ollama
 
-from strands.models import BedrockModel, Model
-from strands.models.litellm import LiteLLMModel
-from strands.models.ollama import OllamaModel
-from strands.models.gemini import GeminiModel
-
-from langchain_aws import ChatBedrock
-from langchain_ollama import ChatOllama
-from langchain_litellm import ChatLiteLLM
-from langchain_google_genai import ChatGoogleGenerativeAI
+from strands.models import Model
 
 from modules.config.providers import get_ollama_host, split_litellm_model_id
 from modules.config.providers.ollama_config import get_ollama_timeout
@@ -413,7 +405,7 @@ def create_bedrock_model(
     provider: str = "bedrock",
     role: Optional[LLMRoleType] = None,
     **kwargs,
-) -> BedrockModel:
+) -> "BedrockModel":
     """Create AWS Bedrock model instance using centralized configuration.
 
     Args:
@@ -430,6 +422,7 @@ def create_bedrock_model(
         Exception: If model creation fails
     """
     from botocore.config import Config as BotocoreConfig
+    from strands.models import BedrockModel
 
     # Get centralized configuration
     config_manager = _get_config_manager()
@@ -536,7 +529,7 @@ def create_ollama_model(
     model_id: str,
     provider: str = "ollama",
     role: Optional[LLMRoleType] = None,
-) -> OllamaModel:
+) -> "OllamaModel":
     """Create Ollama model instance using centralized configuration.
 
     Args:
@@ -550,6 +543,7 @@ def create_ollama_model(
     Raises:
         Exception: If model creation fails
     """
+    from strands.models.ollama import OllamaModel
     from modules.agents.patches import patch_ollama_model_token_usage
     patch_ollama_model_token_usage()
 
@@ -591,7 +585,7 @@ def create_litellm_model(
     region_name: str,
     provider: str = "litellm",
     role: Optional[LLMRoleType] = None,
-) -> LiteLLMModel:
+) -> "LiteLLMModel":
     """Create LiteLLM model instance for universal provider access.
 
     Args:
@@ -606,6 +600,8 @@ def create_litellm_model(
     Raises:
         Exception: If model creation fails
     """
+    from strands.models.litellm import LiteLLMModel
+
     # Get centralized configuration
     config_manager = _get_config_manager()
 
@@ -742,7 +738,7 @@ def create_gemini_model(
     region_name: str,
     provider: str = "gemini",
     role: Optional[LLMRoleType] = None,
-) -> GeminiModel:
+) -> "GeminiModel":
     """Create native Gemini model instance using Google's genai SDK.
 
     This avoids LiteLLM's transformation layer and uses Google's native SDK directly,
@@ -760,6 +756,8 @@ def create_gemini_model(
     Raises:
         Exception: If model creation fails or GEMINI_API_KEY not set
     """
+    from strands.models.gemini import GeminiModel
+
     config_manager = _get_config_manager()
 
     # Get standard configuration
@@ -891,6 +889,8 @@ def get_model_id_from_model(model) -> str:
 
 
 def get_model_timeout(model: Optional[Model] = None, default_timeout: Optional[int] = None) -> Optional[int]:
+    from strands.models.ollama import OllamaModel
+
     if model is None:
         return default_timeout
 
@@ -912,6 +912,8 @@ def configure_model_rate_limits(provider: Optional[str] = None):
     if rate_limit_config is None:
         return
 
+    # inline imports for unit testing
+
     # limiter must be per-provider
     from modules.rate_limit.rate_limit import (
         ThreadSafeRateLimiter,
@@ -920,18 +922,26 @@ def configure_model_rate_limits(provider: Optional[str] = None):
     )
 
     if provider == "ollama":
+        from strands.models.ollama import OllamaModel
+        from langchain_ollama import ChatOllama
         limiter = ThreadSafeRateLimiter(rate_limit_config)
         patch_model_provider_class(OllamaModel, limiter)
         patch_langchain_chat_class_generate(ChatOllama, limiter)
     elif provider == "bedrock":
+        from strands.models import BedrockModel
+        from langchain_aws import ChatBedrock
         limiter = ThreadSafeRateLimiter(rate_limit_config)
         patch_model_provider_class(BedrockModel, limiter)
         patch_langchain_chat_class_generate(ChatBedrock, limiter)
     elif provider == "litellm":
+        from strands.models.litellm import LiteLLMModel
+        from langchain_litellm import ChatLiteLLM
         limiter = ThreadSafeRateLimiter(rate_limit_config)
         patch_model_provider_class(LiteLLMModel, limiter)
         patch_langchain_chat_class_generate(ChatLiteLLM, limiter)
     elif provider == "gemini":
+        from strands.models.gemini import GeminiModel
+        from langchain_google_genai import ChatGoogleGenerativeAI
         limiter = ThreadSafeRateLimiter(rate_limit_config)
         patch_model_provider_class(GeminiModel, limiter)
         patch_langchain_chat_class_generate(ChatGoogleGenerativeAI, limiter)

@@ -216,6 +216,7 @@ memory/
 /tools/
 epics/
 outputs/
+external_plugins/
 errors/
 repl_state/
 logs/

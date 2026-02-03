@@ -25,6 +25,11 @@ from uuid import uuid4
 from strands.hooks.events import AfterToolCallEvent
 from strands.hooks import HookProvider, HookRegistry
 
+from modules.config.system import get_logger
+
+
+logger = get_logger("Agents.CyberAutoAgent")
+
 
 @dataclass
 class _ToolUseIdStreamState:
@@ -215,7 +220,8 @@ def patch_ollama_model_token_usage(
     OllamaModel: Type[Any] = getattr(mod, cls_name)
 
     if not hasattr(OllamaModel, "format_chunk"):
-        raise RuntimeError(f"{module_name}.{cls_name} has no format_chunk method")
+        logger.warning(f"{module_name}.{cls_name} has no format_chunk method")
+        return
 
     # If already patched, do nothing (idempotent).
     existing = getattr(OllamaModel, _OLLAMA_MODEL_TOKEN_USAGE_PATCH_ATTR, None)

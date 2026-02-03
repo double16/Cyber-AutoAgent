@@ -914,7 +914,7 @@ class ModulePromptLoader:
             return None
         return None
 
-    def _load_module_prompt(self, module_name: str, kind: str, filename: str) -> Tuple[str, Optional[str]]:
+    def load_module_prompt(self, module_name: str, kind: str, filename: str) -> Tuple[str, Optional[str]]:
         """Load module-specific prompt, if available.
 
         Order of resolution:
@@ -1009,11 +1009,11 @@ class ModulePromptLoader:
             except Exception as e:
                 logger.debug("Failed to load optimized execution prompt: %s", e)
 
-        content, self.last_loaded_execution_prompt_source = self._load_module_prompt(module_name, "execution", "execution_prompt.md")
+        content, self.last_loaded_execution_prompt_source = self.load_module_prompt(module_name, "execution", "execution_prompt.md")
         return content
 
     def load_module_report_prompt(self, module_name: str) -> str:
-        content, self.last_loaded_report_prompt_source = self._load_module_prompt(module_name, "report", "report_prompt.md")
+        content, self.last_loaded_report_prompt_source = self.load_module_prompt(module_name, "report", "report_prompt.md")
         return content
 
     def discover_module_tools(self, module_name: str) -> Tuple[List[str], Optional[List[str]]]:

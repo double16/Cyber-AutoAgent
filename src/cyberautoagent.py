@@ -695,7 +695,7 @@ def main():
         # SDK-aligned execution loop with continuation support
         while not interrupted:
             last_step = callback_handler.current_step
-            last_tool_call_count = sum(callback_handler.tool_counts.values())
+            last_tool_call_count = sum(callback_handler.tool_counts.values(), start=0)
             try:
                 print_status(
                     f"Agent processing: {current_message[:100]}{' ...' if len(current_message) > 100 else ''}",
@@ -801,7 +801,11 @@ def main():
                         max_steps=callback_handler.max_steps,
                         plan_current_phase=None,
                     )
-                    current_message = f"<continue_instructions>\n{reflection_snapshot}\n<continue_instructions>"
+                    extra_message = ""
+                    if actionless_step_count > 0:
+                        logger.warning("Attempting to redirect model to emit valid tool calls because no tool calls were detected in last execution loop.")
+                        extra_message += f"Re-emit your last response as valid tool calls. No prose. No XML. At least one tool call is required to progress.\n"
+                    current_message = f"<continue_instructions>\n{extra_message}{reflection_snapshot}\n<continue_instructions>"
                 else:
                     break
 

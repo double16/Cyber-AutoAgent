@@ -924,7 +924,7 @@ def main(argv: Sequence[str]) -> int:
             "Environment:\n"
             "  CYBER_AGENT_PROVIDER  - LLM provider, if given overrides docker environment\n"
             "  CYBER_AGENT_LLM_MODEL - LLM model name, if given overrides docker environment\n"
-            "  MODULE                - Cyber-AutoAgent module: web, ctf (default: web)\n"
+            "  MODULE                - Cyber-AutoAgent module: ctf, web (default: ctf)\n"
             "  XBOW_ROOT             - Path to xbow validation-benchmarks repo (default: current dir)\n"
             "  TARGET_HOST           - Hostname for agent to reach the benchmark (default: host.docker.internal)\n"
             "  FLAG                  - Flag override; default: sha256(caa_<BENCHMARK_ID>)\n"
@@ -944,7 +944,7 @@ def main(argv: Sequence[str]) -> int:
     if not model_under_test:
         model_under_test = _docker_exec_env("cyber-autoagent", "CYBER_AGENT_LLM_MODEL")
 
-    module = _get_env("MODULE", "web")
+    module = _get_env("MODULE", "ctf")
     keep_running = _get_env("KEEP_RUNNING", "0") == "1"
 
     if args.list:

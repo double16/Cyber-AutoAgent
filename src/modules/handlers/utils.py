@@ -487,5 +487,5 @@ def get_tool_name(tool) -> str:
     try:
         tool_name = tool.tool_name
     except AttributeError:
-        tool_name = tool.__name__.split(".")[-1]
+        tool_name = getattr(tool, "__name__", tool.__class__.__name__).split(".")[-1]
     return tool_name

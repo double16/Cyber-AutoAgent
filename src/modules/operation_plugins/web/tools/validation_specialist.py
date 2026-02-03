@@ -3,15 +3,10 @@
 import json
 import logging
 import os
-from typing import Optional, Tuple
+from typing import Optional
 
-from strands import Agent, ToolContext, tool
-from strands.models import Model
+from strands import Agent, tool
 from strands_tools import editor, shell
-from modules.config.models.factory import create_strands_model
-from modules.agents.patches import ToolUseIdHook
-from modules.handlers.utils import get_tool_name
-from modules.config.manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -105,32 +100,11 @@ Return JSON only:
 </validation_specialist>"""
 
 
-def _create_specialist_model() -> Tuple[Model, str, str]:
-    """Create model for specialist - reuse main LLM/provider when swarm override is unavailable."""
-    config_manager = ConfigManager()
-    provider = config_manager.get_provider()
-    swarm_model_id = config_manager.get_swarm_model_id()
-
-    try:
-        return create_strands_model(provider, swarm_model_id, "swarm"), provider, swarm_model_id
-    except Exception as exc:  # fall back to main LLM if swarm override is misconfigured
-        primary_model = config_manager.get_llm_config(provider).model_id
-        logger.warning(
-            "Specialist model '%s' unavailable for provider '%s' (%s). Falling back to main model '%s'.",
-            swarm_model_id,
-            provider,
-            exc,
-            primary_model,
-        )
-        return create_strands_model(provider, primary_model, "swarm"), provider, primary_model
-
-
-@tool(context=True)
+@tool
 def validation_specialist(
     finding_description: str,
     artifact_paths: list[str],
     claimed_severity: str = "HIGH",
-    tool_context: ToolContext = None,
 ) -> dict:
     """Validate HIGH/CRITICAL findings via rigorous 7-gate checklist.
     Args:
@@ -141,43 +115,20 @@ def validation_specialist(
     Returns:
         Structured response describing the outcome.
     """
-    agent = tool_context.agent if tool_context else None
+    agent_factory = getattr(validation_specialist, "agent_factory", None)
+    assert agent_factory is not None
+
     validator: Optional[Agent] = None
     try:
         tools = [editor, shell]
-        trace_attributes_tool_names = [get_tool_name(tool) for tool in tools]
-
-        model, provider, model_id = _create_specialist_model()
-
-        if agent is None:
-            trace_attributes = None
-            logger.warning("No parent agent provided, skipping trace attributes")
-        else:
-            trace_attributes = (agent.trace_attributes or {}) | {
-                "langfuse.agent.type": "validation_specialist",
-                "langfuse.capabilities.swarm": False,
-                # Model configuration
-                "model.provider": provider,
-                "model.id": model_id,
-                "gen_ai.request.model": model_id,
-                # Agent identification
-                "agent.name": f"Cyber-validation_specialist",
-                "gen_ai.agent.name": f"Cyber-validation_specialist",
-                # Tool configuration
-                "tools.available": len(trace_attributes_tool_names),
-                "tools.names": trace_attributes_tool_names,
-            }
 
         operation_id = os.getenv("CYBER_OPERATION_ID") or "unknown"
 
-        validator = Agent(
-            model=model,
+        validator = agent_factory(
             name=f"Cyber-validation_specialist {operation_id}",
+            agent_type="validation_specialist",
             system_prompt=VALIDATION_METHODOLOGY,
             tools=tools,
-            hooks=[ToolUseIdHook()],
-            trace_attributes=trace_attributes,
-            conversation_manager=agent.conversation_manager if agent else None,
         )
 
         task = f"""Validate security finding:

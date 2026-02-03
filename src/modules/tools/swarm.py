@@ -74,7 +74,7 @@ together autonomously to solve complex, multi-faceted problems.
 
 import logging
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 from rich.box import ROUNDED
 from rich.console import Console
@@ -85,8 +85,7 @@ from strands.multiagent import Swarm
 from strands_tools.utils import console_util
 
 from modules.config import get_config_manager
-from modules.config.models import get_capabilities
-from modules.config.models.factory import create_strands_model, get_model_timeout, _resolve_prompt_token_limit
+from modules.config.models.factory import get_model_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -130,15 +129,16 @@ def create_rich_status_panel(console: Console, result: Any) -> str:
 
 
 def _create_custom_agents(
+        agent_factory: Callable[..., Agent],
         agent_specs: List[Dict[str, Any]],
-        parent_agent: Optional[Any] = None,
+        parent_agent: Optional[Agent] = None,
 ) -> List[Agent]:
     """
     Create custom agents based on user specifications.
 
     Args:
         agent_specs: List of agent specification dictionaries
-        parent_agent: Parent agent for inheriting default configuration
+        parent_agent: Parent agent for inheriting system prompt and tools
 
     Returns:
         List[Agent]: Custom agent instances
@@ -148,15 +148,6 @@ def _create_custom_agents(
     """
     if not agent_specs:
         raise ValueError("At least one agent specification is required")
-
-    config_manager = get_config_manager()
-
-    if parent_agent is None:
-        logger.error("Parent agent not given, swarm agents will lack intended functionality")
-
-    swarm_hooks = []
-    if parent_agent and hasattr(parent_agent, "swarm_hooks"):
-        swarm_hooks = getattr(parent_agent, "swarm_hooks")
 
     agents = []
     used_names = set()
@@ -177,46 +168,6 @@ def _create_custom_agents(
                 agent_name = f"{original_name}_{counter}"
                 counter += 1
         used_names.add(agent_name)
-
-        # Configure model provider
-        provider = config_manager.get_provider()
-        # only allow swarm agent provider to change to local/ollama model
-        if spec.get("model_provider", "") == "ollama":
-            provider = "ollama"
-
-        # Configure model settings
-        swarm_model_id = config_manager.get_swarm_model_id(provider)
-        model_settings = spec.get("model_settings")
-        if model_settings and "model_id" in model_settings:
-            request_model_id = model_settings["model_id"]
-            if request_model_id and "purpose-built-model" not in request_model_id:
-                swarm_model_id = request_model_id
-
-        try:
-            strands_model = create_strands_model(provider, swarm_model_id, "swarm")
-        except Exception as exc:  # fall back to main LLM if swarm override is misconfigured
-            provider_from_spec = provider
-            model_from_spec = swarm_model_id
-            provider = config_manager.get_provider()
-            swarm_model_id = config_manager.get_llm_config(provider).model_id
-            logger.warning(
-                "Swarm model '%s' unavailable for provider '%s' (%s). Falling back to main model '%s'.",
-                model_from_spec,
-                provider_from_spec,
-                exc,
-                swarm_model_id,
-            )
-            strands_model = create_strands_model(provider, swarm_model_id, "swarm")
-
-        try:
-            caps = get_capabilities(provider, swarm_model_id)
-            allow_reasoning_content = bool(caps.supports_reasoning)
-        except Exception:
-            allow_reasoning_content = False
-
-        prompt_token_limit = _resolve_prompt_token_limit(
-            provider, swarm_model_id
-        )
 
         # Get system prompt with fallback
         system_prompt = spec.get("system_prompt")
@@ -254,53 +205,14 @@ def _create_custom_agents(
             # Get actual tool objects from parent agent's registry
             agent_tools = [parent_agent.tool_registry.registry[tool_name] for tool_name in filtered_tool_names]
 
-        if parent_agent:
-            trace_attributes_tool_names = []
-            for tool in agent_tools:
-                try:
-                    trace_attributes_tool_names.append(tool.tool_name)
-                except AttributeError:
-                    trace_attributes_tool_names.append(tool.__name__)
-
-            trace_attributes = parent_agent.trace_attributes | {
-                "langfuse.agent.type": "swarm_agent",
-                "langfuse.capabilities.swarm": False,
-                # Model configuration
-                "model.provider": provider,
-                "model.id": swarm_model_id,
-                "gen_ai.request.model": swarm_model_id,
-                # Agent identification
-                "agent.name": f"Cyber-{agent_name}",
-                "gen_ai.agent.name": f"Cyber-{agent_name}",
-                # Tool configuration
-                "tools.available": len(trace_attributes_tool_names),
-                "tools.names": trace_attributes_tool_names,
-            }
-        else:
-            trace_attributes = None
-
         # Create agent
-        swarm_agent = Agent(
-            model=strands_model,
+        swarm_agent = agent_factory(
             name=agent_name,
+            agent_type="swarm_agent",
+            model_spec=spec,
             system_prompt=system_prompt,
             tools=agent_tools,
-            callback_handler=parent_agent.callback_handler if parent_agent else None,
-            trace_attributes=trace_attributes,
-            conversation_manager=parent_agent.conversation_manager if parent_agent else None,
-            hooks=swarm_hooks,
-            load_tools_from_directory=parent_agent.load_tools_from_directory if parent_agent else False,
         )
-
-        if prompt_token_limit:
-            setattr(swarm_agent, "_prompt_token_limit", prompt_token_limit)
-        elif parent_agent:
-            if hasattr(parent_agent, "_prompt_token_limit"):
-                prompt_token_limit = getattr(parent_agent, "_prompt_token_limit")
-                if prompt_token_limit:
-                    setattr(swarm_agent, "_prompt_token_limit", prompt_token_limit)
-
-        setattr(swarm_agent, "_allow_reasoning_content", allow_reasoning_content)
 
         agents.append(swarm_agent)
         logger.debug(f"Created agent '{agent_name}' with {len(agent_tools or [])} tools")
@@ -465,6 +377,8 @@ def swarm(
         - Supports complex multi-modal tasks and diverse expertise areas
         - Tool filtering ensures agents only get tools that exist in parent registry
     """
+    agent_factory = getattr(swarm, "agent_factory", None)
+    assert agent_factory is not None
     console = console_util.create()
     swarm_agents: Optional[list[Agent]] = None
     agent = tool_context.agent if tool_context else None
@@ -481,6 +395,7 @@ def swarm(
 
         # Create custom agents from specifications
         swarm_agents = _create_custom_agents(
+            agent_factory=agent_factory,
             agent_specs=agents,
             parent_agent=agent,
         )

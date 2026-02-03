@@ -1,8 +1,8 @@
 <domain_focus>CTF: Capability-driven exploitation, evidence-validated, flag-gated completion</domain_focus>
 
 <victory_conditions>
-- Flag formats: flag{UUID}, FLAG{UUID}, PREFIX{...}, @FLAG@
-- Validation: UUID format or complex strings (>16 chars). Reject test/admin/demo values
+- Flag formats: flag{UUID}, FLAG{UUID}, flag{hash}, FLAG{hash}, PREFIX{...}, @FLAG@
+- Validation: UUID format, hash or complex strings (>16 chars). Reject test/admin/demo/placeholder values
 - **Format hints = guidance, not absolute**. If flag found but format differs → store as candidate, search 5-10 more steps, then use best match found
 - Success: Flag extracted + artifact proof + reproducible extraction
 - Exploitation scope: Remote attacker perspective (network-accessible vulnerabilities only)

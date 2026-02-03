@@ -188,6 +188,8 @@ class TestMainFunction:
             "capability_expansion": ["tool1", "tool2"],
         }
         mock_handler.get_evidence_summary.return_value = []
+        mock_handler.tool_counts.return_value = {}
+        mock_handler.tool_counts.values.return_value = []
 
         mock_create_agent.return_value = (mock_agent, mock_handler)
         mock_auto_setup.return_value = ["nmap", "nikto"]
@@ -247,6 +249,8 @@ class TestMainFunction:
             "capability_expansion": ["tool1", "tool2"],
         }
         mock_handler.get_evidence_summary.return_value = []
+        mock_handler.tool_counts.return_value = {}
+        mock_handler.tool_counts.values.return_value = []
 
         mock_create_agent.return_value = (mock_agent, mock_handler)
         mock_auto_setup.return_value = []
@@ -327,6 +331,8 @@ class TestMainFunction:
             "capability_expansion": ["tool1", "tool2"],
         }
         mock_handler.get_evidence_summary.return_value = []
+        mock_handler.tool_counts.return_value = {}
+        mock_handler.tool_counts.values.return_value = []
 
         mock_create_agent.return_value = (mock_agent, mock_handler)
         mock_auto_setup.return_value = []
