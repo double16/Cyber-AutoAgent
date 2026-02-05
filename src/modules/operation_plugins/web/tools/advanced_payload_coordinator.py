@@ -61,18 +61,20 @@ def _payload_output(test_type: str, vuln: Dict[str, Any]) -> str:
     output = ["[PAYLOAD]"]
     if test_type:
         output.append(f"type: {test_type}")
-    if "parameter" in vuln:
+    if vuln.get("parameter", None):
         output.append(f"param: {vuln['parameter']}")
-    if "payload" in vuln or "url" in vuln:
+    if vuln.get("payload", None) or vuln.get("url", None):
         output.append("encoding: base64")
-    if "payload_type" in vuln:
+    if vuln.get("payload_type", None):
         output.append(f"payload_type: {vuln['payload_type']}")
-    if "payload" in vuln:
+    if vuln.get("payload", None):
         output.append(f"payload_b64: {_b64(vuln['payload'])}")
         output.append(f"payload: {vuln['payload']}")
-    if "url" in vuln:
+    if vuln.get("url", None):
         output.append(f"url_b64: {_b64(vuln['url'])}")
         output.append(f"url: {vuln['url']}")
+    if vuln.get("method", None):
+        output.append(f"method: {vuln['method']}")
     output.append("[/PAYLOAD]")
     return "\n".join(output)
 
@@ -158,6 +160,14 @@ def advanced_payload_coordinator(
             output += "-" * 40 + "\n"
 
             discovered_params = _advanced_parameter_discovery(request_config, parameters, tools=tools_setup["tools"])
+            if not discovered_params and request_config.http_method == "GET":
+                # try again with POST
+                request_config.http_method = "POST"
+                discovered_params_post = _advanced_parameter_discovery(request_config, parameters, tools=tools_setup["tools"])
+                if discovered_params_post:
+                    discovered_params = discovered_params_post
+                else:
+                    request_config.http_method = "GET"
             results["parameters_discovered"] = discovered_params
 
             output += f"Discovered {len(discovered_params)} parameters:\n"
@@ -172,8 +182,17 @@ def advanced_payload_coordinator(
 
             xss_results = _coordinate_xss_testing(request_config, results.get("parameters_discovered", []),
                                                   tools=tools_setup["tools"])
-            results["payload_results"].extend(xss_results)
             xss_vulns = [r for r in xss_results if r.get("vulnerable", False)]
+            if not xss_vulns and request_config.http_method == "GET":
+                request_config.http_method = "POST"
+                xss_results_post = _coordinate_xss_testing(request_config, results.get("parameters_discovered", []),
+                                                           tools=tools_setup["tools"])
+                xss_vulns = [r for r in xss_results_post if r.get("vulnerable", False)]
+                if xss_vulns:
+                    xss_results = xss_results_post
+                else:
+                    request_config.http_method = "GET"
+            results["payload_results"].extend(xss_results)
             results["vulnerabilities"].extend(xss_vulns)
             output += f"XSS testing completed: {len(xss_vulns)} potential vulnerabilities\n"
             for vuln in xss_vulns:
@@ -202,8 +221,18 @@ def advanced_payload_coordinator(
 
             injection_results = _coordinate_injection_testing(request_config, results.get("parameters_discovered", []),
                                                               tools=tools_setup["tools"])
-            results["payload_results"].extend(injection_results)
             injection_vulns = [r for r in injection_results if r.get("vulnerable", False)]
+            if not injection_vulns and request_config.http_method == "GET":
+                request_config.http_method = "POST"
+                injection_results_post = _coordinate_injection_testing(request_config, results.get("parameters_discovered", []),
+                                                                       tools=tools_setup["tools"])
+                injection_vulns = [r for r in injection_results_post if r.get("vulnerable", False)]
+                if injection_vulns:
+                    injection_results = injection_results_post
+                else:
+                    request_config.http_method = "GET"
+
+            results["payload_results"].extend(injection_results)
             results["vulnerabilities"].extend(injection_vulns)
             output += f"Injection testing: {len(injection_vulns)} potential vulnerabilities\n"
             for vuln in injection_vulns:
@@ -688,6 +717,7 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                                 "vulnerable": True,
                                 "payload_type": f"Advanced XSS ({payload['inject_type']})",
                                 "url": payload.get("data", None),
+                                "method": request_config.http_method,
                                 "payload": payload.get("payload", None),
                                 "evidence": payload.get("message_str", payload.get("evidence", "")),
                                 "tool": "dalfox",
@@ -754,6 +784,7 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                                     "vulnerable": True,
                                     "payload_type": "Reflected XSS (unencoded)",
                                     "url": test_url,
+                                    "method": request_config.http_method,
                                     "payload": payload,
                                     "evidence": f"Payload reflected unencoded: {payload[:50]}...",
                                     "tool": "custom",
@@ -941,6 +972,7 @@ List[Dict[str, Any]]:
                         if not f.get("parameter") or f.get("parameter") == "(unknown)":
                             f["parameter"] = param
                         f["url"] = test_url
+                        f["method"] = request_config.http_method
                         # Mark that this parameter was found vulnerable so we don't add a negative summary later.
                         injection_results.append(f)
                         parameters_under_test.discard(param)
@@ -992,6 +1024,7 @@ List[Dict[str, Any]]:
                                     "injection_type": injection_type,
                                     "parameter": param,
                                     "url": test_url,
+                                    "method": request_config.http_method,
                                     "payload": payload,
                                     "evidence": evidence,
                                     "tool": "custom",
