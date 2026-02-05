@@ -79,6 +79,11 @@ TRIGGER: Capability achieved (vuln confirmed, data extracted, access gained, byp
 Example: Creds extracted → test login (1 step) BEFORE cracking/enumeration (20+ steps)
 </cognitive_loop>
 
+**Tool Selection**:
+- Payload: advanced_payload_coordinator (XSS, params, CORS, injection)
+- Auth: auth_chain_analyzer (JWT, OAuth, SAML)
+- Targeted: http_request | Novel: python_repl
+
 <ctf_adaptation>
 **Challenge Fingerprinting** (checkpoint self-calibration):
 - At 20% budget: "Actual steps vs expected? If >150%: escalate complexity class. If <50%: simplify approach."

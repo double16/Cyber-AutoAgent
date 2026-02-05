@@ -265,6 +265,7 @@ def update_package_json_version(package_file: pathlib.Path, version: str):
     with open(package_file) as f:
         package = json.load(f)
     package["version"] = version
+    package.get("packages", {}).get("", {})["version"] = version
     with open(package_file, "wt") as f:
         json.dump(package, f, indent=2)
 

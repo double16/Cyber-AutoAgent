@@ -312,7 +312,8 @@ RUN git clone --depth=1 https://github.com/internetwache/GitTools.git /opt/gitto
     ln -sf /opt/gittools/Dumper/gitdumper.sh /usr/local/bin/gitdumper && \
     ln -sf /opt/gittools/Extractor/extractor.sh /usr/local/bin/gitextractor
 
-# Install Corsy (Scan for CORS misconfigurations) - Optional
+# Install Corsy (Scan for CORS misconfigurations)
+# Replace with https://github.com/omranisecurity/CorsOne
 RUN git clone --depth=1 --depth=1 https://github.com/s0md3v/Corsy.git /opt/corsy && \
     if [ -f /opt/corsy/requirements.txt ]; then \
       cd /opt/corsy && \

@@ -38,10 +38,13 @@ cyber_tools:
     description: "JWT analysis and manipulation toolkit"
     canary: "jwt-tool --help"
 
-  # Template injection tools
+  # Injection tools
   sstimap:
     description: "Server-Side Template Injection scanner"
     canary: "sstimap --help"
+  commix:
+    description: "Automates the detection and exploitation of command injection vulnerabilities."
+    canary: "commix --help"
 
   # Cookie/Session manipulation
   cookiecutter:
