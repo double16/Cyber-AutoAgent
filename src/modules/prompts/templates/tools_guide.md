@@ -84,6 +84,7 @@
 - Validation: Save request/response transcript + negative/control case as artifacts
 - External intel: NVD/CVE, Exploit-DB, vendor advisories, Shodan/Censys, VirusTotal
 - Large responses (HTML/JS): Save raw to <artifacts_path>/*.html, grep/sed to extract relevant data, store only file path in findings
+- Preference: preferred over `curl` for capability: http_client
 - Managed endpoints: Common keys (Vercel, Supabase anon, Tenderly RPC, analytics) often normal - treat as observations unless abuse/sensitive exposure demonstrated with artifacts
 
 **`channel_*` tools**
@@ -114,10 +115,11 @@
 - **Common violation**: Stopping after capability discovery. Must complete chain: capability confirmed → direct use tested → objective reached
 
 **tool_catalog**
-- Purpose: List all available tools, their descriptions and how to call them
+- Purpose: List or search for available tools, their descriptions and how to call them
+- Parameters: Specify keywords such as vulnerability or tool name (not specified → all tools)
 - When to use:
-  - Capabilities are required that existing tools may satisfy
-  - Information on correct argument types for a tool is needed
+  - New capability is required that exist tool may satisfy
+  - Information on correct arguments for a tool is needed
   - User requests a specific tool
 </tool_protocols>
 

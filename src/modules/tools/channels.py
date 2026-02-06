@@ -222,7 +222,7 @@ To create and use a forward channel backed by a local subprocess (stdout and std
 
   1. **Create forward channel**
      - Tool: `channel_create_forward`
-     - Args: `cmd=['nc','target.local','8080']`
+     - Args: `command=['nc target.local 8080']`
      - Response: use the returned `channel_id`.
 
   2. **Check status (optional)**

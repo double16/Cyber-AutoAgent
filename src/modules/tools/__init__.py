@@ -17,7 +17,6 @@ from modules.tools.browser import (
     browser_get_cookies,
 )
 from modules.tools.mcp import (
-    mcp_tool_catalog,
     discover_mcp_tools,
 )
 from modules.tools.channels import (
@@ -53,7 +52,6 @@ __all__ = [
     "browser_get_cookies",
     "browser_evaluate_js",
     "prompt_optimizer",
-    "mcp_tool_catalog",
     "discover_mcp_tools",
     "channel_create_forward",
     "channel_create_reverse",

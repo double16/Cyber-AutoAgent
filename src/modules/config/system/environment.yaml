@@ -2,341 +2,522 @@ cyber_tools:
   # Core scanners and recon
   nmap:
     description: "Network discovery and security auditing"
+    preference: preferred
+    caps: [network_recon]
     # the tools container would need elevated caps for nmap to run
     #canary: "nmap --help"
   nikto:
     description: "Web server scanner"
+    preference: fallback
+    caps: [web_scanning]
     canary: "nikto --help"
   sqlmap:
     description: "SQL injection detection and exploitation"
+    preference: preferred
+    caps: [injection_testing, exploitation_framework]
     canary: "sqlmap --help"
   gobuster:
     description: "Directory/file brute-forcer"
+    preference: fallback
+    caps: [web_crawling, web_fuzzing]
     canary: "gobuster -h"
   whatweb:
     description: "Web technology fingerprinting"
+    preference: preferred
+    caps: [web_recon]
     canary: "whatweb -h"
   wafw00f:
     description: "WAF fingerprinting"
+    preference: preferred
+    caps: [web_recon]
     canary: "wafw00f -h"
 
   # Web app scanners (GUI/CLI)
   zaproxy:
     description: "OWASP ZAP web scanner (CLI/API)"
+    preference: fallback
+    caps: [web_scanning, web_recon]
     canary: "zaproxy -h"
 
   # GraphQL-specific tools
   clairvoyance:
     description: "GraphQL schema enumeration and introspection"
+    preference: preferred
+    caps: [graphql]
     canary: "clairvoyance --help"
   graphql-inspector:
     description: "GraphQL schema analysis and validation"
+    preference: preferred
+    caps: [graphql]
     canary: "graphql-inspector --help"
 
   # JWT manipulation tools
   jwt-tool:
     description: "JWT analysis and manipulation toolkit"
+    preference: preferred
+    caps: [jwt]
     canary: "jwt-tool --help"
 
   # Injection tools
   sstimap:
     description: "Server-Side Template Injection scanner"
+    preference: preferred
+    caps: [injection_testing]
     canary: "sstimap --help"
   commix:
     description: "Automates the detection and exploitation of command injection vulnerabilities."
+    preference: preferred
+    caps: [injection_testing, exploitation_framework]
     canary: "commix --help"
-
-  # Cookie/Session manipulation
-  cookiecutter:
-    description: "Cookie template generation tool"
-    canary: "cookiecutter --help"
 
   # ProjectDiscovery ecosystem
   nuclei:
     description: "Templated vulnerability scanner"
+    preference: preferred
+    caps: [web_scanning]
     canary: "nuclei -h"
   naabu:
     description: "Fast TCP port scanner (SYN/CONNECT)"
+    preference: preferred
+    caps: [network_recon]
     canary: "naabu -h"
   amass:
     description: "In-depth DNS enumeration and attack surface mapping"
+    preference: preferred
+    caps: [dns_recon, osint]
     canary: "amass -h"
   subfinder:
     description: "Passive subdomain discovery"
+    preference: preferred
+    caps: [dns_recon, osint]
     canary: "subfinder -h"
 
   # Web fuzzing & dirs
   ffuf:
     description: "Fast web fuzzer"
+    preference: preferred
+    caps: [web_fuzzing]
     canary: "ffuf -h"
   feroxbuster:
     description: "Fast recursive content discovery"
+    preference: preferred
+    caps: [web_crawling, web_fuzzing]
     canary: "feroxbuster -h"
   dirb:
     description: "HTTP(S) web content scanner"
+    preference: fallback
+    caps: [web_fuzzing]
   arjun:
     description: "HTTP parameter discovery suite"
+    preference: preferred
+    caps: [web_recon, injection_testing]
     canary: "arjun -h"
   wapiti:
     description: "Web vulnerability scanner"
+    preference: fallback
+    caps: [web_scanning]
     canary: "wapiti -h"
   wfuzz:
     description: "Web application bruteforcer"
+    preference: fallback
+    caps: [web_fuzzing]
     canary: "wfuzz -h"
   wpscan:
     description: "WordPress security scanner"
+    preference: preferred
+    caps: [web_scanning]
     canary: "wpscan -h"
   corsy:
     description: "Scan websites for Cross-Origin Resource Sharing (CORS) misconfigurations"
+    preference: preferred
+    caps: [web_scanning]
     canary: "corsy --help"
   paramspider:
     description: "Mining URLs from dark corners of Web Archives for bug hunting/fuzzing/further probing"
+    preference: preferred
+    caps: [web_recon, injection_testing]
     canary: "paramspider --help"
   qsreplace:
     description: "Replace all query string values with a user-supplied value"
+    preference: fallback
+    caps: [web_fuzzing, injection_testing]
     canary: "qsreplace -h"
 
   # Web recon helpers
   gospider:
     description: "Web spider for finding URLs and endpoints"
+    preference: fallback
+    caps: [web_crawling]
     canary: "gospider -h"
   httprobe:
     description: "Probes for working HTTP and HTTPS servers"
+    preference: fallback
+    caps: [web_recon]
     canary: "httprobe -h"
   subjack:
     description: "Subdomain takeover tool"
+    preference: fallback
+    caps: [web_recon]
     canary: "subjack -h"
   knockpy:
     description: "DNS subdomain scanner"
+    preference: fallback
+    caps: [dns_recon]
     canary: "knockpy -h"
   assetfinder:
     description: "Subdomain discovery (tomnomnom)"
+    preference: fallback
+    caps: [dns_recon]
     canary: "assetfinder -h"
   httpx:
     description: "HTTP probing and technology detection (ProjectDiscovery)"
+    preference: fallback
+    caps: [web_recon, http_client]
     canary: "httpx --help"
   katana:
     description: "Fast web crawler (ProjectDiscovery)"
+    preference: preferred
+    caps: [web_crawling, web_recon]
     canary: "katana -h"
   semgrep:
     description: "Static source code analysis"
+    preference: preferred
+    caps: [sast]
     canary: "semgrep -h"
 
   # DNS/Recon
   dnsrecon:
     description: "DNS reconnaissance"
+    preference: preferred
+    caps: [dns_recon]
     canary: "dnsrecon -h"
   dnsenum:
     description: "DNS enumeration"
+    preference: fallback
+    caps: [dns_recon]
   theharvester:
     description: "Emails, subdomains, IPs and URLs OSINT"
     command: "theHarvester"
+    preference: preferred
+    caps: [osint, dns_recon]
     canary: "theHarvester -h"
 
   # Network scanning
   masscan:
     description: "Very fast port scanner"
+    preference: fallback
+    caps: [network_recon]
 
   # SMB/NetBIOS
   smbclient:
     description: "Samba SMB/CIFS client"
+    preference: fallback
+    caps: [ad_enum]
     canary: "smbclient --help"
   smbmap:
     description: "Enumerate Samba share drives across domains"
+    preference: preferred
+    caps: [ad_enum, network_recon]
     canary: "smbmap --help"
   nbtscan:
     description: "NetBIOS name network scanner"
+    preference: fallback
+    caps: [ad_enum, network_recon]
 
   # SNMP/Discovery
   arp-scan:
     description: "ARP scanning and fingerprinting"
+    preference: fallback
+    caps: [network_recon]
     canary: "arp-scan -h"
   ike-scan:
     description: "VPN IKE scanner"
+    preference: fallback
+    caps: [network_recon]
     canary: "ike-scan -h"
   onesixtyone:
     description: "Fast SNMP scanner"
+    preference: fallback
+    caps: [network_recon]
   snmpcheck:
     description: "SNMP enumerator"
     command: "snmp-check"
+    preference: preferred
+    caps: [network_recon]
     canary: "snmp-check -h"
   netdiscover:
     description: "Active/passive ARP reconnaissance"
+    preference: fallback
+    caps: [network_recon]
 
   # Utilities
   hping3:
     description: "TCP/IP packet assembler/analyzer"
+    preference: fallback
+    caps: [network_recon]
     canary: "hping3 -h"
   socat:
     description: "Multipurpose relay (SOcket CAT)"
+    preference: fallback
+    caps: [tunneling]
     canary: "socat -h"
   proxychains4:
     description: "Force any TCP connection through proxy"
+    preference: preferred
+    caps: [proxying]
   sslscan:
     description: "SSL/TLS scanner"
+    preference: preferred
+    caps: [network_recon, web_recon]
     canary: "sslscan -h"
 
   # Frameworks and cracking
   metasploit:
     description: "Penetration testing framework"
     command: "msfconsole"
+    preference: preferred
+    caps: [exploitation_framework]
     canary: "msfconsole -h"
   msfvenom:
     description: "Payload generator for Metasploit"
+    preference: preferred
+    caps: [exploitation_framework]
   john:
     description: "John the Ripper password cracker"
+    preference: fallback
+    caps: [password_cracking, crypto]
     canary: "john -h"
 
   # Networking suites
   iproute2:
     description: "Provides modern networking tools (ip, ss, tc, etc.)"
     command: "ip"
+    preference: fallback
+    caps: [network_recon]
   net-tools:
     description: "Provides classic networking utilities (netstat, ifconfig, route, etc.)"
     command: "netstat"
+    preference: fallback
+    caps: [network_recon]
   tshark:
     description: "Captures and analyzes packets off the wire or pcap files supporting too many protocols to list."
+    preference: preferred
+    caps: [traffic_capture, forensics]
     canary: "tshark -h"
 
   # Basics
   netcat:
     description: "Network utility for reading/writing data"
     command: "nc"
+    preference: fallback
+    caps: [tunneling]
     canary: "nc -h"
   curl:
     description: "HTTP client for web requests"
+    preference: preferred
+    caps: [http_client]
     canary: "curl -h"
   tcpdump:
     description: "Network packet capture"
+    preference: fallback
+    caps: [traffic_capture, forensics]
     canary: "tcpdump -h"
 
   # Binary Exploitation & Reversing
   gdb:
     description: "GNU Debugger"
+    preference: preferred
+    caps: [reverse_engineering, exploitation_framework]
     canary: "gdb -h"
   ltrace:
     description: "Library call tracer"
+    preference: fallback
+    caps: [reverse_engineering]
     canary: "ltrace -h"
   strace:
     description: "System call tracer"
+    preference: fallback
+    caps: [reverse_engineering]
     canary: "strace -h"
   radare2:
     description: "Reverse engineering framework"
+    preference: preferred
+    caps: [reverse_engineering, forensics]
     canary: "radare2 -h"
   ROPgadget:
     description: "ROP gadget finder"
     command: "ROPgadget"
+    preference: fallback
+    caps: [reverse_engineering, exploitation_framework]
     canary: "ROPgadget --help"
   ropper:
     description: "ROP gadget finder and binary information"
+    preference: fallback
+    caps: [reverse_engineering, exploitation_framework]
     canary: "ropper -h"
 
   # Steganography & Forensics
   steghide:
     description: "Steganography tool"
+    preference: preferred
+    caps: [steganography]
     canary: "steghide --help"
   binwalk:
     description: "Firmware analysis tool"
+    preference: preferred
+    caps: [forensics, reverse_engineering, steganography]
     canary: "binwalk --help"
   foremost:
     description: "File carving tool"
+    preference: preferred
+    caps: [forensics]
     canary: "foremost -h"
   zsteg:
     description: "PNG/BMP steganography"
+    preference: preferred
+    caps: [steganography]
     canary: "zsteg -h"
 
   # Deserialization
   ysoserial:
     description: "Java deserialization payload generator"
+    preference: preferred
+    caps: [deserialization, exploitation_framework]
   phpggc:
     description: "PHP generic gadget chains"
+    preference: preferred
+    caps: [deserialization, exploitation_framework]
     canary: "phpggc --help"
 
   # SSRF
   gopherus:
     description: "SSRF payload generator"
+    preference: preferred
+    caps: [ssrf]
     canary: "gopherus --help"
 
   # Tunneling & OOB
   interactsh-client:
     description: "OOB interaction client"
+    preference: preferred
+    caps: [oob_interaction, ssrf]
     canary: "interactsh-client --help"
   ligolo-proxy:
     description: "Advanced tunneling tool (Ligolo-ng)"
     command: "proxy"
+    preference: preferred
+    caps: [tunneling, proxying]
     canary: "proxy --help"
   chisel:
     description: "Fast TCP/UDP tunnel over HTTP"
+    preference: preferred
+    caps: [tunneling, proxying]
 
   # Password Cracking
   hashcat:
     description: "Advanced password recovery"
+    preference: preferred
+    caps: [password_cracking]
     canary: "hashcat -h"
   kerbrute:
     description: "Kerberos pre-auth brute-forcing"
+    preference: preferred
+    caps: [ad_enum, password_cracking]
     canary: "kerbrute -h"
 
   # Windows/AD
   enum4linux:
     description: "SMB enumeration tool"
+    preference: fallback
+    caps: [ad_enum, network_recon]
     canary: "enum4linux -h"
   netexec:
     description: "Network service exploitation (SMB/WinRM/etc)"
     command: "nxc"
+    preference: preferred
+    caps: [ad_enum, exploitation_framework]
     canary: "nxc -h"
   evil-winrm:
     description: "WinRM shell access"
+    preference: preferred
+    caps: [ad_enum]
     canary: "evil-winrm --help"
 
   # XSS Advanced
   xsstrike:
     description: "Advanced XSS detection suite"
+    preference: preferred
+    caps: [xss_testing]
     canary: "xsstrike --help"
   dalfox:
     description: "Parameter analysis and XSS scanning"
+    preference: preferred
+    caps: [xss_testing]
     canary: "dalfox --help"
 
   # Privilege Escalation
   linpeas:
     description: "Linux Privilege Escalation Awesome Script"
+    preference: preferred
+    caps: [priv_esc]
     canary: "linpeas -h"
   pwncat-cs:
     description: "Advanced reverse shell handler"
+    preference: fallback
+    caps: [tunneling]
     canary: "pwncat-cs --help"
 
   # C2 & Post-Exploitation
   sliver:
     description: "Command and Control framework"
     command: "sliver-client"
+    preference: preferred
+    caps: [exploitation_framework]
     canary: "sliver-client -h"
 
   # Active Directory Advanced
   bloodhound-python:
     description: "AD ingestor for BloodHound"
+    preference: preferred
+    caps: [ad_enum, osint]
     canary: "bloodhound-python -h"
   certipy:
     description: "Active Directory Certificate Services abuse"
+    preference: preferred
+    caps: [ad_enum, exploitation_framework]
     canary: "certipy -h"
   coercer:
     description: "Active Directory coercion attacks"
+    preference: fallback
+    caps: [ad_enum, exploitation_framework]
     canary: "coercer -h"
   responder:
     description: "LLMNR/NBT-NS poisoner"
+    preference: fallback
+    caps: [ad_enum, network_recon]
     canary: "responder --help"
 
   # Secrets & Git
   trufflehog:
     description: "Find leaked credentials"
+    preference: preferred
+    caps: [osint]
     canary: "trufflehog -h"
   gitdumper:
     description: "Dump git repositories from websites"
+    preference: fallback
+    caps: [web_recon]
 
   # Cryptography & Forensics
   rsactftool:
     description: "RSA attack tool"
     command: "rsacrack"
+    preference: preferred
+    caps: [crypto]
     canary: "rsacrack --help"
   volatility:
     description: "Memory forensics framework"
     command: "vol"
+    preference: preferred
+    caps: [forensics]
     canary: "vol -h"

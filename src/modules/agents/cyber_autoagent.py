@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 from strands import Agent
-from strands import tool
-from strands.types.tools import AgentTool
 from strands.hooks import HookProvider
 from strands.tools.executors import ConcurrentToolExecutor
 
@@ -54,8 +52,6 @@ from modules.handlers.conversation_budget import (
     _ensure_prompt_within_budget,
     PRESERVE_LAST_DEFAULT,
     PRESERVE_FIRST_DEFAULT,
-    TOOL_COMPRESS_THRESHOLD,
-    TOOL_COMPRESS_TRUNCATE,
 )
 from modules.handlers.react import ReactBridgeHandler
 from modules.handlers.tool_call_repair_hook import ToolCallRepairHook
@@ -66,7 +62,6 @@ from modules.tools import swarm, web_search
 
 from modules.tools.mcp import (
     discover_mcp_tools,
-    mcp_tool_catalog,
 )
 from modules.tools.memory import (
     get_memory_client,
@@ -99,6 +94,7 @@ from modules.tools.oast import (
     oast_register_http_response,
     oast_clear_http_responses,
 )
+from modules.tools.tool_catalog import tool_catalog_wrapper, get_cyber_tools_by_caps
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -106,19 +102,6 @@ logger = get_logger("Agents.CyberAutoAgent")
 
 # Backward compatibility: expose get_system_prompt from modules.prompts for legacy imports/tests
 get_system_prompt = prompts.get_system_prompt
-
-
-def tool_catalog_wrapper(full_tools_context: str, mcp_tools: List[AgentTool]):
-    @tool(name="tool_catalog")
-    def tool_catalog() -> str:
-        """
-        List the full catalog of available tools.
-        """
-        if mcp_tools:
-            return full_tools_context + "\n\n" + mcp_tool_catalog(mcp_tools)
-        return full_tools_context
-
-    return tool_catalog
 
 
 def create_agent(
@@ -423,19 +406,27 @@ Available {config.module} module tools:
     tools_context = ""
     if config.available_tools:
         tool_count += len(config.available_tools)
+        tools_by_caps = get_cyber_tools_by_caps(config.available_tools)
         tools_context = f"""
 ### COMMAND LINE PROGRAMS
 
-Use the **shell** tool to invoke the following command line programs in a bash shell:
-{", ".join(config.available_tools)}
+Use the **shell** tool for bash commands.
 
-**Example**:
-shell(command="nmap -sV ...")
-shell(command="nuclei ...")
+**Command line tool selection rules**
+- Use a purpose-built tool when scanning/enumerating many targets or endpoints.
+- Use `curl` only for single requests, reproductions, or crafted edge-cases.
+- Use `grep/sed/awk/jq` only for small transformations after purpose-built tools produce raw output.
 
-**Program options**: Use the `--help` option to learn how to use a program:
-shell(command="nmap --help")
+### Capabilities → Preferred tools → Fallbacks
 """
+        for cap, cap_prefs in tools_by_caps.items():
+            cap_title = cap.replace("_", " ").capitalize()
+            tools_context += f"\n- **{cap_title}**\n"
+            pref_list = list(cap_prefs.keys())
+            pref_list.sort(key=lambda x: (not x.startswith("p"), x))
+            for pref in pref_list:
+                pref_tools = cap_prefs[pref]
+                tools_context += f"  - {pref}: {', '.join(map(lambda x: f'`{x}`', pref_tools))}\n"
 
     # Load MCP tools and prepare for injection
     mcp_tools = discover_mcp_tools(config)
@@ -538,9 +529,6 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         agent_logger.info(
             "Injected %d MCP tools into agent", len(mcp_tools)
         )
-        tools_list.append(tool_catalog_wrapper(full_tools_context, mcp_tools or []))
-    else:
-        tools_list.append(tool_catalog_wrapper(full_tools_context, []))
 
     # Capability-based warning if tool calls are unsupported for this model
     try:
@@ -1024,6 +1012,8 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         setattr(agent, "swarm_hooks", swarm_hooks)
     except Exception as e:
         logger.error("Could not set swarm_hooks on agent, swarm agents may not behave as intended", exc_info=e)
+
+    agent.tool_registry.register_tool(tool_catalog_wrapper(agent, config.available_tools))
 
     agent_logger.debug("Agent initialized successfully")
     return agent, callback_handler
