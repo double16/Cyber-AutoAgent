@@ -44,6 +44,8 @@ _RE_SSTIMAP_EVIDENCE_CONTEXT = re.compile(r"^\s*Context:.*$", re.MULTILINE)
 _RE_SSTIMAP_EVIDENCE_OS = re.compile(r"^\s*OS:.*$", re.MULTILINE)
 _RE_SSTIMAP_EVIDENCE_TECHNIQUE = re.compile(r"^\s*Technique:.*$", re.MULTILINE)
 
+_RE_COMMIX_VULN = re.compile(r"parameter\s+'(.+?)'\s+is (likely |)vulnerable", re.IGNORECASE)
+
 
 def _b64(input) -> str:
     if input is None:
@@ -100,16 +102,15 @@ def advanced_payload_coordinator(
     Coordinates advanced payload testing using specialized external tools.
 
     Intelligently installs and coordinates tools like dalfox (XSS), arjun (parameter discovery),
-    corsy (CORS), and others from awesome-bugbounty-tools for sophisticated testing
-    beyond what basic sqlmap/nmap can provide.
+    corsy (CORS), and others from awesome-bugbounty-tools for sophisticated testing.
 
     Args:
         target_url: Target URL with parameters (e.g., https://site.com/search?q=test)
         test_type: Type of testing ("xss", "param_discovery", "cors", "comprehensive")
         parameters: Specific parameters to test (comma-separated). If empty, parameter discovery will be used.
         http_method: HTTP method to test (GET, POST, etc.), defaults to "GET"
-        cookies: Cookies to include in all requests (auth, etc.), defaults to None
-        headers: Headers to include in all requests (auth, etc.), defaults to None
+        cookies: Cookies to include in all requests (authentication may require this), defaults to None
+        headers: Headers to include in all requests (authentication may require this), defaults to None
 
     Returns:
         Advanced payload testing results with intelligent analysis
@@ -279,10 +280,11 @@ def _setup_payload_tools() -> Dict[str, Any]:
     # Specialized tools from awesome-bugbounty-tools
     specialized_tools = [
         ("dalfox", "github.com/hahwul/dalfox/v2@latest"),
-        ("arjun", None),  # Python tool, installed via pip
-        ("corsy", None),  # Python tool, installed via pip
-        ("paramspider", None),  # Python tool, installed via pip
-        ("sstimap", None),  # Python tool, installed via pip
+        ("arjun", None),  # Python tool
+        ("corsy", None),  # Python tool
+        ("paramspider", None),  # Python tool
+        ("sstimap", None),  # Python tool
+        ("commix", None),  # Python tool
     ]
 
     for tool_name, install_path in specialized_tools:
@@ -669,6 +671,9 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
 
     # Method 1: DalFox advanced XSS testing (if available)
     if "dalfox" in tools:
+        dalfox_out = ""
+        dalfox_timeout = False
+        dalfox_params = set(parameters[:10])  # Test first 10 parameters
         try:
             cmd = [
                 "dalfox",
@@ -699,37 +704,53 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                 for name, value in request_config.headers.items():
                     cmd.extend(["--header", f"{name}: {value}"])
 
-            dalfox_params = set(parameters[:10])  # Test first 10 parameters
             for param in dalfox_params:
                 cmd.extend(["--param", param])
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120 * len(dalfox_params))
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0 and result.stdout:
-                # Parse dalfox results
-                result_json = json.loads(result.stdout)
-                for payload in result_json:
-                    if payload["type"] == "V" and "param" in payload:
-                        dalfox_params.discard(payload["param"])
-                        xss_results.append(
-                            {
-                                "parameter": payload["param"],
-                                "vulnerable": True,
-                                "payload_type": f"Advanced XSS ({payload['inject_type']})",
-                                "url": payload.get("data", None),
-                                "method": request_config.http_method,
-                                "payload": payload.get("payload", None),
-                                "evidence": payload.get("message_str", payload.get("evidence", "")),
-                                "tool": "dalfox",
-                            }
-                        )
+                dalfox_out = result.stdout
+
+        except subprocess.TimeoutExpired as e:
+            dalfox_out = e.stdout
+            dalfox_timeout = True
+        except Exception:
+            pass
+
+        if dalfox_out:
+            # Parse dalfox results
+            payload_list = []
+            try:
+                payload_list = json.loads(dalfox_out)
+            except Exception:
+                for line in dalfox_out.splitlines():
+                    try:
+                        payload = json.loads(line)
+                        if isinstance(payload, dict):
+                            payload_list.append(payload)
+                    except Exception:
+                        continue
+            for payload in payload_list:
+                if payload.get("type", "") == "V" and "param" in payload:
+                    dalfox_params.discard(payload["param"])
+                    xss_results.append(
+                        {
+                            "parameter": payload["param"],
+                            "vulnerable": True,
+                            "payload_type": f"Advanced XSS ({payload['inject_type']})",
+                            "url": payload.get("data", None),
+                            "method": request_config.http_method,
+                            "payload": payload.get("payload", None),
+                            "evidence": payload.get("message_str", payload.get("evidence", "")),
+                            "tool": "dalfox",
+                        }
+                    )
+            if not dalfox_timeout:
                 for param in dalfox_params:
                     xss_results.append(
                         {"parameter": param, "vulnerable": False, "payload_type": "XSS tested", "tool": "dalfox"}
                     )
-
-        except Exception:
-            pass
 
     # Method 2: Modern XSS payloads with realistic exploitation context
     advanced_xss_payloads = [
@@ -910,18 +931,35 @@ List[Dict[str, Any]]:
 
     # Template injection payloads
     template_payloads = [
-        "{{7*7}}",
-        "${7*7}",
-        "<%=7*7%>",
+        "42*42"
+        "{42*42}"
+        "{{42*42}}"
+        "{{{42*42}}}"
+        "#{42*42}"
+        "${42*42}"
+        "<%=42*42 %>"
+        "{{=42*42}}"
+        "{^xyzm42}1764{/xyzm42}"
+        "${donotexists|42*42}"
+        "[[${42*42}]]"
         "{{config.items()}}",
         "${T(java.lang.System).getProperty('user.name')}",
     ]
 
     # Command injection payloads
+    # read some lines from /usr/share/seclists/Fuzzing/command-injection-commix.txt
     command_payloads = ["; whoami", "| whoami", "& whoami", "`whoami`", "$(whoami)"]
 
     # LDAP injection payloads
-    ldap_payloads = ["*", "*)(&", "*))%00", "admin*)((|userPassword=*)", "*))(|(objectClass=*"]
+    ldap_fuzzing_lists = ["/usr/share/seclists/Fuzzing/LDAP.Fuzzing.txt"]
+    ldap_payloads = []
+    for ldap_fuzzing_list in ldap_fuzzing_lists:
+        if os.path.exists(ldap_fuzzing_list):
+            with open(ldap_fuzzing_list, "r") as f:
+                ldap_payloads = f.read().splitlines()
+                break
+    if not ldap_payloads:
+        ldap_payloads = ["*", "*)(&", "*))%00", "admin*)((|userPassword=*)", "*))(|(objectClass=*"]
 
     injection_types = [
         ("SSTI", template_payloads),
@@ -935,6 +973,8 @@ List[Dict[str, Any]]:
     # SSTImap
     # XBEN-044-24 is a good test case. Target the '/' endpoint, 'name' parameter, POST method.
     if "sstimap" in tools:
+        sstimap_out = ""
+        sstimap_timeout = False
         try:
             for param in parameters_under_test.copy():
                 if request_config.http_method.upper() == "GET":
@@ -965,19 +1005,96 @@ List[Dict[str, Any]]:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
                 if result.returncode == 0 and result.stdout:
-                    ssti_findings = _parse_sstimap_output(result.stdout)
-                    # Attach URL context and ensure parameter consistency with the param under test.
-                    for f in ssti_findings:
-                        # Prefer the parsed parameter, but if it's missing/unknown, use our loop param.
-                        if not f.get("parameter") or f.get("parameter") == "(unknown)":
-                            f["parameter"] = param
-                        f["url"] = test_url
-                        f["method"] = request_config.http_method
-                        # Mark that this parameter was found vulnerable so we don't add a negative summary later.
-                        injection_results.append(f)
-                        parameters_under_test.discard(param)
+                    sstimap_out = result.stdout
+        except subprocess.TimeoutExpired as e:
+            sstimap_out = e.stdout
+            sstimap_timeout = True
         except Exception:
             pass
+
+        if sstimap_out:
+            ssti_findings = _parse_sstimap_output(sstimap_out)
+            # Attach URL context and ensure parameter consistency with the param under test.
+            for f in ssti_findings:
+                # Prefer the parsed parameter, but if it's missing/unknown, use our loop param.
+                if not f.get("parameter") or f.get("parameter") == "(unknown)":
+                    f["parameter"] = param
+                f["url"] = test_url
+                f["method"] = request_config.http_method
+                # Mark that this parameter was found vulnerable so we don't add a negative summary later.
+                injection_results.append(f)
+                parameters_under_test.discard(param)
+                if not sstimap_timeout:
+                    injection_types = list(filter(lambda x: x[0] != "SSTI", injection_types))
+
+    # command injection
+    if "commix" in tools and parameters_under_test:
+        commix_out = ""
+        commix_timeout = False
+        try:
+            test_url = target_url
+            if request_config.http_method.upper() == "GET":
+                for param in parameters_under_test:
+                    test_url = _add_or_replace_query_param(test_url, param, "test")
+
+            time_limit = 300
+
+            cmd = [
+                "commix",
+                "--batch",
+                # --answers: the question part is a substring search on the question, everything lower case, there is no enum of questions
+                "--answers=marker=Y,system=N,shell=N,cookie=Y,classic=N,skip=Y",
+                "--random-agent",
+                "--level", "3",
+                # "--smart",
+                "--disable-coloring",
+                f"--time-limit={time_limit-10}",
+                "-u", test_url,
+                "--method="+request_config.http_method,
+            ]
+
+            if request_config.http_method.upper() in ["POST", "PUT", "PATCH"]:
+                cmd.extend(["-d", "&".join([f"{param}=test" for param in parameters_under_test])])
+
+            headers = []
+            if request_config.headers:
+                headers.extend([f"{name}: {value}" for name, value in request_config.headers.items()])
+            if request_config.cookies:
+                headers.append("Cookie: " + "; ".join([f"{name}={value}" for name, value in request_config.cookies.items()]))
+            if headers:
+                cmd.append("--headers="+"\n".join(headers))
+
+            for param in parameters_under_test:
+                cmd.extend(["-p", param])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=time_limit)
+
+            if result.returncode == 0 and result.stdout:
+                commix_out = result.stdout
+        except subprocess.TimeoutExpired as e:
+            commix_out = e.stdout
+            commix_timeout = True
+        except Exception:
+            pass
+
+        if commix_out:
+            for m in _RE_COMMIX_VULN.finditer(commix_out):
+                param = m.group(1)
+                if param in parameters_under_test:
+                    parameters_under_test.discard(param)
+                    injection_results.append(
+                        {
+                            "vulnerable": True,
+                            "injection_type": "Command Injection",
+                            "parameter": param,
+                            "url": test_url,
+                            "method": request_config.http_method,
+                            "evidence": "commix",
+                            "tool": "commix",
+                        }
+                    )
+                    if not commix_timeout:
+                        injection_types = list(filter(lambda x: x[0] != "Command Injection", injection_types))
 
     for param in parameters_under_test:
         found_for_param = False
@@ -994,9 +1111,9 @@ List[Dict[str, Any]]:
 
                         if injection_type == "SSTI":
                             # Check for template evaluation
-                            if "49" in response and payload == "{{7*7}}":
+                            if "1764" in response and "42*42" in payload:
                                 vulnerable = True
-                                evidence = "Template evaluation detected (7*7=49)"
+                                evidence = "Template evaluation detected (42*42=1764)"
                             elif payload in response and "config" in payload:
                                 vulnerable = True
                                 evidence = "Configuration disclosure detected"

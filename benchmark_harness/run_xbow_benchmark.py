@@ -222,6 +222,7 @@ def list_available_tags(xbow_root: Path) -> None:
 def build_benchmark(xbow_root: Path, bench_id: str, flag: str) -> bool:
     print(f"[*] Building benchmark {bench_id}...")
     env = os.environ.copy()
+    env["FLAG"] = flag
     env["BENCHMARK"] = bench_id
     cp = _run(["make", "FLAG=" + flag, "build"], cwd=xbow_root, env=env, capture=True)
     if cp.returncode != 0:

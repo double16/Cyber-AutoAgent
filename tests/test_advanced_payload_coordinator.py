@@ -315,6 +315,66 @@ def test_coordinate_xss_testing_parses_dalfox_json_array(monkeypatch):
     assert v["url"] == "http://example.test/page?name=PAY"
     assert v["payload"] == "<img src=x onerror=alert(1)>"
 
+def test_coordinate_xss_testing_parses_dalfox_jsonl(monkeypatch):
+    # DalFox returns a JSON array; one vuln event and one non-vuln (or none).
+    events = [
+        {
+            "type": "V",
+            "param": "name",
+            "inject_type": "inHTML",
+            "data": "http://example.test/page?name=PAY",
+            "payload": "<img src=x onerror=alert(1)>",
+            "message_str": "Triggered",
+        },
+        {"type": "I", "param": "other"},
+    ]
+
+    stdout = "[\n" + "\n".join(json.dumps(event) for event in events) + "\n]"
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=None):
+        return FakeCompleted(returncode=0, stdout=stdout)
+
+    monkeypatch.setattr(apc.subprocess, "run", fake_run)
+
+    rc = apc.RequestConfig(target_url="http://example.test/page", http_method="GET")
+    res = apc._coordinate_xss_testing(rc, parameters=["name"], tools=["dalfox"])
+
+    vulns = [r for r in res if r.get("vulnerable")]
+    assert len(vulns) == 1
+    v = vulns[0]
+    assert v["parameter"] == "name"
+    assert v["url"] == "http://example.test/page?name=PAY"
+    assert v["payload"] == "<img src=x onerror=alert(1)>"
+
+
+def test_coordinate_xss_testing_processes_timeout_stdout_and_skips_negative_results(monkeypatch):
+    # On subprocess timeout, dalfox stdout should still be parsed.
+    # Additionally, when dalfox times out, the implementation intentionally avoids adding
+    # negative "XSS tested" rows for remaining params.
+    event = {
+        "type": "V",
+        "param": "name",
+        "inject_type": "inHTML",
+        "data": "http://example.test/page?name=PAY",
+        "payload": "<img src=x onerror=alert(1)>",
+        "message_str": "Triggered",
+    }
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=None):
+        raise apc.subprocess.TimeoutExpired(cmd=cmd, timeout=timeout or 0, output=json.dumps([event]))
+
+    monkeypatch.setattr(apc.subprocess, "run", fake_run)
+
+    rc = apc.RequestConfig(target_url="http://example.test/page", http_method="GET")
+    res = apc._coordinate_xss_testing(rc, parameters=["name", "other"], tools=["dalfox"])
+
+    vulns = [r for r in res if r.get("vulnerable")]
+    assert len(vulns) == 1
+    assert vulns[0]["parameter"] == "name"
+
+    negatives = [r for r in res if r.get("vulnerable") is False and r.get("tool") == "dalfox"]
+    assert negatives == [], "On timeout, expected no dalfox negative results to be appended"
+
 
 # -------------------------
 # _test_cors_configurations
@@ -368,6 +428,32 @@ def test_coordinate_injection_testing_custom_detects_command_indicator(monkeypat
     assert any(v["injection_type"] == "Command Injection" for v in vulns)
 
 
+def test_coordinate_injection_testing_commix_parses_timeout_stdout(monkeypatch):
+    # Command injection should be detected via commix tool output, even when the process times out.
+    commix_stdout = """
+[+] Testing if GET parameter 'name' is vulnerable
+[+] Parameter 'name' is vulnerable
+"""
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=300):
+        # Ensure we are invoking commix
+        assert cmd and cmd[0] == "commix"
+        raise apc.subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=commix_stdout)
+
+    monkeypatch.setattr(apc.subprocess, "run", fake_run)
+
+    rc = apc.RequestConfig(target_url="http://example.test/page", http_method="GET")
+    res = apc._coordinate_injection_testing(rc, parameters=["name"], tools=["commix"])
+
+    vulns = [r for r in res if r.get("vulnerable")]
+    assert vulns, "Expected a commix-derived command injection finding"
+    v = vulns[0]
+    assert v["tool"] == "commix"
+    assert v["injection_type"] == "Command Injection"
+    assert v["parameter"] == "name"
+    assert v.get("method") == "GET"
+
+
 def test_coordinate_injection_testing_sstimap_parses_and_discards_param(monkeypatch):
     # Ensure sstimap tool path triggers and parser returns a finding,
     # and that param is removed from parameters_under_test.
@@ -397,6 +483,7 @@ def test_coordinate_injection_testing_sstimap_parses_and_discards_param(monkeypa
     assert vulns[0]["tool"] == "sstimap"
     assert vulns[0]["parameter"] == "name"
     assert "url" in vulns[0]
+    assert all(v.get("tool") != "commix" for v in res)
 
 
 # -------------------------
