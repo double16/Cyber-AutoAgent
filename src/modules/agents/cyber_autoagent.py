@@ -58,6 +58,7 @@ from modules.handlers.conversation_budget import (
     TOOL_COMPRESS_TRUNCATE,
 )
 from modules.handlers.react import ReactBridgeHandler
+from modules.handlers.tool_call_repair_hook import ToolCallRepairHook
 from modules.handlers.tool_router import ToolRouterHook
 from modules.config.models.capabilities import get_capabilities
 from modules.handlers.utils import print_status, sanitize_target_name, get_tool_name
@@ -846,9 +847,11 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         artifact_threshold=artifact_threshold,
     )
 
+    tool_call_repair_hook = ToolCallRepairHook()
+
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
-    hooks: List[HookProvider] = [tool_router_hook, react_hooks, prompt_budget_hook]
-    swarm_hooks: List[HookProvider] = [tool_router_hook, prompt_budget_hook]
+    hooks: List[HookProvider] = [tool_call_repair_hook, tool_router_hook, react_hooks, prompt_budget_hook]
+    swarm_hooks: List[HookProvider] = [tool_call_repair_hook, tool_router_hook, prompt_budget_hook]
 
     if enable_prompt_optimization:
         # Create prompt rebuild hook for intelligent prompt updates
