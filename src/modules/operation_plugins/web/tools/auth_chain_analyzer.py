@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """Authentication Chain Analyzer - Intelligent analysis of complex authentication flows"""
 
+import argparse
 import json
+import os
 import re
 import subprocess
+import tempfile
+import urllib3
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+import requests
+
 from strands import tool
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 @tool
@@ -16,7 +24,7 @@ def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
     Analyzes complex authentication flows and chains bypass techniques.
 
     Coordinates specialized tools like jwt_tool, feroxbuster for auth endpoints,
-    and custom logic to understand OAuth, SAML, JWT, and multi-factor authentication
+    and custom logic to understand OAuth, SAML, JWT, and multifactor authentication
     flows beyond basic credential testing.
 
     Args:
@@ -44,92 +52,334 @@ def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
         },
     }
 
-    output = f"Authentication Chain Analyzer: {target_url}\\n"
-    output += "=" * 60 + "\\n\\n"
+    output = f"Authentication Chain Analyzer: {target_url}\n"
+    output += "=" * 60 + "\n\n"
 
     try:
         # Phase 1: Authentication endpoint discovery
-        output += "Phase 1: Authentication Endpoint Discovery\\n"
-        output += "-" * 40 + "\\n"
+        output += "Phase 1: Authentication Endpoint Discovery\n"
+        output += "-" * 40 + "\n"
 
         auth_endpoints = _discover_auth_endpoints(target_url)
         results["auth_endpoints"] = auth_endpoints
 
-        output += f"Discovered {len(auth_endpoints)} authentication endpoints:\\n"
-        for endpoint in auth_endpoints[:5]:
-            output += f"  • {endpoint['path']} ({endpoint['type']})\\n"
-        output += "\\n"
+        output += f"Authentication endpoints discovered: {len(auth_endpoints)}\n"
+        auth_endpoints_by_type = {}
+        for endpoint in auth_endpoints:
+            auth_type = endpoint["type"]
+            path = endpoint["path"]
+            if auth_type not in auth_endpoints_by_type:
+                auth_endpoints_by_type[auth_type] = []
+            auth_endpoints_by_type[auth_type].append(path)
+        for auth_type, paths in auth_endpoints_by_type.items():
+            output += f"  • {auth_type}\n"
+            output += f"    endpoints: {' | '.join(sorted(paths, key=lambda p: (len(p), p))[:10])}\n"
+        output += "\n"
 
         # Phase 2: Authentication mechanism analysis
-        output += "Phase 2: Authentication Mechanism Analysis\\n"
-        output += "-" * 40 + "\\n"
+        output += "Phase 2: Authentication Mechanism Analysis\n"
+        output += "-" * 40 + "\n"
 
         auth_mechanisms = _analyze_auth_mechanisms(target_url, auth_endpoints, auth_type)
         results["auth_mechanisms"] = auth_mechanisms
 
-        output += f"Authentication mechanisms identified: {len(auth_mechanisms)}\\n"
+        output += f"Authentication mechanisms identified: {len(auth_mechanisms)}\n"
         for mechanism in auth_mechanisms:
-            output += f"  • {mechanism['type']}: {mechanism['description']}\\n"
-        output += "\\n"
+            output += f"  • {mechanism['type']}: {mechanism['description']}{(', endpoint: ' +mechanism['endpoint']) if mechanism.get('endpoint') else ''}\n"
+        output += "\n"
 
         # Phase 3: Token and session analysis
-        output += "Phase 3: Token and Session Analysis\\n"
-        output += "-" * 40 + "\\n"
+        output += "Phase 3: Token and Session Analysis\n"
+        output += "-" * 40 + "\n"
 
         token_analysis = _analyze_tokens_and_sessions(target_url, auth_mechanisms)
-        results["tokens_discovered"] = token_analysis["tokens"]
-        results["flow_analysis"]["session_management"] = token_analysis["session_info"]
+        results["tokens_discovered"] = token_analysis.get("tokens", [])
+        results["flow_analysis"]["session_management"] = token_analysis.get("session_info", {})
 
-        output += f"Tokens/sessions analyzed: {len(token_analysis['tokens'])}\\n"
-        for token in token_analysis["tokens"][:3]:
-            output += f"  • {token['type']}: {token['location']}\\n"
-        output += "\\n"
+        output += f"Tokens/sessions analyzed: {len(token_analysis.get('tokens', []))}\n"
+        for token in token_analysis.get("tokens", []):
+            output += f"  • {token['type']}: {token['location']}{(', name: ' +token['name']) if token.get('name') else ''}\n"
+            for analysis in token.get("analysis", []):
+                output += f"    {analysis}\n"
+        output += "\n"
 
         # Phase 4: Authentication flow mapping
-        output += "Phase 4: Authentication Flow Mapping\\n"
-        output += "-" * 40 + "\\n"
+        output += "Phase 4: Authentication Flow Mapping\n"
+        output += "-" * 40 + "\n"
 
         flow_analysis = _map_authentication_flows(target_url, results)
         results["flow_analysis"].update(flow_analysis)
 
-        output += f"Authentication steps mapped: {len(flow_analysis['authentication_steps'])}\\n"
-        output += f"Bypass opportunities: {len(flow_analysis['bypass_opportunities'])}\\n"
-        output += f"Privilege escalation vectors: {len(flow_analysis['privilege_escalation'])}\\n"
-        output += "\\n"
+        if flow_analysis.get("authentication_steps"):
+            output += "\nAuthentication steps:\n"
+            for step in flow_analysis["authentication_steps"]:
+                try:
+                    step_no = step.get("step")
+                    action = step.get("action", "")
+                    desc = step.get("description", "")
+                    if step_no is not None:
+                        output += f"  {step_no}. {action} - {desc}\n"
+                    else:
+                        output += f"  • {action} - {desc}\n"
+                except Exception:
+                    continue
+            output += "\n"
+        else:
+            output += f"Authentication steps mapped: {len(flow_analysis['authentication_steps'])}\n"
+
+        if flow_analysis.get("bypass_opportunities"):
+            output += "\nBypass opportunities:\n"
+            for opp in flow_analysis["bypass_opportunities"]:
+                try:
+                    otype = opp.get("type", "")
+                    desc = opp.get("description", "")
+                    tech = opp.get("technique", "")
+                    suffix = f" (technique: {tech})" if tech else ""
+                    output += f"  • {otype}: {desc}{suffix}\n"
+                except Exception:
+                    continue
+            output += "\n"
+        else:
+            output += f"Bypass opportunities: {len(flow_analysis['bypass_opportunities'])}\n"
+
+        if flow_analysis.get("privilege_escalation"):
+            output += "\nPrivilege escalation vectors:\n"
+            for pe in flow_analysis["privilege_escalation"]:
+                try:
+                    ptype = pe.get("type", "")
+                    ep = pe.get("endpoint", "")
+                    desc = pe.get("description", "")
+                    ep_suffix = f" (endpoint: {ep})" if ep else ""
+                    output += f"  • {ptype}: {desc}{ep_suffix}\n"
+                except Exception:
+                    continue
+            output += "\n"
+        else:
+            output += f"Privilege escalation vectors: {len(flow_analysis['privilege_escalation'])}\n"
+
+        output += "\n"
 
         # Phase 5: Advanced bypass testing
-        output += "Phase 5: Advanced Bypass Testing\\n"
-        output += "-" * 40 + "\\n"
+        output += "Phase 5: Advanced Bypass Testing\n"
+        output += "-" * 40 + "\n"
 
         bypass_results = _test_advanced_auth_bypasses(target_url, results)
-        results["vulnerabilities"] = bypass_results
 
-        successful_bypasses = [b for b in bypass_results if b.get("successful", False)]
-        output += f"Bypass techniques tested: {len(bypass_results)}\\n"
-        output += f"Successful bypasses: {len(successful_bypasses)}\\n"
+        # Normalize bypass_results to a list to avoid type/iteration bugs.
+        if bypass_results is None:
+            bypass_results = []
+        elif not isinstance(bypass_results, list):
+            bypass_results = [bypass_results]
+
+        # Preserve any previously discovered vulnerabilities; append bypass test results.
+        results["vulnerabilities"].extend(bypass_results)
+
+        successful_bypasses = [b for b in bypass_results if isinstance(b, dict) and b.get("successful", False)]
+        output += f"Bypass techniques tested: {len(bypass_results)}\n"
+        output += f"Successful bypasses: {len(successful_bypasses)}\n"
 
         if successful_bypasses:
-            output += "\\nSuccessful bypass techniques:\\n"
-            for bypass in successful_bypasses[:3]:
-                output += f"  • {bypass['technique']}: {bypass['description']}\\n"
+            output += "\nSuccessful bypass techniques:\n"
+            for bypass in successful_bypasses:
+                output += f"  • {bypass['technique']}: {bypass['description']}{(', endpoint: ' +bypass['endpoint']) if bypass.get('endpoint') else ''}\n"
 
-        output += "\\n"
+        output += "\n"
 
         # Generate authentication security recommendations
         recommendations = _generate_auth_recommendations(results)
-        output += "AUTHENTICATION SECURITY ANALYSIS:\\n"
+        output += "AUTHENTICATION SECURITY ANALYSIS:\n"
         for i, rec in enumerate(recommendations, 1):
-            output += f"{i}. {rec}\\n"
+            output += f"{i}. {rec}\n"
 
     except Exception as e:
-        output += f"Authentication analysis failed: {str(e)}\\n"
+        output += f"Authentication analysis failed: {str(e)}\n"
 
     return output
+
+
+def _append_unique(list: List, item: Any):
+    if item not in list:
+        list.append(item)
+
+
+def _http_request(
+    method: str,
+    url: str,
+    *,
+    headers: Dict[str, str] | None = None,
+    timeout: float = 10.0,
+    stream: bool = False,
+    verify_tls: bool = False,
+) -> requests.Response | None:
+    """Small wrapper around requests.
+
+    - Does not follow redirects (matches curl without -L)
+    - Defaults to verify_tls=False (curl -k equivalent)
+    - Returns None on network/SSL/timeout errors
+    """
+    try:
+        return requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+            stream=stream,
+            verify=verify_tls,
+        )
+    except requests.RequestException:
+        return None
+
+
+
+def _response_set_cookie_lines(resp: requests.Response) -> List[str]:
+    """Return Set-Cookie lines (supports multiple Set-Cookie headers)."""
+    lines: List[str] = []
+
+    # urllib3 HTTPHeaderDict supports getlist/get_all for duplicate headers.
+    raw_headers = getattr(resp, "raw", None)
+    raw_hdrs = getattr(raw_headers, "headers", None)
+
+    if raw_hdrs is not None:
+        get_all = getattr(raw_hdrs, "get_all", None)
+        if callable(get_all):
+            for v in (get_all("Set-Cookie") or []):
+                lines.append(f"set-cookie: {v}")
+            return lines
+
+        getlist = getattr(raw_hdrs, "getlist", None)
+        if callable(getlist):
+            for v in (getlist("Set-Cookie") or []):
+                lines.append(f"set-cookie: {v}")
+            return lines
+
+    # Fallback: requests' normalized headers only preserve the last Set-Cookie value.
+    v = resp.headers.get("Set-Cookie")
+    if v:
+        lines.append(f"set-cookie: {v}")
+
+    return lines
+
+
+# Wildcard baseline/wildcard detection helpers
+def _wildcard_baseline_signature(base_url: str) -> Dict[str, Any]:
+    """Create a baseline signature for a URL that is extremely unlikely to exist.
+
+    Some targets respond with the same status/body/headers for unknown paths (wildcard).
+    We compare candidate endpoints against this baseline to avoid false positives.
+    """
+    # Use a stable but very unlikely path; include pid and a random-ish component.
+    probe_path = f"/__caa_wildcard_probe_{os.getpid()}_{abs(hash(base_url)) % 10_000_000}__"
+    probe_url = base_url.rstrip("/") + probe_path
+
+    sig: Dict[str, Any] = {
+        "url": probe_url,
+        "path": probe_path,
+        "code": None,
+        "location": "",
+        "ctype": "",
+        "clen": None,
+        "etag": "",
+        "body_prefix": "",
+    }
+
+    try:
+        # GET is more reliable than HEAD for wildcard detection.
+        resp = _http_request("GET", probe_url, timeout=6.0, stream=True)
+        if resp is None:
+            return sig
+
+        sig["code"] = str(resp.status_code)
+        sig["location"] = resp.headers.get("Location", "")
+        sig["ctype"] = resp.headers.get("Content-Type", "")
+
+        clen = resp.headers.get("Content-Length")
+        if clen is not None:
+            try:
+                sig["clen"] = int(clen)
+            except Exception:
+                sig["clen"] = None
+
+        sig["etag"] = resp.headers.get("ETag", "")
+
+        # Read a small prefix to fingerprint wildcard bodies without large downloads.
+        try:
+            prefix = resp.raw.read(256) if getattr(resp, "raw", None) is not None else resp.content[:256]
+            if isinstance(prefix, bytes):
+                sig["body_prefix"] = prefix[:256].hex()
+            else:
+                sig["body_prefix"] = str(prefix)[:256]
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+    return sig
+
+
+def _looks_like_wildcard(candidate: Dict[str, Any], baseline: Dict[str, Any]) -> bool:
+    """Heuristic comparison of a candidate endpoint response to a wildcard baseline."""
+    if not baseline or baseline.get("code") is None:
+        return False
+
+    c_code = str(candidate.get("status", "") or candidate.get("code", "") or "")
+    b_code = str(baseline.get("code") or "")
+    if not c_code or c_code != b_code:
+        return False
+
+    # Prefer strong signals first.
+    c_clen = candidate.get("content_length")
+    if c_clen is None:
+        c_clen = candidate.get("clen")
+    b_clen = baseline.get("clen")
+    if isinstance(c_clen, str):
+        try:
+            c_clen = int(c_clen)
+        except Exception:
+            c_clen = None
+
+    # If both lengths are known and equal, it is a strong wildcard indicator.
+    if b_clen is not None and c_clen is not None and b_clen == c_clen:
+        return True
+
+    # Compare content-type when available.
+    c_ctype = (candidate.get("content_type") or candidate.get("ctype") or "")
+    b_ctype = (baseline.get("ctype") or "")
+    if c_ctype and b_ctype and c_ctype.split(";")[0].strip().lower() == b_ctype.split(";")[0].strip().lower():
+        # If status and content-type match, check location/etag if present.
+        c_loc = candidate.get("location") or ""
+        b_loc = baseline.get("location") or ""
+        if c_loc and b_loc and c_loc == b_loc:
+            return True
+
+        c_etag = candidate.get("etag") or ""
+        b_etag = baseline.get("etag") or ""
+        if c_etag and b_etag and c_etag == b_etag:
+            return True
+
+    # Body prefix match is very strong when present.
+    c_body = candidate.get("body_prefix") or ""
+    b_body = baseline.get("body_prefix") or ""
+    if c_body and b_body and c_body == b_body:
+        return True
+
+    # Ferox gives word/line counts; use them if present.
+    b_words = baseline.get("word_count")
+    b_lines = baseline.get("line_count")
+    c_words = candidate.get("word_count")
+    c_lines = candidate.get("line_count")
+    if all(isinstance(x, int) for x in [b_words, c_words, b_lines, c_lines]):
+        if b_words == c_words and b_lines == c_lines:
+            return True
+
+    return False
 
 
 def _discover_auth_endpoints(target_url: str) -> List[Dict[str, Any]]:
     """Discover authentication-related endpoints"""
     auth_endpoints = []
+    seen_paths: set[str] = set()
 
     # Modern authentication endpoint wordlist (includes GraphQL, API gateways)
     auth_paths = [
@@ -204,23 +454,42 @@ def _discover_auth_endpoints(target_url: str) -> List[Dict[str, Any]]:
 
     # Method 1: Direct endpoint probing
     base_url = target_url.rstrip("/")
+    # Baseline signature for wildcard responders.
+    wildcard_baseline = _wildcard_baseline_signature(base_url)
     for path in auth_paths:
         try:
             test_url = base_url + path
-            cmd = ["curl", "-s", "-I", "--max-time", "5", test_url]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            resp = _http_request("HEAD", test_url, timeout=5.0)
+            if resp is not None:
+                status_code = str(resp.status_code)
 
-            if result.returncode == 0 and "HTTP/" in result.stdout:
-                status_line = result.stdout.split("\\n")[0]
-                if "200" in status_line or "302" in status_line or "401" in status_line:
+                # Build a lightweight signature for comparison against wildcard baseline.
+                cand_sig = {
+                    "status": status_code,
+                    "location": resp.headers.get("Location", ""),
+                    "ctype": resp.headers.get("Content-Type", ""),
+                    "clen": resp.headers.get("Content-Length", None),
+                    "etag": resp.headers.get("ETag", ""),
+                }
+
+                # If candidate looks like the wildcard baseline, ignore it.
+                if _looks_like_wildcard(cand_sig, wildcard_baseline):
+                    continue
+
+                if status_code in {"200", "302", "401"}:
                     # Determine endpoint type
-                    endpoint_type = _classify_auth_endpoint(path, result.stdout)
+                    endpoint_type = _classify_auth_endpoint(path, "")
+
+                    norm_path = urlparse(path).path.rstrip("/") or "/"
+                    if norm_path in seen_paths:
+                        continue
+                    seen_paths.add(norm_path)
 
                     auth_endpoints.append(
                         {
-                            "path": path,
+                            "path": norm_path,
                             "full_url": test_url,
-                            "status": status_line.split()[1] if len(status_line.split()) > 1 else "unknown",
+                            "status": status_code,
                             "type": endpoint_type,
                         }
                     )
@@ -228,9 +497,11 @@ def _discover_auth_endpoints(target_url: str) -> List[Dict[str, Any]]:
             continue
 
     # Method 2: Use feroxbuster for deeper directory discovery (if available)
+    feroxbuster_out = ""
+    wordlist_path = None
     try:
         # Create a focused auth wordlist
-        auth_wordlist = "\\n".join(
+        auth_wordlist = "\n".join(
             [
                 "admin",
                 "login",
@@ -249,44 +520,81 @@ def _discover_auth_endpoints(target_url: str) -> List[Dict[str, Any]]:
             ]
         )
 
-        with open("/tmp/auth_wordlist.txt", "w") as f:
+        with tempfile.NamedTemporaryFile(prefix="auth_wordlist_", suffix=".txt", delete=False, mode="w") as f:
             f.write(auth_wordlist)
+            wordlist_path = f.name
 
         cmd = [
             "feroxbuster",
             "-u",
             target_url,
             "-w",
-            "/tmp/auth_wordlist.txt",
+            wordlist_path,
             "-t",
             "20",
             "-C",
             "404",
             "--silent",
+            "--json",
             "--no-recursion",
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
         if result.returncode == 0:
-            for line in result.stdout.split("\\n"):
-                if line and "200" in line or "302" in line or "401" in line:
-                    # Parse feroxbuster output
-                    parts = line.split()
-                    if len(parts) > 6:  # feroxbuster output format
-                        status = parts[1]
-                        url = parts[5] if parts[5].startswith("http") else parts[6]
-                        path = urlparse(url).path
-
-                        # Avoid duplicates
-                        if not any(ep["path"] == path for ep in auth_endpoints):
-                            endpoint_type = _classify_auth_endpoint(path, "")
-
-                            auth_endpoints.append(
-                                {"path": path, "full_url": url, "status": status, "type": endpoint_type}
-                            )
+            feroxbuster_out = result.stdout
+    except subprocess.TimeoutExpired as e:
+        feroxbuster_out = e.stdout
     except Exception:
         pass
+    finally:
+        if wordlist_path:
+            try:
+                os.remove(wordlist_path)
+            except Exception:
+                pass
+
+    if feroxbuster_out:
+        for line in feroxbuster_out.splitlines():
+            try:
+                parsed = json.loads(line)
+                if parsed.get("type", "") != "response":
+                    continue
+                status_code = str(parsed.get("status", ""))
+                if status_code in {"200", "302", "401"}:
+                    # Ferox can flag wildcards directly.
+                    if parsed.get("wildcard", False) is True:
+                        continue
+
+                    url = parsed.get("url", "")
+                    if not url:
+                        continue
+                    norm_path = (urlparse(url).path or "/").rstrip("/") or "/"
+
+                    # Compare against wildcard baseline (status + content-length + headers when available)
+                    cand_sig = {
+                        "status": status_code,
+                        "content_length": parsed.get("content_length"),
+                        "word_count": parsed.get("word_count"),
+                        "line_count": parsed.get("line_count"),
+                        "content_type": (parsed.get("headers", {}) or {}).get("content-type", ""),
+                        "etag": (parsed.get("headers", {}) or {}).get("etag", ""),
+                        "location": (parsed.get("headers", {}) or {}).get("location", ""),
+                    }
+                    if _looks_like_wildcard(cand_sig, wildcard_baseline):
+                        continue
+
+                    # Avoid duplicates (shared across discovery methods)
+                    if norm_path in seen_paths:
+                        continue
+                    seen_paths.add(norm_path)
+
+                    endpoint_type = _classify_auth_endpoint(norm_path, "")
+                    auth_endpoints.append(
+                        {"path": norm_path, "full_url": url, "status": status_code, "type": endpoint_type}
+                    )
+            except Exception:
+                continue
 
     return auth_endpoints
 
@@ -299,29 +607,21 @@ def _classify_auth_endpoint(path: str, headers: str) -> str:
     if any(keyword in path_lower for keyword in ["graphql", "/query"]):
         return "GraphQL"
 
-    # JWT-related
-    if any(keyword in path_lower for keyword in ["jwt", "jwks", "token", "refresh"]):
+    # OIDC well-known endpoints
+    if "/.well-known/openid-configuration" in path_lower:
+        return "OAuth"
+
+    # JWKS endpoints are strongly indicative of JWT key material
+    if "jwks" in path_lower:
         return "JWT"
 
     # OAuth/OIDC-related
-    if any(keyword in path_lower for keyword in ["oauth", "authorize", "callback", "oidc", ".well-known/openid"]):
+    if any(keyword in path_lower for keyword in ["oauth", "authorize", "callback", "oidc", "openid"]):
         return "OAuth"
 
     # SAML-related
     if any(keyword in path_lower for keyword in ["saml", "sso", "metadata"]):
         return "SAML"
-
-    # Session-based
-    if any(keyword in path_lower for keyword in ["login", "signin", "session", "logout"]):
-        return "Session-based"
-
-    # API authentication (generic)
-    if "/api/" in path_lower and any(keyword in path_lower for keyword in ["auth", "login", "token"]):
-        return "API Authentication"
-
-    # Admin/privileged
-    if any(keyword in path_lower for keyword in ["admin", "administrator", "portal", "dashboard", "console"]):
-        return "Administrative"
 
     # Multi-factor
     if any(keyword in path_lower for keyword in ["mfa", "2fa", "otp", "verify"]):
@@ -330,6 +630,26 @@ def _classify_auth_endpoint(path: str, headers: str) -> str:
     # Password recovery
     if any(keyword in path_lower for keyword in ["reset", "forgot", "recovery"]):
         return "Password Recovery"
+
+    # Session-based
+    if any(keyword in path_lower for keyword in ["login", "signin", "session", "logout", "signout"]):
+        return "Session-based"
+
+    # Token-ish endpoints: don't assume JWT unless we have stronger signals
+    if "token" in path_lower or "refresh" in path_lower:
+        if "jwt" in path_lower:
+            return "JWT"
+        if "/oauth" in path_lower or "oauth" in path_lower or "oidc" in path_lower:
+            return "OAuth"
+        return "API Authentication"
+
+    # API authentication (generic)
+    if "/api/" in path_lower and any(keyword in path_lower for keyword in ["auth", "login"]):
+        return "API Authentication"
+
+    # Admin/privileged
+    if any(keyword in path_lower for keyword in ["admin", "administrator", "portal", "dashboard", "console"]):
+        return "Administrative"
 
     return "Generic Authentication"
 
@@ -341,11 +661,21 @@ def _analyze_auth_mechanisms(target_url: str, auth_endpoints: List[Dict], auth_t
     for endpoint in auth_endpoints[:10]:  # Analyze first 10 endpoints
         try:
             # Get the endpoint content
-            cmd = ["curl", "-s", "--max-time", "10", endpoint["full_url"]]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            resp = _http_request("GET", endpoint["full_url"], timeout=10.0)
+            if resp is not None:
+                content = resp.text or ""
 
-            if result.returncode == 0:
-                content = result.stdout
+                # If a specific auth_type is requested, skip non-matching endpoint types.
+                # Map user-facing auth_type values to internal endpoint classifications.
+                type_map = {
+                    "jwt": "JWT",
+                    "oauth": "OAuth",
+                    "saml": "SAML",
+                    "session": "Session-based",
+                }
+                requested = type_map.get(auth_type.lower(), None) if isinstance(auth_type, str) else None
+                if requested and endpoint.get("type") != requested:
+                    continue
 
                 # Analyze based on endpoint type and content
                 if endpoint["type"] == "JWT":
@@ -370,19 +700,17 @@ def _analyze_auth_mechanisms(target_url: str, auth_endpoints: List[Dict], auth_t
         except Exception:
             continue
 
-    # Auto-detect if no specific type requested
+    # Auto-detect only when requested
     if auth_type == "auto" and not mechanisms:
         # Try to detect mechanisms from main page
         try:
-            cmd = ["curl", "-s", "--max-time", "10", target_url]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-
-            if result.returncode == 0:
-                content = result.stdout
+            resp = _http_request("GET", target_url, timeout=10.0)
+            if resp is not None:
+                content = resp.text or ""
 
                 # Look for authentication indicators
                 if "jwt" in content.lower() or "bearer" in content.lower():
-                    mechanisms.append(
+                    _append_unique(mechanisms,
                         {
                             "type": "JWT",
                             "description": "JWT tokens detected in application",
@@ -392,7 +720,7 @@ def _analyze_auth_mechanisms(target_url: str, auth_endpoints: List[Dict], auth_t
                     )
 
                 if "oauth" in content.lower() or "client_id" in content.lower():
-                    mechanisms.append(
+                    _append_unique(mechanisms,
                         {
                             "type": "OAuth",
                             "description": "OAuth flow indicators detected",
@@ -402,7 +730,7 @@ def _analyze_auth_mechanisms(target_url: str, auth_endpoints: List[Dict], auth_t
                     )
 
                 if any(keyword in content.lower() for keyword in ["session", "csrf", "xsrf"]):
-                    mechanisms.append(
+                    _append_unique(mechanisms,
                         {
                             "type": "Session-based",
                             "description": "Session-based authentication detected",
@@ -446,7 +774,7 @@ def _analyze_jwt_mechanism(endpoint: Dict, content: str) -> Dict[str, Any]:
         jwt_info["properties"]["token_endpoint"] = True
 
     # Look for JWT patterns in content
-    jwt_pattern = r"eyJ[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+"
+    jwt_pattern = r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     jwt_matches = re.findall(jwt_pattern, content)
     if jwt_matches:
         jwt_info["properties"]["sample_tokens"] = jwt_matches[:2]  # Keep first 2
@@ -566,14 +894,9 @@ def _analyze_tokens_and_sessions(target_url: str, mechanisms: List[Dict]) -> Dic
 
     # Test with a simple request to gather session information
     try:
-        cmd = ["curl", "-s", "-I", "--max-time", "10", "-c", "/tmp/cookies.txt", target_url]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-
-        if result.returncode == 0:
-            headers = result.stdout
-
-            # Analyze cookies
-            cookie_lines = [line for line in headers.split("\\n") if line.lower().startswith("set-cookie:")]
+        resp = _http_request("HEAD", target_url, timeout=10.0, stream=True)
+        if resp is not None:
+            cookie_lines = _response_set_cookie_lines(resp)
 
             for cookie_line in cookie_lines:
                 cookie_info = _analyze_cookie_security(cookie_line)
@@ -614,10 +937,10 @@ def _analyze_tokens_and_sessions(target_url: str, mechanisms: List[Dict]) -> Dic
     return token_analysis
 
 
-def _analyze_cookie_security(cookie_line: str) -> Dict[str, Any]:
+def _analyze_cookie_security(cookie_line: str) -> Dict[str, Any] | None:
     """Analyze cookie security properties"""
-    # Parse cookie line
-    parts = cookie_line.replace("Set-Cookie:", "").strip().split(";")
+    cookie_line = re.sub(r"^set-cookie:\s*", "", cookie_line, flags=re.I)
+    parts = cookie_line.strip().split(";")
     if not parts:
         return None
 
@@ -648,6 +971,9 @@ def _analyze_cookie_security(cookie_line: str) -> Dict[str, Any]:
         analysis.append("Missing HttpOnly flag - accessible to JavaScript")
     if not flags["samesite"]:
         analysis.append("Missing SameSite attribute - CSRF risk")
+    # Modern browsers require Secure when SameSite=None; also increases session exposure if absent.
+    if flags["samesite"] == "none" and not flags["secure"]:
+        analysis.append("SameSite=None without Secure - cookie likely rejected by browsers and increases exposure")
 
     return {
         "name": cookie_name,
@@ -687,13 +1013,17 @@ def _analyze_session_security(session_cookies: List[Dict]) -> List[str]:
 def _analyze_jwt_with_tools(target_url: str, jwt_mechanisms: List[Dict]) -> List[Dict[str, Any]]:
     """Analyze JWT tokens using jwt_tool if available"""
     jwt_tokens = []
+    jwt_tool = None
 
     # Check if jwt_tool is available
-    try:
-        result = subprocess.run(["jwt_tool", "--help"], capture_output=True, timeout=10)
-        if result.returncode != 0:
-            return jwt_tokens  # jwt_tool not available
-    except Exception:
+    for command_try in ["jwt-tool", "jwt_tool", "jwt_tool.py"]:
+        try:
+            result = subprocess.run([command_try, "--help"], capture_output=True, timeout=10)
+            if result.returncode == 0:
+                jwt_tool = command_try
+        except Exception:
+            pass
+    if not jwt_tool:
         return jwt_tokens
 
     # Extract sample tokens from mechanisms
@@ -703,7 +1033,7 @@ def _analyze_jwt_with_tools(target_url: str, jwt_mechanisms: List[Dict]) -> List
         for token in sample_tokens[:2]:  # Analyze first 2 tokens
             try:
                 # Use jwt_tool to analyze the token
-                cmd = ["jwt_tool", token, "-T"]
+                cmd = [jwt_tool, token]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
                 if result.returncode == 0 and result.stdout:
@@ -725,19 +1055,37 @@ def _analyze_jwt_with_tools(target_url: str, jwt_mechanisms: List[Dict]) -> List
 
 
 def _parse_jwt_tool_output(output: str) -> Dict[str, Any]:
-    """Parse jwt_tool output for key information"""
+    """Parse jwt_tool output for key information.
+
+====================
+Decoded Token Values:
+=====================
+
+Token header values:
+[+] typ = "JWT"
+[+] alg = "HS256"
+
+Token payload values:
+[+] login = "ticarpi"
+
+----------------------
+JWT common timestamps:
+iat = IssuedAt
+exp = Expires
+nbf = NotBefore
+----------------------
+    """
     analysis = {"algorithm": "unknown", "vulnerabilities": [], "claims": {}}
 
-    lines = output.split("\\n")
+    lines = output.split("\n")
 
     for line in lines:
         line_lower = line.lower()
 
         # Extract algorithm
-        if "alg" in line_lower and ":" in line:
-            alg_match = re.search(r'"alg"\\s*:\\s*"([^"]*)"', line)
-            if alg_match:
-                analysis["algorithm"] = alg_match.group(1)
+        alg_match = re.search(r'"alg"\\s*=\\s*"([^"]*)"', line, re.IGNORECASE)
+        if alg_match:
+            analysis["algorithm"] = alg_match.group(1)
 
         # Look for vulnerability indicators
         if any(vuln in line_lower for vuln in ["vulnerability", "weak", "none", "algorithm"]):
@@ -745,10 +1093,9 @@ def _parse_jwt_tool_output(output: str) -> Dict[str, Any]:
 
         # Extract key claims
         for claim in ["iss", "sub", "aud", "exp", "iat"]:
-            if f'"{claim}"' in line and ":" in line:
-                claim_match = re.search(f'"{claim}"\\s*:\\s*"?([^",}}]*)"?', line)
-                if claim_match:
-                    analysis["claims"][claim] = claim_match.group(1)
+            claim_match = re.search(f'"{claim}"\\s*=\\s*"?([^",}}]*)"?', line)
+            if claim_match:
+                analysis["claims"][claim] = claim_match.group(1)
 
     return analysis
 
@@ -770,7 +1117,7 @@ def _map_authentication_flows(target_url: str, results: Dict) -> Dict[str, Any]:
     if session_info.get("security_analysis"):
         for issue in session_info["security_analysis"]:
             if "secure flag" in issue.lower():
-                bypass_opportunities.append(
+                _append_unique(bypass_opportunities,
                     {
                         "type": "Session Hijacking",
                         "description": "Session cookies without Secure flag can be intercepted",
@@ -778,7 +1125,7 @@ def _map_authentication_flows(target_url: str, results: Dict) -> Dict[str, Any]:
                     }
                 )
             elif "httponly flag" in issue.lower():
-                bypass_opportunities.append(
+                _append_unique(bypass_opportunities,
                     {
                         "type": "XSS to Session Theft",
                         "description": "Session cookies accessible to JavaScript",
@@ -791,7 +1138,7 @@ def _map_authentication_flows(target_url: str, results: Dict) -> Dict[str, Any]:
     for token in jwt_tokens:
         jwt_analysis = token.get("analysis", {})
         if "none" in jwt_analysis.get("algorithm", "").lower():
-            bypass_opportunities.append(
+            _append_unique(bypass_opportunities,
                 {
                     "type": "JWT None Algorithm",
                     "description": "JWT accepts 'none' algorithm - signature bypass possible",
@@ -801,7 +1148,7 @@ def _map_authentication_flows(target_url: str, results: Dict) -> Dict[str, Any]:
 
         if jwt_analysis.get("vulnerabilities"):
             for vuln in jwt_analysis["vulnerabilities"]:
-                bypass_opportunities.append(
+                _append_unique(bypass_opportunities,
                     {"type": "JWT Vulnerability", "description": vuln, "technique": "JWT exploitation"}
                 )
 
@@ -891,14 +1238,14 @@ def _test_advanced_auth_bypasses(target_url: str, results: Dict) -> List[Dict[st
     # Test 1: Direct endpoint access (forced browsing)
     admin_endpoints = [ep for ep in results.get("auth_endpoints", []) if ep.get("type") == "Administrative"]
 
-    for endpoint in admin_endpoints[:3]:  # Test first 3 admin endpoints
+    for endpoint in admin_endpoints:
         try:
-            cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", endpoint["full_url"]]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            resp = _http_request("GET", endpoint["full_url"], timeout=10.0)
+            if resp is not None:
+                status_code = str(resp.status_code)
+                location = resp.headers.get("Location", "")
 
-            if result.returncode == 0:
-                status_code = result.stdout.strip()
-
+                # Classify
                 if status_code == "200":
                     bypass_results.append(
                         {
@@ -909,64 +1256,141 @@ def _test_advanced_auth_bypasses(target_url: str, results: Dict) -> List[Dict[st
                             "status_code": status_code,
                         }
                     )
+                elif status_code and status_code.startswith("3") and location:
+                    loc_lower = location.lower()
+                    # Heuristic: redirects to login/SSO pages are typically a sign of protection.
+                    if any(k in loc_lower for k in ["login", "signin", "sso", "oauth", "saml", "auth"]):
+                        bypass_results.append(
+                            {
+                                "technique": "Forced Browsing",
+                                "endpoint": endpoint["path"],
+                                "successful": False,
+                                "description": "Endpoint redirects to authentication (likely protected)",
+                                "status_code": status_code,
+                                "redirect_to": location,
+                            }
+                        )
+                    else:
+                        bypass_results.append(
+                            {
+                                "technique": "Forced Browsing",
+                                "endpoint": endpoint["path"],
+                                "successful": False,
+                                "description": "Endpoint redirects (review redirect target)",
+                                "status_code": status_code,
+                                "redirect_to": location,
+                            }
+                        )
                 else:
                     bypass_results.append(
                         {
                             "technique": "Forced Browsing",
                             "endpoint": endpoint["path"],
                             "successful": False,
-                            "description": "Endpoint properly protected",
-                            "status_code": status_code,
+                            "description": "Endpoint returned non-200 response (likely protected)",
+                            "status_code": status_code or "unknown",
                         }
                     )
         except Exception:
             continue
 
     # Test 2: HTTP method bypass
-    protected_endpoints = [ep for ep in results.get("auth_endpoints", [])[:3]]
+    # Focus on likely protected resources (admin/privileged + dashboards), not login/token endpoints.
+    protected_endpoints = [
+        ep
+        for ep in results.get("auth_endpoints", [])
+        if ep.get("type") in {"Administrative"} or any(k in (ep.get("path") or "").lower() for k in ["/admin", "dashboard", "portal", "console"])
+    ]
 
     for endpoint in protected_endpoints:
-        methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+        methods = ["GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS"]  # skip: DELETE
 
-        for method in methods[:3]:  # Test first 3 methods
+        # Baseline GET to understand whether this endpoint is already public or redirects to auth.
+        baseline = {"code": "", "location": "", "ctype": "", "clen": "", "authy": False}
+        try:
+            base_resp = _http_request("GET", endpoint["full_url"], timeout=8.0)
+            if base_resp is not None:
+                baseline["code"] = str(base_resp.status_code)
+                baseline["location"] = base_resp.headers.get("Location", "")
+                baseline["ctype"] = base_resp.headers.get("Content-Type", "")
+                baseline["clen"] = base_resp.headers.get("Content-Length", "")
+
+                loc_lower = (baseline["location"] or "").lower()
+                baseline["authy"] = (
+                    (baseline["code"].startswith("3") and any(k in loc_lower for k in ["login", "signin", "sso", "oauth", "saml", "auth"]))
+                    or baseline["code"] in {"401", "403"}
+                )
+        except Exception:
+            pass
+
+        for method in methods:
+            if method == "GET":
+                continue
+
             try:
-                cmd = [
-                    "curl",
-                    "-s",
-                    "-X",
-                    method,
-                    "-o",
-                    "/dev/null",
-                    "-w",
-                    "%{http_code}",
-                    "--max-time",
-                    "5",
-                    endpoint["full_url"],
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                resp = _http_request(method, endpoint["full_url"], timeout=8.0)
+                if resp is None:
+                    continue
 
-                if result.returncode == 0:
-                    status_code = result.stdout.strip()
+                status_code = str(resp.status_code)
+                location = resp.headers.get("Location", "")
+                ctype = resp.headers.get("Content-Type", "")
+                clen = resp.headers.get("Content-Length", "")
 
-                    if status_code == "200" and method != "GET":
-                        bypass_results.append(
-                            {
-                                "technique": "HTTP Method Bypass",
-                                "endpoint": endpoint["path"],
-                                "method": method,
-                                "successful": True,
-                                "description": f"Endpoint accessible via {method} method",
-                                "status_code": status_code,
-                            }
-                        )
-                        break  # Found bypass, no need to test other methods
+                # Heuristics: only call it a bypass when the non-GET meaningfully changes auth gating.
+                #
+                # Count as bypass if:
+                #   - GET looks protected (401/403 or redirect to auth),
+                #   - and non-GET is 200 (or 204), and
+                #   - non-GET is NOT redirecting to auth,
+                #   - and headers suggest a different response than the login redirect baseline.
+                loc_lower = (location or "").lower()
+                method_authy = (
+                    (status_code.startswith("3") and any(k in loc_lower for k in ["login", "signin", "sso", "oauth", "saml", "auth"]))
+                    or status_code in {"401", "403"}
+                )
+
+                # If baseline is already public, don't call this a bypass.
+                if baseline["code"] == "200" and not baseline["authy"]:
+                    continue
+
+                # If baseline indicates protection but method returns success without authy redirect, it's suspicious.
+                if baseline["authy"] and status_code in {"200", "204"} and not method_authy:
+                    # Extra guard: if non-GET looks identical to baseline redirect/login-ish headers, skip.
+                    # (We can't see body, so use coarse header diffs.)
+                    header_changed = (
+                        (baseline.get("location") != location)
+                        or (baseline.get("ctype") != ctype)
+                        or (baseline.get("clen") != clen)
+                    )
+                    if not header_changed:
+                        continue
+
+                    bypass_results.append(
+                        {
+                            "technique": "HTTP Method Bypass",
+                            "endpoint": endpoint["path"],
+                            "method": method,
+                            "successful": True,
+                            "description": f"Endpoint appears protected via GET but accessible via {method}",
+                            "status_code": status_code,
+                            "baseline": {
+                                "get_code": baseline.get("code"),
+                                "get_location": baseline.get("location"),
+                            },
+                        }
+                    )
+                    break  # Found bypass, no need to test other methods
+
             except Exception:
                 continue
 
     # Test 3: Parameter pollution and header manipulation
     # This is a simplified test - in practice would be more comprehensive
     if results.get("auth_endpoints"):
-        test_endpoint = results["auth_endpoints"][0]["full_url"]
+        # Prefer an administrative endpoint for bypass header testing when available.
+        admin_eps = [ep for ep in results.get("auth_endpoints", []) if ep.get("type") == "Administrative"]
+        test_endpoint = (admin_eps[0] if admin_eps else results["auth_endpoints"][0])["full_url"]
 
         # Test with common bypass headers
         bypass_headers = [
@@ -976,37 +1400,53 @@ def _test_advanced_auth_bypasses(target_url: str, results: Dict) -> List[Dict[st
             ("X-Remote-Addr", "127.0.0.1"),
         ]
 
+        # Baseline request (no special headers)
+        baseline = {"code": "", "location": "", "authy": False}
+        try:
+            base_resp = _http_request("GET", test_endpoint, timeout=8.0)
+            if base_resp is not None:
+                baseline["code"] = str(base_resp.status_code)
+                baseline["location"] = base_resp.headers.get("Location", "")
+                loc_lower = (baseline["location"] or "").lower()
+                baseline["authy"] = (
+                    (baseline["code"].startswith("3") and any(k in loc_lower for k in ["login", "signin", "sso", "oauth", "saml", "auth"]))
+                    or baseline["code"] in {"401", "403"}
+                )
+        except Exception:
+            pass
+
         for header_name, header_value in bypass_headers[:2]:  # Test first 2 headers
             try:
-                cmd = [
-                    "curl",
-                    "-s",
-                    "-H",
-                    f"{header_name}: {header_value}",
-                    "-o",
-                    "/dev/null",
-                    "-w",
-                    "%{http_code}",
-                    "--max-time",
-                    "5",
-                    test_endpoint,
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                resp = _http_request("GET", test_endpoint, headers={header_name: header_value}, timeout=8.0)
+                if resp is None:
+                    continue
 
-                if result.returncode == 0:
-                    status_code = result.stdout.strip()
+                status_code = str(resp.status_code)
+                location = resp.headers.get("Location", "")
 
-                    if status_code == "200":
-                        bypass_results.append(
-                            {
-                                "technique": "Header Manipulation",
-                                "header": f"{header_name}: {header_value}",
-                                "successful": True,
-                                "description": "Endpoint accessible with header bypass",
-                                "status_code": status_code,
-                            }
-                        )
-                        break  # Found bypass
+                loc_lower = (location or "").lower()
+                authy = (
+                    (status_code.startswith("3") and any(k in loc_lower for k in ["login", "signin", "sso", "oauth", "saml", "auth"]))
+                    or status_code in {"401", "403"}
+                )
+
+                # Only consider it a bypass if baseline looks protected but header request succeeds.
+                if baseline.get("authy") and status_code == "200" and not authy:
+                    bypass_results.append(
+                        {
+                            "technique": "Header Manipulation",
+                            "header": f"{header_name}: {header_value}",
+                            "successful": True,
+                            "description": "Endpoint appears protected normally but accessible with header bypass",
+                            "status_code": status_code,
+                            "baseline": {
+                                "code": baseline.get("code"),
+                                "location": baseline.get("location"),
+                            },
+                        }
+                    )
+                    break  # Found bypass
+
             except Exception:
                 continue
 
@@ -1014,49 +1454,173 @@ def _test_advanced_auth_bypasses(target_url: str, results: Dict) -> List[Dict[st
 
 
 def _generate_auth_recommendations(results: Dict) -> List[str]:
-    """Generate authentication security recommendations"""
-    recommendations = []
+    """Generate agent next-steps to drive vulnerability discovery, verification, and exploitation."""
+    recs: List[str] = []
 
-    # Analyze results for specific recommendations
-    vulnerabilities = results.get("vulnerabilities", [])
-    # bypass_opportunities = results.get("flow_analysis", {}).get("bypass_opportunities", [])
-    session_info = results.get("flow_analysis", {}).get("session_management", {})
+    target = results.get("target", "")
+    endpoints = results.get("auth_endpoints", []) or []
+    mechanisms = results.get("auth_mechanisms", []) or []
+    tokens = results.get("tokens_discovered", []) or []
+    flow = results.get("flow_analysis", {}) or {}
 
-    # Critical vulnerabilities
-    successful_bypasses = [v for v in vulnerabilities if v.get("successful", False)]
-    if successful_bypasses:
-        recommendations.append(
-            "CRITICAL: Authentication bypass vulnerabilities detected - implement proper access controls"
+    bypass_opps = flow.get("bypass_opportunities", []) or []
+    priv_esc = flow.get("privilege_escalation", []) or []
+    vulns = results.get("vulnerabilities", []) or []
+
+    successful = [v for v in vulns if isinstance(v, dict) and v.get("successful", False)]
+
+    # 0) If we already have a successful bypass, prioritize exploitation and lateral checks.
+    if successful:
+        # Keep the top 2-3 distinct techniques for focus.
+        seen = set()
+        focus = []
+        for v in successful:
+            tech = v.get("technique") or v.get("type") or "Bypass"
+            if tech in seen:
+                continue
+            seen.add(tech)
+            focus.append(v)
+            if len(focus) >= 3:
+                break
+
+        for v in focus:
+            tech = v.get("technique") or v.get("type") or "Bypass"
+            ep = v.get("endpoint") or v.get("path") or ""
+            recs.append(
+                f"Exploit confirmed bypass '{tech}'{(' on ' + ep) if ep else ''}: capture evidence (200/response markers), then enumerate reachable admin/user functions using the same method/headers."  # noqa: E501
+            )
+
+        recs.append(
+            "After bypass access, attempt privilege proof: access an admin-only page/action, extract role/identity indicators, and attempt IDOR-style object swaps under the bypass context."  # noqa: E501
         )
-        recommendations.append("Review and strengthen authentication middleware and route protection")
+        # Still return additional items below when relevant.
 
-    # Session management issues
-    if session_info.get("security_analysis"):
-        recommendations.append("Implement secure session management with proper cookie flags")
-        recommendations.append("Deploy HTTPS enforcement and secure cookie attributes")
+    # 1) Forced browsing / endpoint validation
+    if endpoints:
+        admin_eps = [ep for ep in endpoints if ep.get("type") == "Administrative"]
+        auth_eps = [ep for ep in endpoints if ep.get("type") in {"Session-based", "OAuth", "SAML", "JWT", "API Authentication", "GraphQL"}]
 
-    # JWT-specific recommendations
-    jwt_tokens = [token for token in results.get("tokens_discovered", []) if token.get("type") == "JWT"]
-    if jwt_tokens:
-        recommendations.append("Audit JWT implementation for algorithm confusion and key management")
-        recommendations.append("Implement proper JWT validation including signature verification")
+        if admin_eps:
+            sample = " | ".join([ep.get("path", "") for ep in admin_eps[:5] if ep.get("path")])
+            recs.append(
+                f"Verify admin endpoints for authz bypass: request with and without cookies/Authorization; compare status/Location/body markers. Candidates: {sample}"  # noqa: E501
+            )
 
-    # OAuth recommendations
-    oauth_mechanisms = [m for m in results.get("auth_mechanisms", []) if m["type"] == "OAuth"]
-    if oauth_mechanisms:
-        recommendations.append("Review OAuth implementation for state parameter and redirect URI validation")
-        recommendations.append("Implement proper scope validation and token lifecycle management")
+        if auth_eps:
+            sample = " | ".join([ep.get("path", "") for ep in auth_eps[:6] if ep.get("path")])
+            recs.append(
+                f"Map the primary auth entrypoints and redirects: follow 302 chains manually (no auto-follow) to identify IdP/OAuth/SAML flows, then capture parameters (state, redirect_uri, RelayState). Candidates: {sample}"  # noqa: E501
+            )
 
-    # Administrative access
-    admin_endpoints = [ep for ep in results.get("auth_endpoints", []) if ep.get("type") == "Administrative"]
-    if admin_endpoints:
-        recommendations.append("Implement multi-factor authentication for administrative interfaces")
-        recommendations.append("Add IP restrictions and additional monitoring for admin access")
+    # 2) Session/cookie exploitation paths
+    session_info = flow.get("session_management", {}) or {}
+    sess_analysis = session_info.get("security_analysis") or []
+    cookie_tokens = [t for t in tokens if isinstance(t, dict) and t.get("type") == "Cookie"]
 
-    # General recommendations
-    recommendations.append("Implement comprehensive authentication logging and monitoring")
-    recommendations.append("Conduct regular penetration testing of authentication mechanisms")
-    recommendations.append("Deploy rate limiting and account lockout protections")
-    recommendations.append("Review and update authentication libraries and frameworks regularly")
+    if cookie_tokens or (session_info.get("session_cookies", 0) > 0 and sess_analysis):
+        # Focus on exploit-driven actions, not remediation.
+        recs.append(
+            "If session cookies lack Secure/HttpOnly/SameSite, attempt practical exploitation: capture session cookie in a controlled intercept, replay it from a separate client, and verify account takeover or privilege change by observing user-specific content differences."  # noqa: E501
+        )
+        recs.append(
+            "Attempt session fixation: set a chosen session cookie value (if app accepts it), authenticate, then reuse the pre-auth cookie in a fresh browser and verify it becomes authenticated."  # noqa: E501
+        )
 
-    return recommendations
+    # 3) JWT exploitation paths
+    jwt_tokens = [t for t in tokens if isinstance(t, dict) and t.get("type") == "JWT"]
+    jwt_mechs = [m for m in mechanisms if isinstance(m, dict) and m.get("type") == "JWT"]
+
+    if jwt_tokens or jwt_mechs:
+        recs.append(
+            "For JWT flows: extract a real token (login/API), decode claims, then attempt tampering (role/admin flags, aud/iss, exp). Re-sign if HS* with weak secret is plausible; test alg confusion/none only if server behavior indicates acceptance."  # noqa: E501
+        )
+        recs.append(
+            "If a JWKS endpoint is present, test key confusion (kid injection / jwks swapping) and verify by crafting a token that the server accepts while changing privilege claims."  # noqa: E501
+        )
+
+    # 4) OAuth/OIDC exploitation paths
+    oauth_mechs = [m for m in mechanisms if isinstance(m, dict) and m.get("type") == "OAuth"]
+    if oauth_mechs:
+        recs.append(
+            "For OAuth/OIDC: capture an auth request and test redirect_uri manipulation, open redirect chains, and state/nonce enforcement (missing/guessable/reused). Verify by obtaining a token/code bound to attacker-controlled redirect or session."  # noqa: E501
+        )
+        recs.append(
+            "Enumerate scopes/consent: request broader scopes and see if the app honors them; test token substitution between users (swap access tokens) to confirm improper token audience validation."  # noqa: E501
+        )
+
+    # 5) SAML exploitation paths
+    saml_mechs = [m for m in mechanisms if isinstance(m, dict) and m.get("type") == "SAML"]
+    if saml_mechs:
+        recs.append(
+            "For SAML: collect a real SAMLResponse/RelayState and test signature wrapping/unsigned assertions, audience restriction validation, and RelayState open redirect. Verify by elevating attributes/roles in the assertion and confirming access."  # noqa: E501
+        )
+
+    # 6) Bypass opportunities from analysis
+    if bypass_opps:
+        # Surface top few with an explicit "verify" directive.
+        for opp in bypass_opps[:5]:
+            if not isinstance(opp, dict):
+                continue
+            otype = opp.get("type", "Bypass")
+            desc = opp.get("description", "")
+            tech = opp.get("technique", "")
+            suffix = f" (technique: {tech})" if tech else ""
+            recs.append(f"Verify bypass hypothesis '{otype}': {desc}{suffix}")
+
+    # 7) Priv-esc vectors (treat as targets for authz testing)
+    if priv_esc:
+        sample = []
+        for pe in priv_esc[:6]:
+            if isinstance(pe, dict) and pe.get("endpoint"):
+                sample.append(pe["endpoint"])
+        if sample:
+            recs.append(
+                f"Targeted privilege escalation validation: attempt access to admin endpoints without auth and with low-priv context; try method/headers/parameter tricks on: {' | '.join(sample)}"  # noqa: E501
+            )
+
+    # 8) If we have very little signal, guide discovery.
+    if not recs:
+        recs.append(
+            f"Expand discovery: crawl {target or 'the target'} for login/redirect patterns, capture cookies and auth headers, then rerun endpoint enumeration with recursion and a larger wordlist focused on /api/, /admin/, /graphql/, /oauth/, /saml/."  # noqa: E501
+        )
+        recs.append(
+            "Attempt differential analysis: compare unauth vs authenticated responses for the same endpoints to identify authorization gates (status/body markers), then pivot to bypass testing."  # noqa: E501
+        )
+
+    # De-duplicate while preserving order
+    uniq: List[str] = []
+    seen_r: set[str] = set()
+    for r in recs:
+        if r not in seen_r:
+            uniq.append(r)
+            seen_r.add(r)
+
+    return uniq
+
+
+# CLI entrypoint for running auth_chain_analyzer directly
+
+def main() -> int:
+    """CLI entrypoint for running the Authentication Chain Analyzer directly."""
+    parser = argparse.ArgumentParser(
+        description="Run the Authentication Chain Analyzer against a target URL"
+    )
+    parser.add_argument(
+        "target_url",
+        help="Target URL (with or without scheme). Example: https://example.com",
+    )
+    parser.add_argument(
+        "--auth-type",
+        dest="auth_type",
+        default="auto",
+        choices=["jwt", "oauth", "saml", "session", "auto"],
+        help="Authentication type to focus on (default: auto)",
+    )
+
+    args = parser.parse_args()
+    print(auth_chain_analyzer(args.target_url, auth_type=args.auth_type))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
