@@ -57,6 +57,10 @@ RUN set -eux; \
     python-is-python3 \
     pipx \
     python3-requests \
+    python3-aiohttp \
+    python3-jinja2 \
+    python3-httpx \
+    python3-ratelimit \
     python3-pwntools \
     python3-dotenv \
     python2 \
@@ -82,6 +86,8 @@ RUN set -eux; \
     libcrypt-ssleay-perl \
     libssl-dev \
     ca-certificates \
+    # RsaCtfTool (RSA Attacks) deps
+    libgmp-dev libmpfr-dev libmpc-dev \
     # Network tools
     iputils-ping \
     dnsutils \
@@ -143,14 +149,12 @@ RUN set -eux; \
     seclists \
     # Web app helpers
     commix \
-    xsser \
     hashid \
     html2text \
     # ProjectDiscovery vuln scanner
     nuclei \
     # Auth/bruteforce
     hydra \
-    medusa \
     ncrack \
     hashcat \
     john \
@@ -158,10 +162,8 @@ RUN set -eux; \
     libimage-exiftool-perl \
     cewl \
     # WebDAV testing
-    cadaver \
     davtest \
     # SSL/TLS testing
-    sslyze \
     testssl.sh \
     # Extra recon/webapp scanners
     gospider \
@@ -169,10 +171,7 @@ RUN set -eux; \
     subjack \
     knockpy \
     joomscan \
-    wig \
-    uniscan \
     dirsearch \
-    skipfish \
     enum4linux \
     # Offensive frameworks
     metasploit-framework \
@@ -219,6 +218,9 @@ RUN set -eux; \
         ln -sf /usr/lib/ruby/vendor_ruby/*.rb /usr/bin/lib/; \
       fi; \
     fi
+
+# Install Python packages for our new tools (use --break-system-packages for Kali)
+RUN pip3 install --break-system-packages pycryptodomex
 
 COPY --from=gobuild /usr/local/bin/* /usr/local/bin/
 
@@ -269,9 +271,6 @@ RUN mkdir -p /opt/ysoserial && \
     echo '#!/bin/bash\njava -jar /opt/ysoserial/ysoserial.jar "$@"' > /usr/local/bin/ysoserial && \
     chmod +x /usr/local/bin/ysoserial
 
-# Install Python packages for our new tools (use --break-system-packages for Kali)
-RUN pip3 install --break-system-packages requests aiohttp jinja2 'httpx[cli]' ratelimit pycryptodomex
-
 # Install Evil-WinRM via gem
 RUN gem install evil-winrm
 
@@ -296,9 +295,11 @@ RUN pipx install --global bloodhound && \
     # Install Volatility3 (Memory Forensics) - Optional
     pipx install --global volatility3 && \
     # Install PwnCat-CS (Advanced Reverse Shell Handler)
-    pipx install --global --python 3.11 --fetch-missing-python pwncat-cs && \
+    pipx install --global --python 3.11 --fetch-missing-python --preinstall 'setuptools<81' pwncat-cs && \
     # Install paramspider (Mining URLs from dark corners of Web Archives for bug hunting/fuzzing/further probing)
-    pipx install --global git+https://github.com/devanshbatham/paramspider.git
+    pipx install --global git+https://github.com/devanshbatham/paramspider.git && \
+    # Install RsaCtfTool (RSA Attacks) - requires GMP/MPFR libraries (installed above)
+    pipx install --global git+https://github.com/RsaCtfTool/RsaCtfTool.git
 
 RUN npm install --global @graphql-inspector/cli
 
@@ -323,12 +324,6 @@ RUN git clone --depth=1 --depth=1 https://github.com/s0md3v/Corsy.git /opt/corsy
     chmod +x /opt/corsy/corsy.py && \
     echo '#!/bin/bash\ncd /opt/corsy && source venv/bin/activate && python3 /opt/corsy/corsy.py "$@"' > /usr/local/bin/corsy && \
     chmod +x /usr/local/bin/corsy
-
-# Install RsaCtfTool (RSA Attacks) - requires GMP/MPFR libraries
-RUN apt update && apt install -y --no-install-recommends \
-    libgmp-dev libmpfr-dev libmpc-dev && \
-    apt clean && rm -rf /var/lib/apt/lists/* && \
-    pipx install --global git+https://github.com/RsaCtfTool/RsaCtfTool.git
 
 RUN useradd --create-home --shell /bin/bash cyberagent && \
     usermod -aG sudo cyberagent && \

@@ -420,8 +420,7 @@ Use the **shell** tool for bash commands.
 ### Capabilities → Preferred tools → Fallbacks
 """
         for cap, cap_prefs in tools_by_caps.items():
-            cap_title = cap.replace("_", " ").capitalize()
-            tools_context += f"\n- **{cap_title}**\n"
+            tools_context += f"\n- **{cap}**\n"
             pref_list = list(cap_prefs.keys())
             pref_list.sort(key=lambda x: (not x.startswith("p"), x))
             for pref in pref_list:
@@ -992,6 +991,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     os.environ["STRANDS_MODEL_ID"] = config.model_id
     os.environ["STRANDS_MAX_TOKENS"] = str(server_config.llm.max_tokens)
     os.environ["STRANDS_TEMPERATURE"] = str(server_config.llm.temperature)
+    os.environ["STRANDS_NON_INTERACTIVE"] = "true"
 
     # Create agent (telemetry is handled globally by Strands SDK)
     agent = Agent(**agent_kwargs)

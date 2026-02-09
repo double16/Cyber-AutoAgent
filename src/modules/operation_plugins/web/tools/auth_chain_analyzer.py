@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 import urllib3
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
@@ -21,19 +22,38 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 @tool
 def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
     """
-    Analyzes complex authentication flows and chains bypass techniques.
+    Map auth flows + identify/validate auth bypass surfaces for a target. Returns JSON ONLY.
 
-    Coordinates specialized tools like jwt_tool, feroxbuster for auth endpoints,
-    and custom logic to understand OAuth, SAML, JWT, and multifactor authentication
-    flows beyond basic credential testing.
+    CALL WHEN
+    - Auth blocks progress (30x→login/SSO, 401/403 on key pages/APIs), or you need auth-flow mapping.
+    - You see signals of session/JWT/OAuth/SAML (Set-Cookie, Bearer/JWT strings, /.well-known/*, jwks, oauth/saml paths).
+    - You need structured next steps for bypass verification/exploitation.
 
-    Args:
-        target_url: Target URL or domain (e.g., https://example.com)
-        auth_type: Authentication type ("jwt", "oauth", "saml", "session", "auto")
+    DO NOT CALL
+    - If you already have recent auth mapping + bypass validation for this same target, unless new endpoints/flows were found.
 
-    Returns:
-        Comprehensive authentication flow analysis with bypass opportunities
+    BEHAVIOR NOTES
+    - Redirects are NOT auto-followed (30x is evidence).
+    - Performs lightweight validation: forced browsing (admin), HTTP method variations, limited header bypass checks.
+
+    ARGS
+    - target_url: base URL/domain (scheme optional; https assumed)
+    - auth_type: "jwt"|"oauth"|"saml"|"session"|"auto" (use specific type to reduce noise)
+
+    RETURNS (JSON)
+    - summary: mechanism/token types, confirmed_exploits count
+    - evidence: endpoints/mechanisms/tokens/flow mapping
+    - findings[]: observed/confirmed auth bypass or controls + evidence
+    - next_steps[]: prioritized, capability-tagged tasks
+    - decision: routing hints (best_attack_surface, next_phase)
+
+    HOW TO USE
+    - If summary.confirmed_exploits > 0: exploit findings (technique+endpoint) and prove impact.
+    - Else: execute next_steps in priority order; use evidence to reproduce/justify.
+    - Absence of findings is not proof of security
     """
+    if not target_url:
+        raise ValueError("target_url is required")
     if not target_url.startswith(("http://", "https://")):
         target_url = f"https://{target_url}"
 
@@ -52,117 +72,68 @@ def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
         },
     }
 
-    output = f"Authentication Chain Analyzer: {target_url}\n"
-    output += "=" * 60 + "\n\n"
+    report: Dict[str, Any] = {
+        "tool": "auth_chain_analyzer",
+        "target": target_url,
+        "auth_type": auth_type,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "summary": {},
+        "evidence": {},
+        "findings": [],
+        "next_steps": [],
+    }
+
+    output = ""
 
     try:
         # Phase 1: Authentication endpoint discovery
-        output += "Phase 1: Authentication Endpoint Discovery\n"
-        output += "-" * 40 + "\n"
-
         auth_endpoints = _discover_auth_endpoints(target_url)
         results["auth_endpoints"] = auth_endpoints
 
-        output += f"Authentication endpoints discovered: {len(auth_endpoints)}\n"
-        auth_endpoints_by_type = {}
-        for endpoint in auth_endpoints:
-            auth_type = endpoint["type"]
-            path = endpoint["path"]
-            if auth_type not in auth_endpoints_by_type:
-                auth_endpoints_by_type[auth_type] = []
-            auth_endpoints_by_type[auth_type].append(path)
-        for auth_type, paths in auth_endpoints_by_type.items():
-            output += f"  • {auth_type}\n"
-            output += f"    endpoints: {' | '.join(sorted(paths, key=lambda p: (len(p), p))[:10])}\n"
-        output += "\n"
+        report["evidence"]["auth_endpoints"] = {
+            "count_total": len(auth_endpoints),
+            "top": auth_endpoints[:10],
+        }
 
         # Phase 2: Authentication mechanism analysis
-        output += "Phase 2: Authentication Mechanism Analysis\n"
-        output += "-" * 40 + "\n"
-
         auth_mechanisms = _analyze_auth_mechanisms(target_url, auth_endpoints, auth_type)
         results["auth_mechanisms"] = auth_mechanisms
 
-        output += f"Authentication mechanisms identified: {len(auth_mechanisms)}\n"
-        for mechanism in auth_mechanisms:
-            output += f"  • {mechanism['type']}: {mechanism['description']}{(', endpoint: ' +mechanism['endpoint']) if mechanism.get('endpoint') else ''}\n"
-        output += "\n"
+        report["evidence"]["auth_mechanisms"] = {
+            "count_total": len(auth_mechanisms),
+            "items": auth_mechanisms,
+        }
 
         # Phase 3: Token and session analysis
-        output += "Phase 3: Token and Session Analysis\n"
-        output += "-" * 40 + "\n"
-
         token_analysis = _analyze_tokens_and_sessions(target_url, auth_mechanisms)
         results["tokens_discovered"] = token_analysis.get("tokens", [])
         results["flow_analysis"]["session_management"] = token_analysis.get("session_info", {})
 
-        output += f"Tokens/sessions analyzed: {len(token_analysis.get('tokens', []))}\n"
-        for token in token_analysis.get("tokens", []):
-            output += f"  • {token['type']}: {token['location']}{(', name: ' +token['name']) if token.get('name') else ''}\n"
-            for analysis in token.get("analysis", []):
-                output += f"    {analysis}\n"
-        output += "\n"
+        report["evidence"]["tokens_discovered"] = {
+            "count_total": len(results.get("tokens_discovered", []) or []),
+            "items": results.get("tokens_discovered", []) or [],
+        }
 
         # Phase 4: Authentication flow mapping
-        output += "Phase 4: Authentication Flow Mapping\n"
-        output += "-" * 40 + "\n"
-
         flow_analysis = _map_authentication_flows(target_url, results)
         results["flow_analysis"].update(flow_analysis)
 
-        if flow_analysis.get("authentication_steps"):
-            output += "\nAuthentication steps:\n"
-            for step in flow_analysis["authentication_steps"]:
-                try:
-                    step_no = step.get("step")
-                    action = step.get("action", "")
-                    desc = step.get("description", "")
-                    if step_no is not None:
-                        output += f"  {step_no}. {action} - {desc}\n"
-                    else:
-                        output += f"  • {action} - {desc}\n"
-                except Exception:
-                    continue
-            output += "\n"
-        else:
-            output += f"Authentication steps mapped: {len(flow_analysis['authentication_steps'])}\n"
-
-        if flow_analysis.get("bypass_opportunities"):
-            output += "\nBypass opportunities:\n"
-            for opp in flow_analysis["bypass_opportunities"]:
-                try:
-                    otype = opp.get("type", "")
-                    desc = opp.get("description", "")
-                    tech = opp.get("technique", "")
-                    suffix = f" (technique: {tech})" if tech else ""
-                    output += f"  • {otype}: {desc}{suffix}\n"
-                except Exception:
-                    continue
-            output += "\n"
-        else:
-            output += f"Bypass opportunities: {len(flow_analysis['bypass_opportunities'])}\n"
-
-        if flow_analysis.get("privilege_escalation"):
-            output += "\nPrivilege escalation vectors:\n"
-            for pe in flow_analysis["privilege_escalation"]:
-                try:
-                    ptype = pe.get("type", "")
-                    ep = pe.get("endpoint", "")
-                    desc = pe.get("description", "")
-                    ep_suffix = f" (endpoint: {ep})" if ep else ""
-                    output += f"  • {ptype}: {desc}{ep_suffix}\n"
-                except Exception:
-                    continue
-            output += "\n"
-        else:
-            output += f"Privilege escalation vectors: {len(flow_analysis['privilege_escalation'])}\n"
-
-        output += "\n"
+        report["evidence"]["flow_analysis"] = {
+            "authentication_steps": {
+                "count": len(flow_analysis.get("authentication_steps", []) or []),
+                "items": flow_analysis.get("authentication_steps", []) or [],
+            },
+            "bypass_opportunities": {
+                "count": len(flow_analysis.get("bypass_opportunities", []) or []),
+                "items": flow_analysis.get("bypass_opportunities", []) or [],
+            },
+            "privilege_escalation": {
+                "count": len(flow_analysis.get("privilege_escalation", []) or []),
+                "items": flow_analysis.get("privilege_escalation", []) or [],
+            },
+        }
 
         # Phase 5: Advanced bypass testing
-        output += "Phase 5: Advanced Bypass Testing\n"
-        output += "-" * 40 + "\n"
-
         bypass_results = _test_advanced_auth_bypasses(target_url, results)
 
         # Normalize bypass_results to a list to avoid type/iteration bugs.
@@ -175,24 +146,91 @@ def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
         results["vulnerabilities"].extend(bypass_results)
 
         successful_bypasses = [b for b in bypass_results if isinstance(b, dict) and b.get("successful", False)]
-        output += f"Bypass techniques tested: {len(bypass_results)}\n"
-        output += f"Successful bypasses: {len(successful_bypasses)}\n"
 
-        if successful_bypasses:
-            output += "\nSuccessful bypass techniques:\n"
-            for bypass in successful_bypasses:
-                output += f"  • {bypass['technique']}: {bypass['description']}{(', endpoint: ' +bypass['endpoint']) if bypass.get('endpoint') else ''}\n"
+        # Convert bypass results into structured findings for the agent.
+        for b in bypass_results:
+            if not isinstance(b, dict):
+                continue
+            report["findings"].append(
+                {
+                    "id": f"FINDING_{(b.get('technique') or 'UNKNOWN').upper().replace(' ', '_')}_{(b.get('endpoint') or '').strip('/').replace('/', '_') or 'TARGET'}",
+                    "status": "confirmed" if b.get("successful") else "observed",
+                    "category": "auth_bypass" if b.get("successful") else "auth_control",
+                    "severity": "critical" if b.get("successful") else "info",
+                    "confidence": 0.9 if b.get("successful") else 0.6,
+                    "technique": b.get("technique"),
+                    "endpoint": b.get("endpoint"),
+                    "method": b.get("method"),
+                    "description": b.get("description"),
+                    "evidence": {
+                        "status_code": b.get("status_code"),
+                        "redirect_to": b.get("redirect_to"),
+                        "baseline": b.get("baseline"),
+                        "header": b.get("header"),
+                    },
+                }
+            )
 
-        output += "\n"
+        # Generate agent-oriented next steps (capability-tagged)
+        next_steps = _generate_auth_recommendations(results)
+        report["next_steps"] = next_steps
 
-        # Generate authentication security recommendations
-        recommendations = _generate_auth_recommendations(results)
-        output += "AUTHENTICATION SECURITY ANALYSIS:\n"
-        for i, rec in enumerate(recommendations, 1):
-            output += f"{i}. {rec}\n"
+        # High-level summary and routing hints
+        mech_types = [m.get("type") for m in (results.get("auth_mechanisms") or []) if
+                      isinstance(m, dict) and m.get("type")]
+        token_types = [t.get("type") for t in (results.get("tokens_discovered") or []) if
+                       isinstance(t, dict) and t.get("type")]
+        confirmed = [f for f in report.get("findings", []) if isinstance(f, dict) and f.get("status") == "confirmed"]
+
+        report["summary"] = {
+            "auth_endpoints": len(results.get("auth_endpoints", []) or []),
+            "mechanisms": sorted(list(set(mech_types))),
+            "tokens": sorted(list(set(token_types))),
+            "confirmed_exploits": len(confirmed),
+            "high_confidence_hypotheses": len(
+                [s for s in next_steps if isinstance(s, dict) and (s.get("confidence", 0) or 0) >= 0.7]),
+        }
+
+        # Decision hints for downstream agent branching
+        primary_auth = "unknown"
+        if "Session-based" in report["summary"]["mechanisms"]:
+            primary_auth = "session"
+        elif "OAuth" in report["summary"]["mechanisms"]:
+            primary_auth = "oauth"
+        elif "SAML" in report["summary"]["mechanisms"]:
+            primary_auth = "saml"
+        elif "JWT" in report["summary"]["mechanisms"]:
+            primary_auth = "jwt"
+
+        best_surface = "discovery"
+        if any(f.get("status") == "confirmed" for f in confirmed):
+            best_surface = "exploitation"
+        elif (results.get("flow_analysis", {}) or {}).get("bypass_opportunities"):
+            best_surface = "bypass_validation"
+        elif (results.get("auth_endpoints") or []):
+            best_surface = "endpoint_mapping"
+
+        report["decision"] = {
+            "primary_auth": primary_auth,
+            "best_attack_surface": best_surface,
+            "next_phase": "bypass_testing" if best_surface in {"bypass_validation", "exploitation"} else "recon",
+        }
+
+        # Output JSON only
+        output = json.dumps(report, ensure_ascii=False, indent=2)
 
     except Exception as e:
-        output += f"Authentication analysis failed: {str(e)}\n"
+        output = json.dumps(
+            {
+                "tool": "auth_chain_analyzer",
+                "target": target_url,
+                "auth_type": auth_type,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "error": str(e),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
 
     return output
 
@@ -539,7 +577,7 @@ def _discover_auth_endpoints(target_url: str) -> List[Dict[str, Any]]:
             "--no-recursion",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
 
         if result.returncode == 0:
             feroxbuster_out = result.stdout
@@ -1018,7 +1056,7 @@ def _analyze_jwt_with_tools(target_url: str, jwt_mechanisms: List[Dict]) -> List
     # Check if jwt_tool is available
     for command_try in ["jwt-tool", "jwt_tool", "jwt_tool.py"]:
         try:
-            result = subprocess.run([command_try, "--help"], capture_output=True, timeout=10)
+            result = subprocess.run([command_try, "--help"], capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
             if result.returncode == 0:
                 jwt_tool = command_try
         except Exception:
@@ -1034,7 +1072,7 @@ def _analyze_jwt_with_tools(target_url: str, jwt_mechanisms: List[Dict]) -> List
             try:
                 # Use jwt_tool to analyze the token
                 cmd = [jwt_tool, token]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
 
                 if result.returncode == 0 and result.stdout:
                     jwt_analysis = _parse_jwt_tool_output(result.stdout)
@@ -1083,7 +1121,7 @@ nbf = NotBefore
         line_lower = line.lower()
 
         # Extract algorithm
-        alg_match = re.search(r'"alg"\\s*=\\s*"([^"]*)"', line, re.IGNORECASE)
+        alg_match = re.search(r'alg\s*=\s*"([^"]*)"', line, re.IGNORECASE)
         if alg_match:
             analysis["algorithm"] = alg_match.group(1)
 
@@ -1093,7 +1131,7 @@ nbf = NotBefore
 
         # Extract key claims
         for claim in ["iss", "sub", "aud", "exp", "iat"]:
-            claim_match = re.search(f'"{claim}"\\s*=\\s*"?([^",}}]*)"?', line)
+            claim_match = re.search(f'{claim}\\s*=\\s*"?([^",}}]*)"?', line)
             if claim_match:
                 analysis["claims"][claim] = claim_match.group(1)
 
@@ -1453,9 +1491,17 @@ def _test_advanced_auth_bypasses(target_url: str, results: Dict) -> List[Dict[st
     return bypass_results
 
 
-def _generate_auth_recommendations(results: Dict) -> List[str]:
-    """Generate agent next-steps to drive vulnerability discovery, verification, and exploitation."""
-    recs: List[str] = []
+def _generate_auth_recommendations(results: Dict) -> List[Dict[str, Any]]:
+    """Generate agent next-steps (structured tasks) to drive discovery, verification, and exploitation.
+
+    Output is designed for machine consumption:
+      - priority: integer (1 = highest)
+      - capabilities: list[str] (must match runtime tool capability mapping)
+      - goal/rationale/success_criteria/artifacts: concise execution guidance
+      - confidence: float 0..1
+    """
+
+    steps: List[Dict[str, Any]] = []
 
     target = results.get("target", "")
     endpoints = results.get("auth_endpoints", []) or []
@@ -1469,131 +1515,275 @@ def _generate_auth_recommendations(results: Dict) -> List[str]:
 
     successful = [v for v in vulns if isinstance(v, dict) and v.get("successful", False)]
 
-    # 0) If we already have a successful bypass, prioritize exploitation and lateral checks.
+    def _add(step: Dict[str, Any]):
+        # Normalize fields
+        step.setdefault("confidence", 0.6)
+        step.setdefault("capabilities", [])
+        step.setdefault("inputs", {})
+        step.setdefault("success_criteria", [])
+        step.setdefault("artifacts", [])
+        step.setdefault("tags", [])
+        steps.append(step)
+
+    # 0) If confirmed bypass exists, prioritize exploitation expansion.
     if successful:
-        # Keep the top 2-3 distinct techniques for focus.
-        seen = set()
-        focus = []
-        for v in successful:
-            tech = v.get("technique") or v.get("type") or "Bypass"
-            if tech in seen:
-                continue
-            seen.add(tech)
-            focus.append(v)
-            if len(focus) >= 3:
-                break
-
-        for v in focus:
-            tech = v.get("technique") or v.get("type") or "Bypass"
+        for i, v in enumerate(successful[:3], 1):
+            tech = v.get("technique") or v.get("type") or "bypass"
             ep = v.get("endpoint") or v.get("path") or ""
-            recs.append(
-                f"Exploit confirmed bypass '{tech}'{(' on ' + ep) if ep else ''}: capture evidence (200/response markers), then enumerate reachable admin/user functions using the same method/headers."  # noqa: E501
+            _add(
+                {
+                    "id": f"TASK_EXPLOIT_CONFIRMED_{i}",
+                    "priority": 1,
+                    "capabilities": ["http_client", "web_recon", "priv_esc"],
+                    "goal": f"Exploit confirmed bypass '{tech}'{(' on ' + ep) if ep else ''} and expand access.",
+                    "rationale": "A confirmed bypass is the highest-leverage pivot: expand reachable functions and prove impact.",
+                    "inputs": {"endpoint": ep or None, "technique": tech},
+                    "success_criteria": [
+                        "Capture request/response evidence demonstrating access without intended auth",
+                        "Enumerate additional protected actions reachable under the bypass context",
+                        "Demonstrate privilege impact (admin-only page/action or sensitive object access)",
+                    ],
+                    "artifacts": ["raw_http", "status_location_matrix", "impact_proof"],
+                    "confidence": 0.9,
+                    "tags": ["confirmed", "exploitation"],
+                }
             )
 
-        recs.append(
-            "After bypass access, attempt privilege proof: access an admin-only page/action, extract role/identity indicators, and attempt IDOR-style object swaps under the bypass context."  # noqa: E501
+        _add(
+            {
+                "id": "TASK_POST_BYPASS_IDOR_PIVOT",
+                "priority": 2,
+                "capabilities": ["web_recon", "http_client", "priv_esc"],
+                "goal": "After bypass, attempt IDOR-style pivots and privilege proof.",
+                "rationale": "Bypass contexts often enable lateral access to other users' objects or admin functions.",
+                "inputs": {},
+                "success_criteria": [
+                    "Identify object identifiers used in responses",
+                    "Swap identifiers to access other users' objects",
+                    "Record differential evidence (user-specific content/IDs)",
+                ],
+                "artifacts": ["idor_matrix", "raw_http"],
+                "confidence": 0.8,
+                "tags": ["priv_esc", "idor"],
+            }
         )
-        # Still return additional items below when relevant.
 
-    # 1) Forced browsing / endpoint validation
+    # 1) Map auth entrypoints and redirect chains (always useful early).
     if endpoints:
-        admin_eps = [ep for ep in endpoints if ep.get("type") == "Administrative"]
-        auth_eps = [ep for ep in endpoints if ep.get("type") in {"Session-based", "OAuth", "SAML", "JWT", "API Authentication", "GraphQL"}]
+        candidates = []
+        for ep in endpoints:
+            p = ep.get("path")
+            if p and any(k in (p.lower()) for k in
+                         ["login", "signin", "oauth", "saml", "callback", "openid", "token", "jwks", "graphql"]):
+                candidates.append(p)
+        candidates = candidates[:10]
 
-        if admin_eps:
-            sample = " | ".join([ep.get("path", "") for ep in admin_eps[:5] if ep.get("path")])
-            recs.append(
-                f"Verify admin endpoints for authz bypass: request with and without cookies/Authorization; compare status/Location/body markers. Candidates: {sample}"  # noqa: E501
-            )
+        _add(
+            {
+                "id": "TASK_MAP_AUTH_ENTRYPOINTS",
+                "priority": 3,
+                "capabilities": ["web_recon", "http_client", "proxying"],
+                "goal": "Map primary auth entrypoints and redirect chains (no auto-follow).",
+                "rationale": "Redirect hops and parameters reveal OAuth/SAML/OIDC mechanics and bypass surfaces.",
+                "inputs": {"candidate_paths": candidates, "target": target},
+                "success_criteria": [
+                    "Record full 30x redirect chains and parameters",
+                    "Extract state/nonce/redirect_uri/RelayState when present",
+                    "Identify IdP domains and token endpoints",
+                ],
+                "artifacts": ["redirect_chain", "param_capture", "raw_http"],
+                "confidence": 0.75,
+                "tags": ["recon", "auth_flow"],
+            }
+        )
 
-        if auth_eps:
-            sample = " | ".join([ep.get("path", "") for ep in auth_eps[:6] if ep.get("path")])
-            recs.append(
-                f"Map the primary auth entrypoints and redirects: follow 302 chains manually (no auto-follow) to identify IdP/OAuth/SAML flows, then capture parameters (state, redirect_uri, RelayState). Candidates: {sample}"  # noqa: E501
-            )
+    # 2) Validate administrative endpoints for authz bypass.
+    admin_eps = [ep for ep in endpoints if ep.get("type") == "Administrative"]
+    if admin_eps:
+        _add(
+            {
+                "id": "TASK_ADMIN_ENDPOINT_AUTHZ_MATRIX",
+                "priority": 4,
+                "capabilities": ["http_client", "web_recon", "web_fuzzing"],
+                "goal": "Build an authz matrix for admin endpoints (unauth vs low-priv vs header/method variations).",
+                "rationale": "Admin endpoints are high impact; authz matrices quickly expose forced browsing and method/header bypasses.",
+                "inputs": {"admin_paths": [ep.get("path") for ep in admin_eps[:10]]},
+                "success_criteria": [
+                    "For each endpoint, record unauth status/Location/body markers",
+                    "Test method and header variations and record deltas",
+                    "Flag any 200/204 without auth redirect as exploitable candidates",
+                ],
+                "artifacts": ["authz_matrix", "raw_http"],
+                "confidence": 0.7,
+                "tags": ["authz", "forced_browsing"],
+            }
+        )
 
-    # 2) Session/cookie exploitation paths
+    # 3) Session/cookie exploitation paths (only if cookies exist or session issues flagged).
     session_info = flow.get("session_management", {}) or {}
     sess_analysis = session_info.get("security_analysis") or []
     cookie_tokens = [t for t in tokens if isinstance(t, dict) and t.get("type") == "Cookie"]
-
     if cookie_tokens or (session_info.get("session_cookies", 0) > 0 and sess_analysis):
-        # Focus on exploit-driven actions, not remediation.
-        recs.append(
-            "If session cookies lack Secure/HttpOnly/SameSite, attempt practical exploitation: capture session cookie in a controlled intercept, replay it from a separate client, and verify account takeover or privilege change by observing user-specific content differences."  # noqa: E501
-        )
-        recs.append(
-            "Attempt session fixation: set a chosen session cookie value (if app accepts it), authenticate, then reuse the pre-auth cookie in a fresh browser and verify it becomes authenticated."  # noqa: E501
+        _add(
+            {
+                "id": "TASK_SESSION_REPLAY_AND_FIXATION",
+                "priority": 5,
+                "capabilities": ["http_client", "proxying", "traffic_capture"],
+                "goal": "Attempt session replay and session fixation verification.",
+                "rationale": "Cookie flag weaknesses are only meaningful if replay/fixation produces access or persistence.",
+                "inputs": {"cookie_names": [t.get("name") for t in cookie_tokens if t.get("name")][:10]},
+                "success_criteria": [
+                    "Replay captured session cookie from a separate client and confirm identity/role persistence",
+                    "Attempt fixation (set cookie pre-auth, authenticate, reuse pre-auth cookie) and verify session binding",
+                ],
+                "artifacts": ["raw_http", "session_replay_proof"],
+                "confidence": 0.7,
+                "tags": ["session", "verification"],
+            }
         )
 
-    # 3) JWT exploitation paths
+    # 4) JWT exploitation paths
     jwt_tokens = [t for t in tokens if isinstance(t, dict) and t.get("type") == "JWT"]
     jwt_mechs = [m for m in mechanisms if isinstance(m, dict) and m.get("type") == "JWT"]
-
     if jwt_tokens or jwt_mechs:
-        recs.append(
-            "For JWT flows: extract a real token (login/API), decode claims, then attempt tampering (role/admin flags, aud/iss, exp). Re-sign if HS* with weak secret is plausible; test alg confusion/none only if server behavior indicates acceptance."  # noqa: E501
-        )
-        recs.append(
-            "If a JWKS endpoint is present, test key confusion (kid injection / jwks swapping) and verify by crafting a token that the server accepts while changing privilege claims."  # noqa: E501
+        _add(
+            {
+                "id": "TASK_JWT_CLAIM_TAMPER_VERIFY",
+                "priority": 6,
+                "capabilities": ["jwt", "crypto", "http_client"],
+                "goal": "Decode JWTs, tamper privilege claims, and verify acceptance.",
+                "rationale": "JWT validation flaws enable privilege escalation when modified tokens are accepted.",
+                "inputs": {
+                    "token_previews": [t.get("token_preview") for t in jwt_tokens if t.get("token_preview")][:5]},
+                "success_criteria": [
+                    "Produce a modified token that is accepted by the server",
+                    "Demonstrate privilege change or access to protected endpoints",
+                ],
+                "artifacts": ["token_variants", "raw_http", "impact_proof"],
+                "confidence": 0.7,
+                "tags": ["jwt", "exploitation"],
+            }
         )
 
-    # 4) OAuth/OIDC exploitation paths
+    # 5) OAuth/OIDC exploitation paths
     oauth_mechs = [m for m in mechanisms if isinstance(m, dict) and m.get("type") == "OAuth"]
     if oauth_mechs:
-        recs.append(
-            "For OAuth/OIDC: capture an auth request and test redirect_uri manipulation, open redirect chains, and state/nonce enforcement (missing/guessable/reused). Verify by obtaining a token/code bound to attacker-controlled redirect or session."  # noqa: E501
-        )
-        recs.append(
-            "Enumerate scopes/consent: request broader scopes and see if the app honors them; test token substitution between users (swap access tokens) to confirm improper token audience validation."  # noqa: E501
+        _add(
+            {
+                "id": "TASK_OAUTH_REDIRECT_AND_STATE_TESTS",
+                "priority": 7,
+                "capabilities": ["web_recon", "http_client", "web_fuzzing"],
+                "goal": "Test OAuth/OIDC redirect_uri and state/nonce enforcement; verify token/code binding failures.",
+                "rationale": "Weak redirect/state validation can enable account takeover or token substitution.",
+                "inputs": {"oauth_endpoints": [m.get("endpoint") for m in oauth_mechs if m.get("endpoint")][:5]},
+                "success_criteria": [
+                    "Obtain an auth code/token delivered to an attacker-controlled redirect or session",
+                    "Confirm improper state/nonce handling (missing/reused/guessable)",
+                ],
+                "artifacts": ["oauth_request_samples", "raw_http", "impact_proof"],
+                "confidence": 0.65,
+                "tags": ["oauth", "verification"],
+            }
         )
 
-    # 5) SAML exploitation paths
+    # 6) SAML exploitation paths
     saml_mechs = [m for m in mechanisms if isinstance(m, dict) and m.get("type") == "SAML"]
     if saml_mechs:
-        recs.append(
-            "For SAML: collect a real SAMLResponse/RelayState and test signature wrapping/unsigned assertions, audience restriction validation, and RelayState open redirect. Verify by elevating attributes/roles in the assertion and confirming access."  # noqa: E501
+        _add(
+            {
+                "id": "TASK_SAML_ASSERTION_VALIDATION_TESTS",
+                "priority": 8,
+                "capabilities": ["http_client", "web_recon"],
+                "goal": "Collect SAML messages and test assertion validation weaknesses.",
+                "rationale": "SAML validation errors can allow role/attribute escalation.",
+                "inputs": {"saml_endpoints": [m.get("endpoint") for m in saml_mechs if m.get("endpoint")][:5]},
+                "success_criteria": [
+                    "Capture SAMLResponse/RelayState and identify signed elements",
+                    "Verify whether modified attributes/roles are accepted",
+                ],
+                "artifacts": ["saml_samples", "impact_proof"],
+                "confidence": 0.6,
+                "tags": ["saml", "verification"],
+            }
         )
 
-    # 6) Bypass opportunities from analysis
+    # 7) Surface bypass hypotheses as explicit verify tasks
     if bypass_opps:
-        # Surface top few with an explicit "verify" directive.
-        for opp in bypass_opps[:5]:
-            if not isinstance(opp, dict):
-                continue
-            otype = opp.get("type", "Bypass")
-            desc = opp.get("description", "")
-            tech = opp.get("technique", "")
-            suffix = f" (technique: {tech})" if tech else ""
-            recs.append(f"Verify bypass hypothesis '{otype}': {desc}{suffix}")
-
-    # 7) Priv-esc vectors (treat as targets for authz testing)
-    if priv_esc:
-        sample = []
-        for pe in priv_esc[:6]:
-            if isinstance(pe, dict) and pe.get("endpoint"):
-                sample.append(pe["endpoint"])
-        if sample:
-            recs.append(
-                f"Targeted privilege escalation validation: attempt access to admin endpoints without auth and with low-priv context; try method/headers/parameter tricks on: {' | '.join(sample)}"  # noqa: E501
+        for i, opp in enumerate([o for o in bypass_opps if isinstance(o, dict)][:5], 1):
+            _add(
+                {
+                    "id": f"TASK_VERIFY_BYPASS_HYPOTHESIS_{i}",
+                    "priority": 9,
+                    "capabilities": ["http_client", "web_recon"],
+                    "goal": f"Verify bypass hypothesis: {opp.get('type', 'Bypass')}",
+                    "rationale": opp.get("description", ""),
+                    "inputs": {"technique": opp.get("technique"), "type": opp.get("type")},
+                    "success_criteria": [
+                        "Reproduce with controlled requests",
+                        "Demonstrate access delta vs baseline unauth behavior",
+                    ],
+                    "artifacts": ["raw_http", "delta_evidence"],
+                    "confidence": 0.65,
+                    "tags": ["hypothesis", "bypass"],
+                }
             )
 
-    # 8) If we have very little signal, guide discovery.
-    if not recs:
-        recs.append(
-            f"Expand discovery: crawl {target or 'the target'} for login/redirect patterns, capture cookies and auth headers, then rerun endpoint enumeration with recursion and a larger wordlist focused on /api/, /admin/, /graphql/, /oauth/, /saml/."  # noqa: E501
-        )
-        recs.append(
-            "Attempt differential analysis: compare unauth vs authenticated responses for the same endpoints to identify authorization gates (status/body markers), then pivot to bypass testing."  # noqa: E501
+    # 8) Priv-esc vectors as targeted validation
+    if priv_esc:
+        eps = [pe.get("endpoint") for pe in priv_esc if isinstance(pe, dict) and pe.get("endpoint")][:10]
+        if eps:
+            _add(
+                {
+                    "id": "TASK_PRIV_ESC_TARGETED_VALIDATION",
+                    "priority": 10,
+                    "capabilities": ["priv_esc", "http_client", "web_recon"],
+                    "goal": "Targeted privilege escalation validation against identified endpoints.",
+                    "rationale": "Privilege escalation is validated by proving access to admin-only functions or cross-role actions.",
+                    "inputs": {"endpoints": eps},
+                    "success_criteria": [
+                        "Access admin-only endpoint/action without intended privilege",
+                        "Capture evidence showing role boundary broken",
+                    ],
+                    "artifacts": ["raw_http", "impact_proof"],
+                    "confidence": 0.6,
+                    "tags": ["priv_esc", "verification"],
+                }
+            )
+
+    # 9) If no signal at all, broaden discovery
+    if not steps:
+        _add(
+            {
+                "id": "TASK_BROADEN_DISCOVERY",
+                "priority": 1,
+                "capabilities": ["web_crawling", "web_recon", "web_fuzzing", "http_client"],
+                "goal": "Broaden discovery for auth surfaces and protected resources.",
+                "rationale": "Low signal indicates insufficient coverage; expand crawl + fuzzing to uncover auth gates and parameters.",
+                "inputs": {"target": target},
+                "success_criteria": [
+                    "Identify login/SSO entrypoints and protected endpoints",
+                    "Collect cookies/headers/tokens used for auth",
+                ],
+                "artifacts": ["endpoint_inventory", "raw_http"],
+                "confidence": 0.6,
+                "tags": ["recon"],
+            }
         )
 
-    # De-duplicate while preserving order
-    uniq: List[str] = []
-    seen_r: set[str] = set()
-    for r in recs:
-        if r not in seen_r:
-            uniq.append(r)
-            seen_r.add(r)
+    # De-duplicate by id while preserving order; sort by priority then insertion
+    seen_ids: set[str] = set()
+    uniq: List[Dict[str, Any]] = []
+    for s in steps:
+        sid = s.get("id")
+        if not sid or sid in seen_ids:
+            continue
+        seen_ids.add(sid)
+        uniq.append(s)
+
+    try:
+        uniq.sort(key=lambda x: int(x.get("priority", 999)))
+    except Exception:
+        pass
 
     return uniq
 

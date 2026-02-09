@@ -39,6 +39,13 @@ cyber_tools:
     caps: [web_scanning, web_recon]
     canary: "zaproxy -h"
 
+  # WebDAV scanning
+  davtest:
+    description: "WebDAV scanner/tester (detect/upload/misconfig checks)"
+    preference: preferred
+    caps: [web_scanning, web_recon]
+    canary: "davtest"
+
   # GraphQL-specific tools
   clairvoyance:
     description: "GraphQL schema enumeration and introspection"
@@ -91,6 +98,11 @@ cyber_tools:
     preference: preferred
     caps: [dns_recon, osint]
     canary: "subfinder -h"
+  cewl:
+    description: "Generate custom wordlists by crawling target content"
+    preference: preferred
+    caps: [osint, password_cracking]
+    canary: "cewl -h"
 
   # Web fuzzing & dirs
   ffuf:
@@ -107,6 +119,11 @@ cyber_tools:
     description: "HTTP(S) web content scanner"
     preference: fallback
     caps: [web_fuzzing]
+  dirsearch:
+    description: "Web path/directory discovery scanner"
+    preference: fallback
+    caps: [web_content_discovery, web_fuzzing]
+    canary: "dirsearch -h"
   arjun:
     description: "HTTP parameter discovery suite"
     preference: preferred
@@ -127,6 +144,11 @@ cyber_tools:
     preference: preferred
     caps: [web_scanning]
     canary: "wpscan -h"
+  joomscan:
+    description: "Joomla vulnerability scanner"
+    preference: fallback
+    caps: [web_scanning]
+#    canary: "joomscan --help"
   corsy:
     description: "Scan websites for Cross-Origin Resource Sharing (CORS) misconfigurations"
     preference: preferred
@@ -270,6 +292,12 @@ cyber_tools:
     preference: preferred
     caps: [network_recon, web_recon]
     canary: "sslscan -h"
+  testssl.sh:
+    description: "Comprehensive TLS/SSL configuration tester"
+    preference: preferred
+    caps: [network_recon, web_recon]
+    command: "testssl"
+    canary: "testssl --help"
 
   # Frameworks and cracking
   metasploit:
@@ -287,6 +315,18 @@ cyber_tools:
     preference: fallback
     caps: [password_cracking, crypto]
     canary: "john -h"
+
+  # Password brute forcing
+  hydra:
+    description: "Online login/password brute force (multi-protocol)"
+    preference: preferred
+    caps: [password_cracking, ad_enum]
+#    canary: "hydra -h"
+  ncrack:
+    description: "Network authentication cracking tool"
+    preference: fallback
+    caps: [ password_cracking, network_recon ]
+#    canary: "ncrack -h"
 
   # Networking suites
   iproute2:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from subprocess import DEVNULL
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
@@ -41,38 +42,6 @@ def test_b64_str_roundtrip():
     raw = "hello✓"
     out = apc._b64(raw)
     assert base64.b64decode(out).decode("utf-8") == raw
-
-
-# -------------------------
-# _payload_output
-# -------------------------
-
-def test_payload_output_basic_includes_expected_fields():
-    vuln = {
-        "parameter": "name",
-        "payload_type": "Reflected XSS (unencoded)",
-        "payload": "<script>alert(1)</script>",
-        "url": "http://example/page?name=%3Cscript%3E",
-    }
-    out = apc._payload_output("xss", vuln)
-    assert out.startswith("[PAYLOAD]")
-    assert "type: xss" in out
-    assert "param: name" in out
-    assert "payload_type: Reflected XSS (unencoded)" in out
-    assert "encoding: base64" in out
-    assert f"payload_b64: {b64s(vuln['payload'])}" in out
-    assert f"url_b64: {b64s(vuln['url'])}" in out
-    assert out.rstrip().endswith("[/PAYLOAD]")
-
-
-def test_payload_output_does_not_emit_b64_or_plain_when_payload_and_url_are_none_intended():
-    vuln = {"parameter": "p", "payload": None, "url": None}
-    out = apc._payload_output("xss", vuln)
-    assert "encoding: base64" not in out
-    assert "payload_b64:" not in out
-    assert "payload:" not in out
-    assert "url_b64:" not in out
-    assert "url:" not in out
 
 
 # -------------------------
@@ -234,19 +203,27 @@ def test_advanced_parameter_discovery_arjun_reads_output_file_intended(monkeypat
     # Force arjun path and ensure file exists with JSON output
     # Intended: created temp file should remain until parsed.
 
-    def fake_run(cmd, capture_output=False, text=True, timeout=300):
+    def fake_run(cmd, capture_output=True, text=True, stdin=DEVNULL, timeout=300):
         # arjun wrote JSON to -oJ <file>
         out_path = cmd[cmd.index("-oJ") + 1]
         data = {"http://example.test/page": {"params": ["a", "b"]}}
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(data, f)
-        return FakeCompleted(returncode=0, stdout="")
+        return FakeCompleted(returncode=0, stdout=""" Analysing HTTP response for anomalies
+ Extracted 4 parameters from response for testing: user_token, Login, username, password
+ Logicforcing the URL endpoint
+ """)
 
     monkeypatch.setattr(apc.subprocess, "run", fake_run)
 
     rc = apc.RequestConfig(target_url="http://example.test/page", http_method="GET")
     params = apc._advanced_parameter_discovery(rc, provided_params=None, tools=["arjun"])
-    assert "a" in params and "b" in params
+    assert "a" in params
+    assert "b" in params
+    assert "user_token" in params
+    assert "Login" in params
+    assert "username" in params
+    assert "password" in params
 
 
 def test_advanced_parameter_discovery_extracts_from_url_query_even_if_no_tools():
@@ -300,7 +277,7 @@ def test_coordinate_xss_testing_parses_dalfox_json_array(monkeypatch):
         {"type": "I", "param": "other"},
     ]
 
-    def fake_run(cmd, capture_output=True, text=True, timeout=None):
+    def fake_run(cmd, capture_output=True, text=True, stdin=DEVNULL, timeout=None):
         return FakeCompleted(returncode=0, stdout=json.dumps(events))
 
     monkeypatch.setattr(apc.subprocess, "run", fake_run)
@@ -331,7 +308,7 @@ def test_coordinate_xss_testing_parses_dalfox_jsonl(monkeypatch):
 
     stdout = "[\n" + "\n".join(json.dumps(event) for event in events) + "\n]"
 
-    def fake_run(cmd, capture_output=True, text=True, timeout=None):
+    def fake_run(cmd, capture_output=True, text=True, stdin=DEVNULL, timeout=None):
         return FakeCompleted(returncode=0, stdout=stdout)
 
     monkeypatch.setattr(apc.subprocess, "run", fake_run)
@@ -360,7 +337,7 @@ def test_coordinate_xss_testing_processes_timeout_stdout_and_skips_negative_resu
         "message_str": "Triggered",
     }
 
-    def fake_run(cmd, capture_output=True, text=True, timeout=None):
+    def fake_run(cmd, capture_output=True, text=True, stdin=DEVNULL, timeout=None):
         raise apc.subprocess.TimeoutExpired(cmd=cmd, timeout=timeout or 0, output=json.dumps([event]))
 
     monkeypatch.setattr(apc.subprocess, "run", fake_run)
@@ -435,7 +412,7 @@ def test_coordinate_injection_testing_commix_parses_timeout_stdout(monkeypatch):
 [+] Parameter 'name' is vulnerable
 """
 
-    def fake_run(cmd, capture_output=True, text=True, timeout=300):
+    def fake_run(cmd, capture_output=True, text=True, input=None, timeout=300):
         # Ensure we are invoking commix
         assert cmd and cmd[0] == "commix"
         raise apc.subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=commix_stdout)
@@ -470,7 +447,7 @@ def test_coordinate_injection_testing_sstimap_parses_and_discards_param(monkeypa
 [+] Rerun SSTImap providing one of the following options:
 """
 
-    def fake_run(cmd, capture_output=True, text=True, timeout=300):
+    def fake_run(cmd, capture_output=True, text=True, stdin=DEVNULL, timeout=300):
         return FakeCompleted(returncode=0, stdout=sstimap_stdout)
 
     monkeypatch.setattr(apc.subprocess, "run", fake_run)
@@ -499,9 +476,9 @@ def test_analyze_payload_intelligence_counts_and_dedupes():
     ]
     intel = apc._analyze_payload_intelligence(payload_results)
     assert "Advanced XSS" in str(intel["severity_distribution"])
-    assert "Client-side code injection via XSS" in intel["attack_vectors"]
-    assert "Server-side command execution" in intel["attack_vectors"]
-    assert "Cross-origin resource sharing abuse" in intel["attack_vectors"]
+    assert "xss" in intel["attack_vectors"]
+    assert "cmd_injection" in intel["attack_vectors"]
+    assert "cors" in intel["attack_vectors"]
     # Deduped lists
     assert len(intel["attack_vectors"]) == len(set(intel["attack_vectors"]))
 
@@ -512,19 +489,19 @@ def test_analyze_payload_intelligence_counts_and_dedupes():
 
 def test_generate_payload_recommendations_when_no_vulns():
     results = {"payload_results": [], "intelligence": {"severity_distribution": {}, "attack_vectors": [], "bypass_techniques": [], "exploitation_chains": []}}
-    recs = apc._generate_payload_recommendations(results)
+    recs = apc._generate_payload_recommendations("comprehensive", results)
     assert recs
-    assert "No critical vulnerabilities detected" in recs[0]
+    assert "manual_verify" in recs[0]
 
 
 def test_generate_payload_recommendations_when_high_severity_present():
     results = {
         "payload_results": [{"vulnerable": True, "payload_type": "Advanced XSS (inHTML)"}],
-        "intelligence": {"severity_distribution": {"Advanced XSS (inHTML)": 1}, "attack_vectors": ["Client-side code injection via XSS"], "bypass_techniques": [], "exploitation_chains": []},
+        "intelligence": {"severity_distribution": {"Advanced XSS (inHTML)": 1}, "attack_vectors": ["xss"], "bypass_techniques": [], "exploitation_chains": []},
     }
-    recs = apc._generate_payload_recommendations(results)
-    assert any("CRITICAL" in r for r in recs)
-    assert any("output encoding" in r.lower() for r in recs)
+    recs = apc._generate_payload_recommendations("comprehensive", results)
+    assert any('prioritize_high_severity' in r for r in recs)
+    assert any('apply_output_encoding' in r.lower() for r in recs)
 
 
 # -------------------------
@@ -534,25 +511,38 @@ def test_generate_payload_recommendations_when_high_severity_present():
 def test_advanced_payload_coordinator_orchestrates_phases_and_formats_output(monkeypatch):
     # Stub all heavy internals so we only test orchestration and formatting.
     monkeypatch.setattr(apc, "_setup_payload_tools", lambda: {"success": True, "tools": ["dalfox"], "failed": []})
-    monkeypatch.setattr(apc, "_advanced_parameter_discovery", lambda rc, provided, tools=None: ["name"])
+    monkeypatch.setattr(apc, "_advanced_parameter_discovery", lambda rc, provided_params=None, tools=None: ["name"])
     monkeypatch.setattr(apc, "_coordinate_xss_testing", lambda rc, params, tools=None: [
         {"parameter": "name", "vulnerable": True, "payload_type": "Advanced XSS (inHTML)", "payload": "PAY", "url": "http://t/?name=PAY"}
     ])
     monkeypatch.setattr(apc, "_test_cors_configurations", lambda rc, tools=None: [])
     monkeypatch.setattr(apc, "_coordinate_injection_testing", lambda rc, params, tools=None: [])
-    monkeypatch.setattr(apc, "_analyze_payload_intelligence", lambda payload_results: {"severity_distribution": {"Advanced XSS (inHTML)": 1}, "attack_vectors": ["Client-side code injection via XSS"], "bypass_techniques": [], "exploitation_chains": []})
+    monkeypatch.setattr(apc, "_analyze_payload_intelligence", lambda payload_results: {"severity_distribution": {"Advanced XSS (inHTML)": 1}, "attack_vectors": ["xss"], "bypass_techniques": [], "exploitation_chains": []})
     monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda results: ["REC1", "REC2"])
 
     out = apc.advanced_payload_coordinator("http://example.test/page", test_type="comprehensive")
-    assert "Advanced Payload Coordinator:" in out
-    assert "Phase 1:" in out
-    assert "Phase 2:" in out
-    assert "Phase 3:" in out
-    assert "Phase 6:" in out
-    assert "[PAYLOAD]" in out
-    assert "EXPLOITATION COORDINATION:" in out
-    assert "1. REC1" in out
-    assert "2. REC2" in out
+    data = json.loads(out)
+    assert data["target"] == "http://example.test/page"
+    assert data["test_type"] == "comprehensive"
+
+    # tooling + param discovery routed through
+    assert data["tools"]["success"] is True
+    assert data["tools"]["tools"] == ["dalfox"]
+    assert data["parameters_discovered"] == ["name"]
+
+    # payload/vuln aggregation + counts
+    assert data["counts"]["payload_results"] == 1
+    assert data["counts"]["vulnerabilities"] == 1
+    assert data["vulnerabilities"][0]["parameter"] == "name"
+    assert data["vulnerabilities"][0]["vulnerable"] is True
+
+    # analysis + recs forwarded
+    assert data["intelligence"]["attack_vectors"] == ["xss"] or "xss" in data["intelligence"]["attack_vectors"]
+    assert data["recommendations"] == ["REC1", "REC2"]
+
+    # should not emit prose anymore
+    assert "Phase 1:" not in out
+    assert "[PAYLOAD]" not in out
 
 
 def test_coordinator_retries_post_when_get_produces_no_param_results(monkeypatch):
@@ -607,7 +597,7 @@ def test_coordinator_retries_post_when_get_produces_no_param_results(monkeypatch
         "_analyze_payload_intelligence",
         lambda payload_results: {
             "severity_distribution": {"Advanced XSS (fake)": 1},
-            "attack_vectors": ["Client-side code injection via XSS"],
+            "attack_vectors": ["xss"],
             "bypass_techniques": [],
             "exploitation_chains": [],
         },
@@ -627,14 +617,15 @@ def test_coordinator_retries_post_when_get_produces_no_param_results(monkeypatch
     # XSS testing: should also try GET then POST (because GET produced no vulns)
     assert calls["xss"] == ["POST"]
 
-    # Output should reflect discovered param and the POST-derived vuln payload block.
-    assert "Discovered 1 parameters" in out
-    assert "• name" in out
-    assert "XSS testing completed: 1 potential vulnerabilities" in out
-    assert "[PAYLOAD]" in out
-    assert "param: name" in out
-    assert "method: POST" in out  # prove the vuln came from POST retry
-    assert "payload_b64:" in out
+    data = json.loads(out)
+
+    assert data["http_method"] == "POST"
+    assert data["parameters_discovered"] == ["name"]
+
+    # should contain the POST vuln
+    assert data["counts"]["vulnerabilities"] == 1
+    assert any(v.get("parameter") == "name" and v.get("vulnerable") is True for v in data["vulnerabilities"])
+    assert any(r.get("parameter") == "name" and r.get("method") == "POST" and r.get("vulnerable") is True for r in data["payload_results"])
 
 
 def test_coordinator_retries_post_when_get_produces_no_xss_results(monkeypatch):
@@ -687,7 +678,7 @@ def test_coordinator_retries_post_when_get_produces_no_xss_results(monkeypatch):
         "_analyze_payload_intelligence",
         lambda payload_results: {
             "severity_distribution": {"Advanced XSS (fake)": 1},
-            "attack_vectors": ["Client-side code injection via XSS"],
+            "attack_vectors": ["xss"],
             "bypass_techniques": [],
             "exploitation_chains": [],
         },
@@ -707,14 +698,20 @@ def test_coordinator_retries_post_when_get_produces_no_xss_results(monkeypatch):
     # XSS testing: should also try GET then POST (because GET produced no vulns)
     assert calls["xss"] == ["GET", "POST"]
 
-    # Output should reflect discovered param and the POST-derived vuln payload block.
-    assert "Discovered 1 parameters" in out
-    assert "• name" in out
-    assert "XSS testing completed: 1 potential vulnerabilities" in out
-    assert "[PAYLOAD]" in out
-    assert "param: name" in out
-    assert "method: POST" in out  # prove the vuln came from POST retry
-    assert "payload_b64:" in out
+    data = json.loads(out)
+
+    assert data["http_method"] == "POST"
+    assert data["parameters_discovered"] == ["name"]
+
+    # should contain the POST vuln
+    assert data["counts"]["vulnerabilities"] == 1
+    assert any(v.get("parameter") == "name" and v.get("vulnerable") is True for v in data["vulnerabilities"])
+    assert any(
+        r.get("parameter") == "name"
+        and r.get("method") == "POST"
+        and r.get("vulnerable") is True
+        for r in data["payload_results"]
+    )
 
 
 def test_coordinator_phase5_retries_post_when_get_produces_no_injection_vulns(monkeypatch):
@@ -781,7 +778,7 @@ def test_coordinator_phase5_retries_post_when_get_produces_no_injection_vulns(mo
         "_analyze_payload_intelligence",
         lambda payload_results: {
             "severity_distribution": {"Command Injection": 1},
-            "attack_vectors": ["Server-side command execution"],
+            "attack_vectors": ["cmd_injection"],
             "bypass_techniques": [],
             "exploitation_chains": [],
         },
@@ -804,12 +801,25 @@ def test_coordinator_phase5_retries_post_when_get_produces_no_injection_vulns(mo
     # Injection should run GET then POST (because GET produced no injection vulns)
     assert calls["inj"] == ["GET", "POST"]
 
-    # Output should show Phase 5 and include the POST-derived injection payload block.
-    assert "Phase 5: Advanced Injection Testing" in out
-    assert "Injection testing: 1 potential vulnerabilities" in out
-    assert "[PAYLOAD]" in out
-    assert "type: Command Injection" in out  # Phase 5 calls _payload_output(vuln['injection_type'], vuln)
-    assert "param: name" in out
-    assert "method: POST" in out
-    assert "payload_b64:" in out
-    assert "url_b64:" in out
+    data = json.loads(out)
+
+    # Coordinator should end in POST due to Phase 5 retry
+    assert data["http_method"] == "POST"
+
+    # We should have at least the POST command injection vuln present
+    assert any(
+        v.get("vulnerable") is True
+        and v.get("injection_type") == "Command Injection"
+        and v.get("parameter") == "name"
+        and v.get("method") == "POST"
+        for v in data["vulnerabilities"]
+    ) or any(
+        r.get("vulnerable") is True
+        and r.get("injection_type") == "Command Injection"
+        and r.get("parameter") == "name"
+        and r.get("method") == "POST"
+        for r in data["payload_results"]
+    )
+
+    # Counts should reflect at least 1 vuln
+    assert data["counts"]["vulnerabilities"] >= 1
