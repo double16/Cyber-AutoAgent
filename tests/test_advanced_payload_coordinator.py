@@ -491,7 +491,7 @@ def test_generate_payload_recommendations_when_no_vulns():
     results = {"payload_results": [], "intelligence": {"severity_distribution": {}, "attack_vectors": [], "bypass_techniques": [], "exploitation_chains": []}}
     recs = apc._generate_payload_recommendations("comprehensive", results)
     assert recs
-    assert "manual_verify" in recs[0]
+    assert "rerun_with_auth_if_possible" in recs[0]
 
 
 def test_generate_payload_recommendations_when_high_severity_present():
@@ -501,7 +501,7 @@ def test_generate_payload_recommendations_when_high_severity_present():
     }
     recs = apc._generate_payload_recommendations("comprehensive", results)
     assert any('prioritize_high_severity' in r for r in recs)
-    assert any('apply_output_encoding' in r.lower() for r in recs)
+    assert any('classify_xss_type_reflected_stored_dom' in r.lower() for r in recs)
 
 
 # -------------------------
@@ -518,7 +518,7 @@ def test_advanced_payload_coordinator_orchestrates_phases_and_formats_output(mon
     monkeypatch.setattr(apc, "_test_cors_configurations", lambda rc, tools=None: [])
     monkeypatch.setattr(apc, "_coordinate_injection_testing", lambda rc, params, tools=None: [])
     monkeypatch.setattr(apc, "_analyze_payload_intelligence", lambda payload_results: {"severity_distribution": {"Advanced XSS (inHTML)": 1}, "attack_vectors": ["xss"], "bypass_techniques": [], "exploitation_chains": []})
-    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda results: ["REC1", "REC2"])
+    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC1", "REC2"])
 
     out = apc.advanced_payload_coordinator("http://example.test/page", test_type="comprehensive")
     data = json.loads(out)
@@ -602,7 +602,7 @@ def test_coordinator_retries_post_when_get_produces_no_param_results(monkeypatch
             "exploitation_chains": [],
         },
     )
-    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda results: ["REC"])
+    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC"])
 
     out = apc.advanced_payload_coordinator(
         "http://example.test/page",
@@ -683,7 +683,7 @@ def test_coordinator_retries_post_when_get_produces_no_xss_results(monkeypatch):
             "exploitation_chains": [],
         },
     )
-    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda results: ["REC"])
+    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC"])
 
     out = apc.advanced_payload_coordinator(
         "http://example.test/page",
@@ -783,7 +783,7 @@ def test_coordinator_phase5_retries_post_when_get_produces_no_injection_vulns(mo
             "exploitation_chains": [],
         },
     )
-    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda results: ["REC"])
+    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC"])
 
     out = apc.advanced_payload_coordinator(
         "http://example.test/page",
