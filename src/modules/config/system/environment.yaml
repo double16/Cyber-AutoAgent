@@ -92,7 +92,8 @@ cyber_tools:
     description: "In-depth DNS enumeration and attack surface mapping"
     preference: preferred
     caps: [dns_recon, osint]
-    canary: "amass -h"
+    # -h may update the amass database, which may fail on tool check, which may fail the docker build, which may cause mass hysteria, the end
+    #canary: "amass -h"
   subfinder:
     description: "Passive subdomain discovery"
     preference: preferred

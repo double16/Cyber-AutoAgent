@@ -205,9 +205,7 @@ RUN set -eux; \
     foremost \
     # Ruby for zsteg/whatweb
     ruby-full && \
-    apt clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* && \
-    # ensure amass data is loaded
-    amass -h
+    apt clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Provide symlinks from Ruby vendor_ruby so WhatWeb runs without error
 RUN set -eux; \
@@ -339,6 +337,9 @@ RUN mkdir -p /home/cyberagent/sliver && \
     ( curl --silent https://sliver.sh/install | bash || true ) && \
     chown -R cyberagent:cyberagent /home/cyberagent/sliver && \
     apt clean && rm -rf /var/lib/apt/lists/*
+
+# Load amass data (optional)
+RUN amass -h || true
 
 # Validate expected tools are present in the PATH
 COPY docker/tools_check.sh src/modules/config/system/environment.yaml /tmp
