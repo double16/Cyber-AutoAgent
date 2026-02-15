@@ -374,28 +374,6 @@ Artifact references include immediate context for LLM comprehension:
 | `CYBER_CONVERSATION_PRESERVE_FIRST`  | 1       | Initial messages to preserve                                              |
 | `CYBER_CONVERSATION_PRESERVE_LAST`   | 5       | Recent messages to preserve (reduced from 12 to prevent pruning deadlock) |
 
-### Code-Level Constants
-
-```python
-# Token estimation overhead
-SYSTEM_PROMPT_OVERHEAD_TOKENS = 8000
-TOOL_DEFINITIONS_OVERHEAD_TOKENS = 3000
-MESSAGE_METADATA_OVERHEAD_TOKENS = 50
-
-# Reduction thresholds
-PROACTIVE_COMPRESSION_THRESHOLD = 0.7   # 70% of window triggers proactive compression
-ESCALATION_THRESHOLD_RATIO = 0.9        # 90% triggers escalation
-MAX_THRESHOLD_RATIO = 0.98              # Hard ceiling
-
-# Escalation parameters
-ESCALATION_MAX_PASSES = 2
-ESCALATION_MAX_TIME_SECONDS = 30.0
-
-# Conversation analysis
-SMALL_CONVERSATION_THRESHOLD = 3        # Skip pruning below this count
-DEFAULT_CHAR_TO_TOKEN_RATIO = 3.7       # Conservative default
-```
-
 ## Prompt Caching Integration
 
 ### Mechanism

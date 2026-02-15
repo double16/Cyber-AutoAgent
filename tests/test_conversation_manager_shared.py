@@ -16,6 +16,7 @@ from modules.handlers.conversation_budget import (
 
 class AgentStub:
     def __init__(self, messages, limit=None, telemetry=None):
+        self.name = "AgentStub"
         self.messages = messages
         self.model = {}
         self._prompt_token_limit = limit

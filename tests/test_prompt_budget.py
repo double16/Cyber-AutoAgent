@@ -18,6 +18,7 @@ class ModelStub:
 
 class AgentStub:
     def __init__(self, messages, limit=None, telemetry=None, output_tokens=None):
+        self.name = "AgentStub"
         self.messages = messages
         self.model = ModelStub(output_tokens=output_tokens)
         self.tool_names = []
@@ -59,7 +60,7 @@ def test_ensure_prompt_reduces_context_when_near_limit():
 
 
 def test_ensure_prompt_reduces_context_when_near_limit_consider_output_tokens():
-    messages = [_make_message('user_prompt'), _make_message("x" * 2500)]
+    messages = [_make_message('user_prompt'), _make_message("x" * 3000)]
     agent = AgentStub(messages, limit=1000, output_tokens=100)
     _ensure_prompt_within_budget(agent)
     assert agent.conversation_manager.calls, "Expected reduce_context to be invoked"
@@ -75,9 +76,9 @@ def test_ensure_prompt_skips_when_under_budget():
 
 def test_ensure_prompt_telemetry_trigger():
     # Create messages with enough content to exceed threshold with 3.7 ratio
-    # Need ~800 tokens estimated (80% of 1000 limit)
-    # 800 tokens * 3.7 chars/token = ~2960 chars
-    messages = [_make_message(''), _make_message("x" * 1500), _make_message("x" * 1500)] # 3000 chars total
+    # Need ~850 tokens estimated (85% of 1000 limit)
+    # 850 tokens * 3.7 chars/token = ~3145 chars
+    messages = [_make_message(''), _make_message("x" * 1600), _make_message("x" * 1600)]
     agent = AgentStub(messages, limit=1000, telemetry=900)
     _ensure_prompt_within_budget(agent)
     assert agent.conversation_manager.calls, (

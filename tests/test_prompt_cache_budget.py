@@ -22,6 +22,7 @@ class ModelStub:
 
 class AgentStub:
     def __init__(self, messages, limit=None, telemetry=None, cache_hint=False):
+        self.name = "AgentStub"
         self.system_prompt = "x" * 30_000
         self.messages = messages
         self.model = ModelStub()

@@ -861,7 +861,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
 
     agent_logger.debug("Creating autonomous agent")
 
-    # Update conversation window size from SDK config (kept for reference)
+    # Update conversation window size and limits from SDK config
     try:
         if config_manager.getenv("CYBER_CONVERSATION_WINDOW"):
             window_size = max(10, config_manager.getenv_int("CYBER_CONVERSATION_WINDOW", 100))
@@ -879,14 +879,20 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
     except (TypeError, ValueError):
         window_size = 80
 
+    preserve_recent_messages=PRESERVE_LAST_DEFAULT
+    preserve_first_messages=PRESERVE_FIRST_DEFAULT
+    if not config_manager.getenv("CYBER_CONVERSATION_PRESERVE_LAST"):
+        if prompt_token_limit <= 49_152:
+            preserve_recent_messages = 2
+
     # Create and register conversation manager for all agents (including swarm children)
     # Use environment variables for preservation to enable effective pruning
     # Keep preserve_last low (5) to allow pruning: first (1) + last (5) = 6 preserved out of 120 window
     conversation_manager = MappingConversationManager(
         window_size=window_size,
         summary_ratio=0.3,
-        preserve_recent_messages=PRESERVE_LAST_DEFAULT,  # Env default: 5 (reduced from 12)
-        preserve_first_messages=PRESERVE_FIRST_DEFAULT,  # Env default: 1 (scripts often use 3)
+        preserve_recent_messages=preserve_recent_messages,
+        preserve_first_messages=preserve_first_messages,
         tool_result_mapper=LargeToolResultMapper(
             # computed previously
             max_tool_chars=TOOL_COMPRESS_THRESHOLD,

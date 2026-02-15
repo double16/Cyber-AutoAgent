@@ -12,6 +12,7 @@ Validates expected behavior with mock data to ensure:
 - Clean logs without spurious warnings
 """
 
+import math
 import logging
 from typing import Any
 from unittest.mock import Mock, patch
@@ -27,15 +28,15 @@ from modules.handlers.conversation_budget import (
     _estimate_prompt_tokens_for_agent,
     _ensure_prompt_within_budget,
     MappingConversationManager,
-    MESSAGE_METADATA_OVERHEAD_TOKENS,
+    token_calc, _RATIO_LOCK, _MODEL_RATIO_HISTORY, _RATIO_WINDOW_WEIGHTS,
+    _update_ratio_from_telemetry, _RATIO_BASELINE_BLEND, _RATIO_WINDOWS,
 )
 
 
 def _expected_tokens(char_count: int, ratio: float, num_messages: int = 1, overhead_chars: int = 30_000) -> int:
     """Calculate expected tokens with overhead constants."""
-    overhead = num_messages * MESSAGE_METADATA_OVERHEAD_TOKENS
-    content_tokens = max(1, int((char_count + overhead_chars) / ratio))
-    return overhead + content_tokens
+    content_tokens = max(1, math.ceil((char_count + overhead_chars) / ratio))
+    return content_tokens
 
 
 # ============================================================================
@@ -177,6 +178,7 @@ class AgentStub:
             system_prompt: str = "x" * 30_000,
             tool_specs: list[ToolSpec] | None = None,
     ):
+        self.name = "AgentStub"
         self.system_prompt = system_prompt
         self.messages = messages
         self.model = MockModelConfig(model) if model else None
@@ -268,7 +270,7 @@ class TestDynamicRatioTokenEstimation:
                 tool_specs=[],
             )
             estimated = _estimate_prompt_tokens_for_agent(agent)
-            expected = _expected_tokens(1000, 3.7, 1)
+            expected = _expected_tokens(1008, 3.7, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
 
@@ -281,7 +283,7 @@ class TestDynamicRatioTokenEstimation:
                 tool_specs=[],
             )
             estimated = _estimate_prompt_tokens_for_agent(agent)
-            expected = _expected_tokens(1000, 4.0, 1)
+            expected = _expected_tokens(1008, 4.0, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
 
@@ -294,7 +296,7 @@ class TestDynamicRatioTokenEstimation:
                 tool_specs=[],
             )
             estimated = _estimate_prompt_tokens_for_agent(agent)
-            expected = _expected_tokens(1000, 3.8, 1)
+            expected = _expected_tokens(1008, 3.8, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
 
@@ -307,7 +309,7 @@ class TestDynamicRatioTokenEstimation:
                 tool_specs=[],
             )
             estimated = _estimate_prompt_tokens_for_agent(agent)
-            expected = _expected_tokens(1000, 4.2, 1)
+            expected = _expected_tokens(1008, 4.2, 1)
 
             assert estimated == expected, f"Expected {expected}, got {estimated}"
 
@@ -691,7 +693,7 @@ class TestExpectedBehaviorValidation:
                     )
 
                     estimated = _estimate_prompt_tokens_for_agent(agent, extra_content=extra_content)
-                    expected = _expected_tokens(char_count + extra_content_count, ratio, 1)
+                    expected = _expected_tokens(char_count + 8 + extra_content_count, ratio, 1)
 
                     # Allow ±1 token difference (rounding)
                     assert abs(estimated - expected) <= 1, \
@@ -1384,3 +1386,89 @@ class TestThresholdGapFailureMode:
         assert final_chars < initial_chars, (
             f"Window pruning should reduce total chars: {initial_chars} -> {final_chars}"
         )
+
+
+class TestTelemetryCalibratedRatios:
+    def test_token_calc_uses_math_ceil_and_dynamic_ratio(self, monkeypatch):
+        # Force dynamic ratio
+        monkeypatch.setattr(
+            "modules.handlers.conversation_budget._get_char_to_token_ratio_dynamic",
+            lambda _model_id: 4.0,
+        )
+
+        assert token_calc(401, model_id="azure/gpt-5") == math.ceil(401 / 4.0)
+        assert token_calc(0, model_id="azure/gpt-5") == 0
+
+    def test_dynamic_ratio_blends_observed_with_baseline(self, mock_models_client):
+        model_id = "azure/gpt-5"
+
+        with patch("modules.handlers.conversation_budget.get_models_client", return_value=mock_models_client):
+            # Clear and seed history deterministically
+            with _RATIO_LOCK:
+                _MODEL_RATIO_HISTORY.pop(model_id, None)
+                _MODEL_RATIO_HISTORY[model_id] = [5.0] * 20
+
+            ratio = _get_char_to_token_ratio_dynamic(model_id)
+
+            baseline = 4.0  # from mock provider detection for GPT
+            observed = 5.0  # seeded history
+            ratio_baseline_blend = _RATIO_BASELINE_BLEND / 11
+            expected = baseline * ratio_baseline_blend + observed * (1.0 - ratio_baseline_blend)
+
+            assert ratio == expected
+
+    def test_weighted_windows_use_recent_history(self, mock_models_client):
+        model_id = "azure/gpt-5"
+
+        with patch("modules.handlers.conversation_budget.get_models_client", return_value=mock_models_client):
+            history = [4.0, 4.0, 4.0, 4.0, 4.0, 5.0, 5.0, 5.0, 6.0, 6.0]  # n=10
+
+            with _RATIO_LOCK:
+                _MODEL_RATIO_HISTORY[model_id] = list(history)
+
+            # replicate window math used by implementation:
+            n = len(history)
+            ks = [max(1, int(round(n * pct))) for pct in _RATIO_WINDOWS]
+            k10, k30, k50 = ks[0], ks[1], ks[2]
+
+            avg10 = sum(history[-k10:]) / k10  # last 1 -> 6.0
+            avg30 = sum(history[-k30:]) / k30  # last 3 -> (5+6+6)/3
+            avg50 = sum(history[-k50:]) / k50  # last 5 -> (5+5+5+6+6)/5
+
+            expected_observed = (
+                    _RATIO_WINDOW_WEIGHTS[0] * avg10
+                    + _RATIO_WINDOW_WEIGHTS[1] * avg30
+                    + _RATIO_WINDOW_WEIGHTS[2] * avg50
+            )
+
+            baseline = 4.0
+            expected = baseline * _RATIO_BASELINE_BLEND + expected_observed * (1.0 - _RATIO_BASELINE_BLEND)
+
+            ratio = _get_char_to_token_ratio_dynamic(model_id)
+            assert ratio == expected
+
+    def test_update_ratio_from_telemetry_records_observation(self, monkeypatch, mock_models_client):
+        model_id = "azure/gpt-5"
+
+        with patch("modules.handlers.conversation_budget.get_models_client", return_value=mock_models_client):
+            # force a per-call delta token count
+            monkeypatch.setattr("modules.handlers.conversation_budget._get_metrics_input_tokens", lambda _agent: 100)
+
+            agent = AgentStub(
+                messages=[make_message("x" * 1000)],
+                model=model_id,
+                tool_specs=[],
+            )
+
+            with _RATIO_LOCK:
+                _MODEL_RATIO_HISTORY.pop(model_id, None)
+
+            _update_ratio_from_telemetry(agent)
+
+            with _RATIO_LOCK:
+                assert model_id in _MODEL_RATIO_HISTORY
+                assert len(_MODEL_RATIO_HISTORY[model_id]) == 1
+                recorded = _MODEL_RATIO_HISTORY[model_id][0]
+
+            assert isinstance(recorded, float)
+            assert 2.0 <= recorded <= 8.0

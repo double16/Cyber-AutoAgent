@@ -16,7 +16,6 @@ import pytest
 from modules.handlers.conversation_budget import (
     LargeToolResultMapper,
     MappingConversationManager,
-    MESSAGE_METADATA_OVERHEAD_TOKENS,
     PROACTIVE_COMPRESSION_THRESHOLD,
     TOOL_COMPRESS_THRESHOLD,
     TOOL_COMPRESS_TRUNCATE,
@@ -316,11 +315,9 @@ class TestTokenEstimation:
             for msg in messages
             for block in msg.get("content", [])
             if isinstance(block, dict)
-        ) + 36  # system prompt
+        ) + 36 + 5*8  # system prompt, message role
 
-        estimated = _estimate_prompt_tokens_for_agent(agent)
-        overhead = len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS
-        content_tokens = estimated - overhead
+        content_tokens = _estimate_prompt_tokens_for_agent(agent)
 
         actual_ratio = total_chars / content_tokens if content_tokens > 0 else 0
         assert abs(actual_ratio - expected_ratio) < 1.0
@@ -330,7 +327,7 @@ class TestTokenEstimation:
         agent = MockAgent([], CLAUDE_SONNET_CONFIG)
         estimated = safe_estimate_tokens(agent)
 
-        assert estimated == 0
+        assert estimated == 10
 
     def test_token_estimation_with_tool_results(self):
         """Verify tool result content is counted in estimation."""

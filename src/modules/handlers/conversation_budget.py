@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import logging
 import os
 import re
 import threading
 import time
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import Any, Dict, Optional, Callable, Sequence, List
+from typing import Any, Dict, Optional, Callable, Sequence, List, Tuple
 
 from strands import Agent
 from strands.agent.conversation_manager import (
@@ -30,12 +30,30 @@ from modules.utils.text_reducer import reduce_lines_lossy, collapse_first_repeat
 
 logger = logging.getLogger(__name__)
 
+
 # Thread-safe shared conversation manager for swarm agents
 # This is necessary because swarm agents (created by strands_tools/swarm.py library)
 # don't inherit conversation_manager from parent agent
 _SHARED_CONVERSATION_MANAGER: Optional[Any] = None
 # Lock to protect concurrent access to shared conversation manager
 _MANAGER_LOCK = threading.RLock()
+
+# Thread-safe rolling char/token ratio observations per model (telemetry-calibrated)
+_RATIO_LOCK = threading.RLock()
+# model_id -> list of observed char/token ratios (most recent last)
+_MODEL_RATIO_HISTORY: dict[str, list[float]] = {}
+# Keep a bounded history per model to avoid unbounded memory growth
+_MAX_RATIO_HISTORY = 200
+
+# Rolling window percentages (interpreted over recent observations)
+_RATIO_WINDOWS = (0.10, 0.30, 0.50)
+# Weights for windows above (must sum to 1.0)
+_RATIO_WINDOW_WEIGHTS = (0.50, 0.30, 0.20)
+# Blend a small amount of baseline ratio for stability early on
+_RATIO_BASELINE_BLEND = 0.20
+# Clamp observed ratios to a sane tokenizer range to filter bad telemetry
+_RATIO_MIN = 2.0
+_RATIO_MAX = 8.0
 
 
 def register_conversation_manager(manager: Any) -> None:
@@ -164,9 +182,6 @@ NO_REDUCTION_WARNING_RATIO = 0.9  # Warn when at 90% of limit with no reductions
 _TOOL_ARTIFACT_THRESHOLD = 10000
 TOOL_COMPRESS_THRESHOLD = _TOOL_ARTIFACT_THRESHOLD
 TOOL_COMPRESS_TRUNCATE = _get_env_int("CYBER_TOOL_COMPRESS_TRUNCATE", 8000)
-
-# Token estimation overhead constants
-MESSAGE_METADATA_OVERHEAD_TOKENS = 50
 
 # Proactive compression threshold (percentage of window capacity)
 PROACTIVE_COMPRESSION_THRESHOLD = 0.7
@@ -1127,35 +1142,12 @@ def safe_estimate_tokens(agent: Agent, extra_content: Any = None) -> Optional[in
     :return: the estimated agent token count or None (failures will be logged)
     """
     try:
-        messages = getattr(agent, "messages", None)
-        if messages is None:
-            logger.warning(
-                "TOKEN ESTIMATION FAILED: agent.messages is None (agent=%s)",
-                getattr(agent, "name", "unknown")
-            )
-            return None
-
-        if not isinstance(messages, list):
-            logger.warning(
-                "TOKEN ESTIMATION FAILED: agent.messages is not a list (type=%s, agent=%s)",
-                type(messages).__name__,
-                getattr(agent, "name", "unknown")
-            )
-            return None
-
-        if len(messages) == 0:
-            logger.info(
-                "TOKEN ESTIMATION: agent.messages is empty, returning 0 tokens (agent=%s)",
-                getattr(agent, "name", "unknown")
-            )
-            return 0
-
         estimated = _estimate_prompt_tokens_for_agent(agent, extra_content)
         logger.info(
             "TOKEN ESTIMATION: Estimated %d tokens from %d messages (agent=%s)",
             estimated,
-            len(messages),
-            getattr(agent, "name", "unknown")
+            len(agent.messages),
+            agent.name
         )
         return estimated
     except Exception as e:
@@ -1185,6 +1177,34 @@ def _get_prompt_token_limit(agent: Agent) -> Optional[int]:
     return None
 
 
+@dataclass
+class _AgentInputContext:
+    messages: Optional[List[Dict[str, Any]]] = None
+    system_prompt: Optional[str] = None
+    tool_specs: Optional[List[Dict[str, Any]]] = None
+    extra_content: Any = None
+
+
+def _get_agent_input_context(agent: Agent) -> _AgentInputContext:
+    if hasattr(agent, "messages"):
+        messages = getattr(agent, "messages", [])
+    else:
+        messages = []
+
+    if hasattr(agent, "system_prompt"):
+        system_prompt = getattr(agent, "system_prompt", None)
+    else:
+        system_prompt = None
+
+    if hasattr(agent, "tool_registry"):
+        tool_registry: ToolRegistry = getattr(agent, "tool_registry", None)
+        tool_specs = tool_registry.get_all_tool_specs() if tool_registry is not None else []
+    else:
+        tool_specs = None
+
+    return _AgentInputContext(messages, system_prompt, tool_specs)
+
+
 def _get_metrics_input_tokens(agent: Agent) -> Optional[int]:
     """
     Get per-prompt input tokens from telemetry.
@@ -1197,74 +1217,99 @@ def _get_metrics_input_tokens(agent: Agent) -> Optional[int]:
 
     Includes validation to fix potential None dereference in metrics.
     """
-    # Validate agent is not None
     if agent is None:
-        logger.warning("Cannot get metrics from None agent")
+        logger.warning("Cannot get metrics, agent is None")
         return None
 
-    # Primary: SDK metrics with delta tracking
-    metrics = getattr(agent, "event_loop_metrics", None)
-    if metrics is not None and hasattr(metrics, "accumulated_usage"):
-        # Safely access accumulated_usage
-        try:
-            accumulated = metrics.accumulated_usage
-        except AttributeError:
-            accumulated = None
+    # Find a source to populate:
+    # - current_total: (int, float)
+    # - metrics_source: str, used to store private attributes in the agent
+    current_total = None
+    metrics_source = None
 
-        if isinstance(accumulated, dict):
-            current_total = accumulated.get("inputTokens", 0)
-            # Validate current_total is numeric
-            if not isinstance(current_total, (int, float)):
-                logger.debug("Invalid inputTokens type: %s", type(current_total))
-                current_total = 0
-
-            if current_total > 0:
-                previous_total = getattr(agent, "_metrics_previous_input_tokens", 0)
-                delta = current_total - previous_total
-                if delta < 0:
-                    logger.warning(
-                        "SDK metrics decreased: current=%d, previous=%d. Resetting delta tracking.",
-                        current_total,
-                        previous_total,
-                    )
-                    setattr(agent, "_metrics_previous_input_tokens", current_total)
-                    return current_total
-                setattr(agent, "_metrics_previous_input_tokens", current_total)
-                if delta > 0:
-                    return delta
-    # Fallback: test/legacy callback handler injection (absolute per-turn)
+    # Primary
     try:
-        cb = getattr(agent, "callback_handler", None)
-        if cb is not None and hasattr(cb, "sdk_input_tokens"):
-            value = getattr(cb, "sdk_input_tokens")
-            if isinstance(value, (int, float)) and int(value) > 0:
-                return int(value)
-    except Exception:
+        metrics = getattr(agent, "event_loop_metrics", None)
+        if metrics is not None and hasattr(metrics, "accumulated_usage"):
+            accumulated = metrics.accumulated_usage
+            if isinstance(accumulated, dict):
+                value = accumulated.get("inputTokens", 0)
+                if isinstance(value, (int, float)):
+                    current_total = int(value)
+                    metrics_source = "input_tokens"
+                else:
+                    logger.debug("Invalid inputTokens type: %s", type(current_total))
+    except AttributeError:
         pass
-    return None
+
+    # Fallback
+    if not metrics_source:
+        try:
+            cb = getattr(agent, "callback_handler", None)
+            if cb is not None and hasattr(cb, "sdk_input_tokens"):
+                value = getattr(cb, "sdk_input_tokens")
+                if isinstance(value, (int, float)) and int(value) > 0:
+                    current_total = int(value)
+                    metrics_source = "sdk_input_tokens"
+        except AttributeError:
+            pass
+
+    if not metrics_source:
+        logger.warning("Cannot get metrics from agent %s", str(agent))
+        return None
+
+    if current_total is None or current_total < 0:
+        # invalid metrics
+        return None
+
+    attr_last_seen_total = f"_metrics_last_seen_{metrics_source}_total"
+    attr_last_seen_value = f"_metrics_last_seen_{metrics_source}_value"
+
+    # Idempotence: if called multiple times without accumulated_usage changing,
+    # return the same value as the first call (don’t advance delta tracking twice).
+    last_seen_total = getattr(agent, attr_last_seen_total, None)
+    last_seen_value = getattr(agent, attr_last_seen_value, None)
+    if last_seen_total is not None and last_seen_total == current_total:
+        if isinstance(last_seen_value, (int, float)) and int(last_seen_value) > 0:
+            return int(last_seen_value)
+        return None
+
+    if current_total == 0:
+        # initial metrics
+        setattr(agent, attr_last_seen_total, current_total)
+        setattr(agent, attr_last_seen_value, None)
+        return None
+
+    previous_total = getattr(agent, attr_last_seen_total, 0)
+    delta = current_total - previous_total
+    if delta < 0:
+        logger.warning(
+            "SDK metrics decreased: current=%d, previous=%d. Resetting delta tracking.",
+            current_total,
+            previous_total,
+        )
+        # Reset if the counter went backwards
+        setattr(agent, attr_last_seen_total, current_total)
+        setattr(agent, attr_last_seen_value, None)
+        return None
+
+    setattr(agent, attr_last_seen_total, current_total)
+    setattr(agent, attr_last_seen_value, delta)
+    return delta
 
 
-@lru_cache
 def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
-    """Get char/token ratio using models.dev provider detection.
+    """Get char/token ratio using models.dev baseline plus telemetry calibration.
 
-    Different providers use different tokenizers with varying compression:
-    - Claude (Anthropic): ~3.7 chars/token (aggressive)
-    - GPT (OpenAI): ~4.0 chars/token (balanced)
-    - Kimi (Moonshot): ~3.8 chars/token (between)
-    - Gemini (Google): ~4.2 chars/token (conservative)
-
-    Args:
-        model_id: Model identifier (e.g., "azure/gpt-5", "bedrock/...")
-
-    Returns:
-        Character-to-token ratio for estimation
+    Baseline comes from models.dev/provider heuristics.
+    Telemetry-derived ratios are tracked per model and combined using a weighted
+    average over rolling windows of recent observations (10%, 30%, 50%).
     """
     if not model_id:
-        return DEFAULT_CHAR_TO_TOKEN_RATIO  # Conservative default (slight overestimation)
+        return DEFAULT_CHAR_TO_TOKEN_RATIO
 
-    # Compute ratio with default fallback
-    ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Default
+    # Baseline via models.dev/provider heuristics
+    baseline = DEFAULT_CHAR_TO_TOKEN_RATIO
     try:
         client = get_models_client()
         info = client.get_model_info(model_id)
@@ -1272,22 +1317,31 @@ def _get_char_to_token_ratio_dynamic(model_id: str) -> float:
         if info:
             provider = info.provider.lower()
 
-            # Provider-specific ratios based on tokenizer characteristics
             if "anthropic" in provider or ("bedrock" in provider and "claude" in model_id.lower()):
-                ratio = DEFAULT_CHAR_TO_TOKEN_RATIO  # Claude tokenizer (3.7)
+                baseline = DEFAULT_CHAR_TO_TOKEN_RATIO
             elif "google" in provider or "gemini" in provider or "vertex" in provider:
-                ratio = 4.2  # Gemini tokenizer (SentencePiece)
+                baseline = 4.2
             elif "moonshot" in provider or "moonshotai" in provider:
-                ratio = 3.8  # Kimi tokenizer
+                baseline = 3.8
             elif "openai" in provider or "azure" in provider:
-                # Check if it's a GPT model
                 model_lower = model_id.lower()
                 if any(gpt in model_lower for gpt in ["gpt-4", "gpt-5", "gpt4", "gpt5"]):
-                    ratio = 4.0  # GPT tokenizer
+                    baseline = 4.0
+        else:
+            model_lower = model_id.lower()
+            if "qwen3-coder" in model_lower:
+                baseline = 4.0
     except Exception as e:
         logger.debug("models.dev lookup failed for ratio: model=%s, error=%s", model_id, e)
 
-    return ratio
+    observed, n = _get_weighted_observed_ratio(model_id)
+    if observed is None:
+        return baseline
+
+    # Blend in baseline for stability with small sample sizes
+    ratio_baseline_blend = _RATIO_BASELINE_BLEND / max(1.0, n - 9)
+    blended = (baseline * ratio_baseline_blend) + (observed * (1.0 - ratio_baseline_blend))
+    return max(_RATIO_MIN, min(_RATIO_MAX, blended))
 
 
 def _json_to_compact_str(v: Any) -> str:
@@ -1296,6 +1350,194 @@ def _json_to_compact_str(v: Any) -> str:
         return json.dumps(v, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
     except Exception:
         return str(v)
+
+
+def _estimate_prompt_chars(
+        messages: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        tool_specs: Optional[List[Dict[str, Any]]] = None,
+        extra_content: Any = None,
+) -> int:
+    """Estimate total prompt characters."""
+    if messages is None:
+        messages = []
+
+    message_chars = 0
+    for message in messages:
+        message_chars += math.ceil(DEFAULT_CHAR_TO_TOKEN_RATIO) * 2  # account for role:"...", assume each is 1 token
+        for block in message.get("content", []):
+            if not isinstance(block, dict):
+                continue
+
+            if "text" in block:
+                message_chars += len(block["text"])
+
+            elif "json" in block:
+                message_chars += len(_json_to_compact_str(block["json"]))
+
+            elif "toolUse" in block:
+                tool_use = block["toolUse"]
+                message_chars += len(str(tool_use.get("name", "")))
+                tool_input = tool_use.get("input", {})
+                message_chars += len(str(tool_input))
+
+            elif "toolResult" in block:
+                tool_result = block["toolResult"]
+                message_chars += len(str(tool_result.get("status", "")))
+                message_chars += len(str(tool_result.get("toolUseId", "")))
+                for result_content in tool_result.get("content", []):
+                    if "text" in result_content:
+                        message_chars += len(result_content["text"])
+                    elif "json" in result_content:
+                        message_chars += len(str(result_content["json"]))
+                    elif "document" in result_content:
+                        doc = result_content["document"]
+                        message_chars += len(doc.get("name", ""))
+                        message_chars += 400
+                    elif "image" in result_content:
+                        message_chars += 600
+
+            elif "image" in block:
+                message_chars += 600
+
+            elif "document" in block:
+                doc = block["document"]
+                message_chars += len(doc.get("name", ""))
+                message_chars += 400
+
+            elif "reasoningContent" in block:
+                reasoning = block["reasoningContent"]
+                if isinstance(reasoning, dict):
+                    if "reasoningText" in reasoning:
+                        message_chars += len(reasoning["reasoningText"].get("text", ""))
+                    elif "redactedContent" in reasoning:
+                        message_chars += len(reasoning["redactedContent"])
+                    elif reasoning:
+                        message_chars += len(str(reasoning))
+            else:
+                message_chars += len(_json_to_compact_str(block))
+
+    overhead_chars = 0
+    extra_content_list: list[Any] = []
+    if system_prompt and system_prompt not in extra_content_list:
+        extra_content_list.append(system_prompt)
+    if extra_content is not None:
+        extra_content_list.append(extra_content)
+
+    while extra_content_list:
+        item = extra_content_list.pop(0)
+        if not item:
+            continue
+        if isinstance(item, list):
+            extra_content_list.extend(item)
+        elif isinstance(item, dict):
+            overhead_chars += len(_json_to_compact_str(item))
+        else:
+            overhead_chars += len(str(item))
+
+    tool_chars = 0
+    if tool_specs:
+        for tool_spec in tool_specs:
+            tool_chars += len(tool_spec.get("name", ""))
+            tool_chars += len(tool_spec.get("description", ""))
+            tool_chars += len(_json_to_compact_str(tool_spec.get("inputSchema", {}).get("json", {})))
+
+    return message_chars + overhead_chars + tool_chars
+
+
+def _record_ratio_observation(model_id: str, ratio: float) -> None:
+    if not model_id:
+        return
+    if not isinstance(ratio, (int, float)):
+        return
+    ratio_f = float(ratio)
+    if ratio_f <= 0:
+        return
+
+    # Clamp to reduce impact of bogus telemetry or edge cases
+    ratio_f = max(_RATIO_MIN, min(_RATIO_MAX, ratio_f))
+
+    with _RATIO_LOCK:
+        history = _MODEL_RATIO_HISTORY.get(model_id)
+        if not isinstance(history, list):
+            history = []
+        history.append(ratio_f)
+        if len(history) > _MAX_RATIO_HISTORY:
+            history = history[-_MAX_RATIO_HISTORY:]
+        _MODEL_RATIO_HISTORY[model_id] = history
+
+
+def _get_weighted_observed_ratio(model_id: str) -> Tuple[Optional[float], Optional[int]]:
+    """Return a weighted average of observed ratios over multiple rolling windows and the number of observations,
+
+    Windows are interpreted over the most recent observation history for the model.
+    """
+    if not model_id:
+        return None, None
+
+    with _RATIO_LOCK:
+        history = _MODEL_RATIO_HISTORY.get(model_id) or []
+        history = list(history)
+
+    n = len(history)
+    if n < 3:
+        return None, None
+
+    window_avgs: list[float] = []
+    for pct in _RATIO_WINDOWS:
+        k = max(1, int(round(n * pct)))
+        window = history[-k:]
+        if not window:
+            continue
+        window_avgs.append(sum(window) / len(window))
+
+    if not window_avgs:
+        return None, None
+
+    weights = list(_RATIO_WINDOW_WEIGHTS)[: len(window_avgs)]
+    s = sum(weights)
+    if s <= 0:
+        return None, None
+    weights = [w / s for w in weights]
+
+    return sum(w * a for w, a in zip(weights, window_avgs)), n
+
+
+def _update_ratio_from_telemetry(agent: Agent) -> None:
+    """Update per-model char/token ratio from Strands telemetry after model calls."""
+    try:
+        model_id = get_model_id_from_agent(agent)
+        if not model_id:
+            return
+
+        # Per-turn input tokens (delta) if available
+        input_tokens = _get_metrics_input_tokens(agent)
+        if not input_tokens or input_tokens <= 0:
+            return
+
+        input_context = _get_agent_input_context(agent)
+
+        prompt_chars = _estimate_prompt_chars(
+            input_context.messages,
+            input_context.system_prompt,
+            input_context.tool_specs,
+            input_context.extra_content
+        )
+        if prompt_chars <= 0:
+            return
+
+        observed_ratio = prompt_chars / float(input_tokens)
+        _record_ratio_observation(model_id, observed_ratio)
+
+        logger.debug(
+            "RATIO CALIBRATION: model=%s, chars=%d, input_tokens=%d, observed_ratio=%.3f",
+            model_id,
+            prompt_chars,
+            input_tokens,
+            observed_ratio,
+        )
+    except Exception:
+        logger.debug("RATIO CALIBRATION: failed to update ratio from telemetry", exc_info=True)
 
 
 def _estimate_prompt_tokens_for_agent(agent: Agent, extra_content: Any = None) -> int:
@@ -1311,21 +1553,48 @@ def _estimate_prompt_tokens_for_agent(agent: Agent, extra_content: Any = None) -
     """
     model_id = get_model_id_from_agent(agent)
 
-    messages = getattr(agent, "messages", [])
+    input_context = _get_agent_input_context(agent)
 
-    if hasattr(agent, "system_prompt"):
-        # caller may have already included the system prompt
-        system_prompt = getattr(agent, "system_prompt", None)
-    else:
-        system_prompt = None
+    return estimate_prompt_tokens(
+        model_id,
+        input_context.messages,
+        input_context.system_prompt,
+        input_context.tool_specs,
+        extra_content,
+    )
 
-    if hasattr(agent, "tool_registry"):
-        tool_registry: ToolRegistry = getattr(agent, "tool_registry", None)
-        tool_specs = tool_registry.get_all_tool_specs() if tool_registry is not None else []
-    else:
-        tool_specs = None
 
-    return estimate_prompt_tokens(model_id, messages, system_prompt, tool_specs, extra_content)
+def token_calc(prompt_chars: int, model_id: Optional[str] = None) -> int:
+    """Estimate token count from character count.
+
+    This is a lightweight heuristic used for prompt budget enforcement.
+    It intentionally avoids provider tokenizers and instead uses a rolling
+    per-model char/token ratio when available.
+
+    Args:
+        prompt_chars: Total prompt characters.
+        model_id: Optional model id to use for per-model dynamic ratio.
+
+    Returns:
+        Estimated token count (int).
+    """
+    if prompt_chars <= 0:
+        return 0
+
+    ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
+    if model_id:
+        try:
+            ratio = float(_get_char_to_token_ratio_dynamic(model_id))
+        except Exception:
+            ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
+
+    # Defensive clamp
+    if ratio <= 0:
+        ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
+
+    # Ceil to avoid under-estimating tokens
+    tokens = int(math.ceil(prompt_chars / ratio))
+    return max(0, tokens)
 
 
 def estimate_prompt_tokens(
@@ -1345,121 +1614,9 @@ def estimate_prompt_tokens(
     :return: the estimated token count
     """
 
-    # Add fixed overhead for messages
-    if messages is None:
-        messages = []
-    message_tokens = len(messages) * MESSAGE_METADATA_OVERHEAD_TOKENS
-    message_chars = 0
-
-    for message in messages:
-        for block in message.get("content", []):
-            if not isinstance(block, dict):
-                continue
-
-            if "text" in block:
-                message_chars += len(block["text"])
-
-            elif "json" in block:
-                message_chars += len(_json_to_compact_str(block["json"]))
-
-            elif "toolUse" in block:
-                tool_use = block["toolUse"]
-                # Include tool name and input roughly proportional to their length
-                message_chars += len(str(tool_use.get("name", "")))
-                tool_input = tool_use.get("input", {})
-                message_chars += len(str(tool_input))
-
-            elif "toolResult" in block:
-                tool_result = block["toolResult"]
-                # Status and metadata
-                message_chars += len(str(tool_result.get("status", "")))
-                message_chars += len(str(tool_result.get("toolUseId", "")))
-                # Result content blocks
-                for result_content in tool_result.get("content", []):
-                    if "text" in result_content:
-                        message_chars += len(result_content["text"])
-                    elif "json" in result_content:
-                        message_chars += len(str(result_content["json"]))
-                    elif "document" in result_content:
-                        doc = result_content["document"]
-                        message_chars += len(doc.get("name", ""))
-                        message_chars += 400  # conservative fixed overhead
-                    elif "image" in result_content:
-                        message_chars += 600  # conservative fixed overhead
-
-            elif "image" in block:
-                message_chars += 600
-
-            elif "document" in block:
-                doc = block["document"]
-                message_chars += len(doc.get("name", ""))
-                message_chars += 400
-
-            elif "reasoningContent" in block:
-                # Count reasoning blocks (Kimi K2, GPT-5, Claude Sonnet 4.5)
-                reasoning = block["reasoningContent"]
-                if isinstance(reasoning, dict):
-                    if "reasoningText" in reasoning:
-                        message_chars += len(reasoning["reasoningText"].get("text", ""))
-                    elif "redactedContent" in reasoning:
-                        message_chars += len(reasoning["redactedContent"])
-                    # Fallback: stringify entire reasoning block
-                    elif reasoning:
-                        message_chars += len(str(reasoning))
-
-            else:
-                message_chars += len(_json_to_compact_str(block))
-
-    overhead_chars = 0
-    extra_content_list = []
-    if system_prompt and system_prompt not in extra_content_list:
-        # caller may have already included the system prompt
-        extra_content_list.append(system_prompt)
-    if extra_content is not None:
-        extra_content_list.append(extra_content)
-    while len(extra_content_list) > 0:
-        extra_content_item = extra_content_list.pop(0)
-        if not extra_content_item:
-            continue
-        if isinstance(extra_content_item, list):
-            extra_content_list.extend(extra_content_item)
-        elif isinstance(extra_content_item, dict):
-            overhead_chars += len(_json_to_compact_str(extra_content_item))
-        else:
-            overhead_chars += len(str(extra_content_item))
-
-    tool_chars = 0
-    if tool_specs:
-        for tool_spec in tool_specs:
-            tool_chars += len(tool_spec.get("name", ""))
-            tool_chars += len(tool_spec.get("description", ""))
-            tool_chars += len(_json_to_compact_str(tool_spec.get("inputSchema", {}).get("json", {})))
-            message_tokens += MESSAGE_METADATA_OVERHEAD_TOKENS
-
-    # Get model-appropriate ratio dynamically from models.dev
-    ratio = _get_char_to_token_ratio_dynamic(model_id)
-
-    if ratio <= 0:
-        logger.warning("Invalid char/token ratio %.2f, using default %.1f", ratio, DEFAULT_CHAR_TO_TOKEN_RATIO)
-        ratio = DEFAULT_CHAR_TO_TOKEN_RATIO
-
-    token_calc = lambda c: max(1, int(c / ratio))
-    total_chars = message_chars + overhead_chars + tool_chars
-    content_tokens = token_calc(total_chars)
-    estimated_tokens = message_tokens + content_tokens
-
-    logger.debug(
-        "Token estimation: %d chars / %.1f ratio = %d content + %d metadata + %d overhead + %d tool = %d total (model=%s)",
-        total_chars, ratio,
-        token_calc(message_chars),
-        message_tokens,
-        token_calc(overhead_chars),
-        token_calc(tool_chars),
-        estimated_tokens,
-        model_id
-    )
-
-    return estimated_tokens
+    prompt_chars = _estimate_prompt_chars(messages, system_prompt, tool_specs, extra_content)
+    prompt_tokens = token_calc(prompt_chars, model_id=model_id)
+    return prompt_tokens
 
 
 def _strip_reasoning_content(agent: Agent, force: bool = False, preserve_recent_messages: Optional[int] = None) -> None:
@@ -1681,7 +1838,6 @@ def _ensure_prompt_within_budget(agent: Agent) -> None:
     escalation_count = int(getattr(agent, "_prompt_budget_escalations", 0))
 
     before_msgs = _count_agent_messages(agent)
-    # Use estimation to measure reduction impact (not telemetry - see _estimate_prompt_tokens docstring)
     before_tokens = safe_estimate_tokens(agent)
     logger.warning(
         "Prompt budget trigger (%s / limit=%d). Initiating context reduction (escalation=%d).",
@@ -1902,6 +2058,9 @@ class PromptBudgetHook(HookProvider):
                     pass  # Already cleaned up
                 except Exception as e:
                     logger.debug("Failed to cleanup _pending_reduction_reason: %s", e)
+
+            # Update per-model char/token ratio calibration from telemetry
+            _update_ratio_from_telemetry(agent)
 
         # Telemetry deltas are picked up by _ensure_prompt_within_budget; no-op here
         return
