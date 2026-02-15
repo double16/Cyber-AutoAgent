@@ -31,7 +31,7 @@ class TestModelConfigs:
         config = get_default_model_configs("ollama")
 
         assert config["llm_model"] == "llama3.2:3b"
-        assert config["embedding_model"] == "mxbai-embed-large"
+        assert config["embedding_model"] == "mxbai-embed-large:latest"
         assert config["embedding_dims"] == 1024
 
     def test_get_default_model_configs_remote(self):
@@ -237,7 +237,7 @@ class TestServerValidation:
         # Mock ollama client and list method
         mock_client_instance = mock_ollama_client.return_value
         mock_client_instance.list.return_value = {
-            "models": [{"model": "llama3.2:3b"}, {"model": "mxbai-embed-large"}]
+            "models": [{"model": "llama3.2:3b"}, {"model": "mxbai-embed-large:latest"}]
         }
 
         # Should not raise any exception

@@ -109,7 +109,7 @@ export MEM0_LLM_MODEL=azure/gpt-4o  # Separate LLM for memory system
 ```bash
 ollama serve
 ollama pull qwen3-coder:30b-a3b-q4_K_M
-ollama pull mxbai-embed-large
+ollama pull mxbai-embed-large:latest
 ```
 
 **LiteLLM:**

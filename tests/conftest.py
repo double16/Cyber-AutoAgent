@@ -133,7 +133,7 @@ def mock_ollama_models_available():
         mock_client_instance.list.return_value = {
             "models": [
                 {"model": "llama3.2:3b"},
-                {"model": "mxbai-embed-large"},
+                {"model": "mxbai-embed-large:latest"},
                 {"model": "other-model:latest"},
             ]
         }

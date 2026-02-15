@@ -102,13 +102,13 @@ class TestEmbeddingConfig:
 
     def test_default_dimensions(self):
         """Test embedding config with default dimensions."""
-        config = EmbeddingConfig(provider=ModelProvider.OLLAMA, model_id="mxbai-embed-large")
+        config = EmbeddingConfig(provider=ModelProvider.OLLAMA, model_id="mxbai-embed-large:latest")
         assert config.dimensions == 1024
         assert config.parameters["dimensions"] == 1024
 
     def test_custom_dimensions(self):
         """Test embedding config with custom dimensions."""
-        config = EmbeddingConfig(provider=ModelProvider.OLLAMA, model_id="mxbai-embed-large", dimensions=512)
+        config = EmbeddingConfig(provider=ModelProvider.OLLAMA, model_id="mxbai-embed-large:latest", dimensions=512)
         assert config.dimensions == 512
         assert config.parameters["dimensions"] == 512
 
@@ -146,7 +146,7 @@ class TestMemoryEmbeddingConfig:
 
     def test_default_parameters(self):
         """Test memory embedding config with default parameters."""
-        config = MemoryEmbeddingConfig(provider=ModelProvider.OLLAMA, model_id="mxbai-embed-large")
+        config = MemoryEmbeddingConfig(provider=ModelProvider.OLLAMA, model_id="mxbai-embed-large:latest")
         assert config.aws_region == "us-east-1"
         assert config.dimensions == 1024
         assert config.parameters["aws_region"] == "us-east-1"
@@ -156,7 +156,7 @@ class TestMemoryEmbeddingConfig:
         """Test memory embedding config with custom parameters."""
         config = MemoryEmbeddingConfig(
             provider=ModelProvider.OLLAMA,
-            model_id="mxbai-embed-large",
+            model_id="mxbai-embed-large:latest",
             aws_region="eu-west-1",
             dimensions=512,
         )
@@ -221,7 +221,7 @@ class TestConfigManager:
             assert config.llm.provider == ModelProvider.OLLAMA
             assert config.llm.model_id == "llama3.2:3b"
             assert config.embedding.provider == ModelProvider.OLLAMA
-            assert config.embedding.model_id == "mxbai-embed-large"
+            assert config.embedding.model_id == "mxbai-embed-large:latest"
             assert config.region == "ollama"
 
     def test_get_remote_server_config(self):
@@ -272,7 +272,7 @@ class TestConfigManager:
 
             assert isinstance(config, EmbeddingConfig)
             assert config.provider == ModelProvider.OLLAMA
-            assert config.model_id == "mxbai-embed-large"
+            assert config.model_id == "mxbai-embed-large:latest"
 
     def test_get_memory_config(self):
         """Test getting memory configuration."""
@@ -327,7 +327,7 @@ class TestConfigManager:
             # Test embedder config
             embedder_config = local_config["embedder"]
             assert embedder_config["provider"] == "ollama"
-            assert embedder_config["config"]["model"] == "mxbai-embed-large"
+            assert embedder_config["config"]["model"] == "mxbai-embed-large:latest"
 
             # Test LLM config
             llm_config = local_config["llm"]
@@ -472,7 +472,7 @@ class TestConfigManager:
             # Clear environment to ensure we get the expected local config
             with patch.dict(os.environ, {}, clear=True):
                 mock_client.return_value.list.return_value = {
-                    "models": [{"model": "llama3.2:3b"}, {"model": "mxbai-embed-large"}]
+                    "models": [{"model": "llama3.2:3b"}, {"model": "mxbai-embed-large:latest"}]
                 }
 
                 # Should not raise an exception
@@ -682,7 +682,7 @@ class TestConfigManager:
 
             assert os.environ["MEM0_LLM_PROVIDER"] == "ollama"
             assert os.environ["MEM0_LLM_MODEL"] == "llama3.2:3b"
-            assert os.environ["MEM0_EMBEDDING_MODEL"] == "mxbai-embed-large"
+            assert os.environ["MEM0_EMBEDDING_MODEL"] == "mxbai-embed-large:latest"
 
     def test_set_environment_variables_remote(self):
         """Test setting environment variables for remote mode."""
@@ -977,7 +977,7 @@ class TestGlobalFunctions:
         assert "embedding_model" in config
         assert "embedding_dims" in config
         assert config["llm_model"] == "llama3.2:3b"
-        assert config["embedding_model"] == "mxbai-embed-large"
+        assert config["embedding_model"] == "mxbai-embed-large:latest"
         assert config["embedding_dims"] == 1024
 
     def test_get_ollama_host_backward_compatibility(self):

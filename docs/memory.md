@@ -337,7 +337,7 @@ mem0_memory(
 ### Local Mode (Ollama)
 ```python
 config = {
-    "embedder": {"provider": "ollama", "config": {"model": "mxbai-embed-large"}},
+    "embedder": {"provider": "ollama", "config": {"model": "mxbai-embed-large:latest"}},
     "llm": {"provider": "ollama", "config": {"model": "llama3.2:3b"}}
 }
 ```

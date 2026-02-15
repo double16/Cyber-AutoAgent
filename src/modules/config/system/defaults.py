@@ -55,7 +55,7 @@ def build_ollama_defaults() -> Dict[str, Any]:
         ),
         "embedding": EmbeddingConfig(
             provider=ModelProvider.OLLAMA,
-            model_id="mxbai-embed-large",
+            model_id="mxbai-embed-large:latest",
             dimensions=1024,
         ),
         "memory_llm": MemoryLLMConfig(

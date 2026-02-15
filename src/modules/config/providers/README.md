@@ -110,10 +110,9 @@ mistral:7b-instruct
 **Environment Variables:**
 ```bash
 export OLLAMA_HOST=http://localhost:11434
-export OLLAMA_API_BASE=http://localhost:11434
 export OLLAMA_TIMEOUT=120
 export CYBER_AGENT_LLM_MODEL=qwen3-coder:30b-a3b-q4_K_M
-export CYBER_AGENT_EMBEDDING_MODEL=nomic-embed-text
+export CYBER_AGENT_EMBEDDING_MODEL=nomic-embed-text:latest
 ```
 
 ### LiteLLM (Universal Proxy)

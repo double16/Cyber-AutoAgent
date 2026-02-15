@@ -82,7 +82,6 @@ export CYBER_AGENT_LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ### Ollama (Local)
 ```bash
 export OLLAMA_HOST=http://localhost:11434
-export OLLAMA_API_BASE=http://localhost:11434
 export CYBER_AGENT_LLM_MODEL=qwen3-coder:30b-a3b-q4_K_M
 ```
 

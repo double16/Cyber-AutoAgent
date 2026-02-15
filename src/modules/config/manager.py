@@ -317,7 +317,7 @@ class ConfigManager:
                 defaults["evaluation_llm"].model_id = user_model
             # Don't override swarm LLM with user model - keep swarm using v2 for better performance
             # Swarm model can be overridden via CYBER_AGENT_SWARM_MODEL env var if needed
-            # For Ollama, also use the same model for embeddings if mxbai-embed-large is not available
+            # For Ollama, also use the same model for embeddings if mxbai-embed-large:latest is not available
             if (
                 provider == "ollama"
                 and "embedding" in defaults

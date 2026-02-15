@@ -443,6 +443,10 @@ def main():
 
     os.environ["DEV"] = "true"
 
+    if "OLLAMA_HOST" in os.environ and not os.environ.get("OLLAMA_API_BASE", ""):
+        # Set OLLAMA_API_BASE for LiteLLM
+        os.environ["OLLAMA_API_BASE"] = os.environ["OLLAMA_HOST"]
+
     # Provide a safer default for shell command timeouts unless user overrides
     if not os.environ.get("SHELL_DEFAULT_TIMEOUT"):
         # Many external tools (e.g., nmap, curl to slow hosts) can exceed low defaults
@@ -455,10 +459,6 @@ def main():
         args.region = config_manager.get_default_region()
 
     os.environ["AWS_REGION"] = args.region
-
-    if "OLLAMA_HOST" in os.environ and not os.environ.get("OLLAMA_API_BASE", ""):
-        # Set OLLAMA_API_BASE for LiteLLM
-        os.environ["OLLAMA_API_BASE"] = os.environ["OLLAMA_HOST"]
 
     # Get configuration from ConfigManager with CLI overrides
     config_manager = get_config_manager()

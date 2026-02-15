@@ -257,7 +257,7 @@ graph TB
 
 ### Ollama Provider (Local)
 - **Primary**: qwen3-coder:30b-a3b-q4_K_M (default)
-- **Embeddings**: mxbai-embed-large
+- **Embeddings**: mxbai-embed-large:latest
 - **Benefits**: Privacy, offline, no API costs, local control
 
 ### LiteLLM Provider (Universal)

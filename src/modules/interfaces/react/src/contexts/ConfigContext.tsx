@@ -377,7 +377,7 @@ export const defaultConfig: Config = {
       outputCostPer1k: 0,
       description: 'Llama 3.2 3B - Local Ollama model (free)'
     },
-    'mxbai-embed-large': {
+    'mxbai-embed-large:latest': {
       inputCostPer1k: 0,
       outputCostPer1k: 0,
       description: 'MXBAI Embeddings - Local Ollama model (free)'

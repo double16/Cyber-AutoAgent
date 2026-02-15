@@ -139,8 +139,8 @@ export class OperationManager {
       'llama3.2:1b': 'Llama 3.2 1B (Ollama)',
       'llama3.1:8b': 'Llama 3.1 8B (Ollama)',
       'mistral:7b': 'Mistral 7B (Ollama)',
-      'mxbai-embed-large': 'MXBAI Embeddings (Ollama)',
-      'nomic-embed-text': 'Nomic Embeddings (Ollama)',
+      'mxbai-embed-large:latest': 'MXBAI Embeddings (Ollama)',
+      'nomic-embed-text:latest': 'Nomic Embeddings (Ollama)',
       'qwen2.5:7b': 'Qwen2.5 7B (Ollama)',
       'qwen2.5:3b': 'Qwen2.5 3B (Ollama)'
     };
@@ -174,8 +174,8 @@ export class OperationManager {
       'llama3.2:1b': 128000,
       'llama3.1:8b': 128000,
       'mistral:7b': 32000,
-      'mxbai-embed-large': 512,  // Embedding model
-      'nomic-embed-text': 512,  // Embedding model
+      'mxbai-embed-large:latest': 512,  // Embedding model
+      'nomic-embed-text:latest': 512,  // Embedding model
       'qwen2.5:7b': 128000,
       'qwen2.5:3b': 32000
     };

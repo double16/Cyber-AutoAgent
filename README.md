@@ -384,7 +384,7 @@ Cyber-AutoAgent supports multiple model providers for maximum flexibility:
 ### Ollama Provider (Local)
 - **Best for**: Privacy, offline use, cost control, local development
 - **Requirements**: Local Ollama installation
-- **Default Models**: `qwen3-coder:30b-a3b-q4_K_M` (LLM), `mxbai-embed-large` (embeddings)
+- **Default Models**: `qwen3-coder:30b-a3b-q4_K_M` (LLM), `mxbai-embed-large:latest` (embeddings)
 - **Benefits**: No cloud dependencies, complete privacy, no API costs
 
 ### LiteLLM Provider (Universal)
@@ -555,7 +555,7 @@ curl -fsSL https://ollama.ai/install.sh | sh
 # Start service and pull models
 ollama serve
 ollama pull qwen3-coder:30b-a3b-q4_K_M
-ollama pull mxbai-embed-large
+ollama pull mxbai-embed-large:latest
 ```
 
 Most models ship with a context window size of 4096, some with 8192. Neither are large enough for quality results. The model
@@ -947,7 +947,7 @@ curl http://localhost:11434/api/version
 ```bash
 # Pull required models
 ollama pull qwen3-coder:30b-a3b-q4_K_M
-ollama pull mxbai-embed-large
+ollama pull mxbai-embed-large:latest
 
 # List available models
 ollama list

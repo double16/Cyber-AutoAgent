@@ -20,7 +20,7 @@ LITELLM_EMBEDDING_DEFAULTS: Dict[str, Tuple[str, int]] = {
     "mistral": ("multi-qa-MiniLM-L6-cos-v1", 384),
     "sagemaker": ("multi-qa-MiniLM-L6-cos-v1", 384),
     "xai": ("multi-qa-MiniLM-L6-cos-v1", 384),
-    "ollama": ("mxbai-embed-large", 1024),
+    "ollama": ("mxbai-embed-large:latest", 1024),
 }
 DEFAULT_LITELLM_EMBEDDING: Tuple[str, int] = ("multi-qa-MiniLM-L6-cos-v1", 384)
 
@@ -42,7 +42,7 @@ EMBEDDING_DIMENSIONS: Dict[str, int] = {
     "cohere.embed-english-v3": 1024,
     "cohere.embed-multilingual-v3": 1024,
     "multi-qa-MiniLM-L6-cos-v1": 384,
-    "ollama/mxbai-embed-large": 1024,
+    "ollama/mxbai-embed-large:latest": 1024,
 }
 MEM0_PROVIDER_MAP: Dict[str, str] = {
     "bedrock": "aws_bedrock",

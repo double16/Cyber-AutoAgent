@@ -1078,7 +1078,7 @@ export const ConfigEditor: React.FC<ConfigEditorProps> = ({ onClose }) => {
       if (value === 'ollama') {
         // Set Ollama-specific defaults
         updates.modelId = 'qwen3-coder:30b-a3b-q4_K_M';
-        updates.embeddingModel = 'mxbai-embed-large';
+        updates.embeddingModel = 'mxbai-embed-large:latest';
         updates.evaluationModel = 'qwen3-coder:30b-a3b-q4_K_M';
         updates.swarmModel = 'qwen3-coder:30b-a3b-q4_K_M';
         // Clear temperature to null so backend uses model-specific defaults
