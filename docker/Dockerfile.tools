@@ -342,6 +342,6 @@ RUN mkdir -p /home/cyberagent/sliver && \
 
 # Validate expected tools are present in the PATH
 COPY docker/tools_check.sh src/modules/config/system/environment.yaml /tmp
-RUN bash /tmp/tools_check.sh
-
-RUN /tmp/apt_proxy_clean.sh
+RUN bash /tmp/tools_check.sh && \
+    /tmp/apt_proxy_clean.sh && \
+    rm -rf /tmp/* /var/tmp/*

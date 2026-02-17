@@ -5,7 +5,7 @@ ARG APT_PROXY
 
 FROM cyber-autoagent-tools:latest
 
-LABEL org.opencontainers.image.title="Cyber-AutoAgent"
+LABEL org.opencontainers.image.title="Cyber-AutoAgent-ng"
 LABEL org.opencontainers.image.description="Autonomous AI agent for ethical security assessments"
 LABEL org.opencontainers.image.version="0.7.0"
 LABEL org.opencontainers.image.source="https://github.com/bvcyber/Cyber-AutoAgent-ng"
@@ -50,7 +50,8 @@ RUN --mount=type=cache,target=/root/.npm \
     npm run build && \
     chown -R cyberagent:cyberagent /app/src/modules/interfaces/react
 
-RUN /tmp/apt_proxy_clean.sh
+RUN /tmp/apt_proxy_clean.sh && \
+    rm -rf /tmp/* /var/tmp/*
 
 # Environment
 ENV GOPATH="/home/cyberagent/go"
@@ -60,15 +61,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/cyberagent/.cache/ms-playwright"
 ENV PYTHONPATH="/usr/lib/python3/dist-packages:/app/src"
 
 # Persist important directories
-VOLUME ["/app/evidence", "/app/logs"]
-
-# Expose port for any web interfaces 
-EXPOSE 8080
+VOLUME ["/app/outputs", "/app/tools", "/app/external_plugins", "/app/home_plugins"]
 
 # Health check (always-healthy placeholder; app exposes no service port by default)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)"
+    CMD bash -c "exit 0"
 
 # Default entrypoint: React terminal (which spawns Python agent as subprocess)
-# Falls back to direct Python execution if given --python-direct flag
 ENTRYPOINT ["node", "/app/src/modules/interfaces/react/dist/index.js"]
