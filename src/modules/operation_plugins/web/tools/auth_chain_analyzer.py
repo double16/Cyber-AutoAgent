@@ -19,6 +19,16 @@ from strands import tool
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def _coerce_str(arg: bytes | str | None) -> str:
+    if arg is None:
+        return ""
+    if isinstance(arg, str):
+        return arg
+    if isinstance(arg, bytes):
+        return arg.decode('utf-8', errors='ignore')
+    return str(arg)
+
+
 @tool
 def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
     """
@@ -585,7 +595,7 @@ def _discover_auth_endpoints(target_url: str) -> List[Dict[str, Any]]:
         if result.returncode == 0:
             feroxbuster_out = result.stdout
     except subprocess.TimeoutExpired as e:
-        feroxbuster_out = e.stdout
+        feroxbuster_out = _coerce_str(e.stdout)
     except Exception:
         pass
     finally:

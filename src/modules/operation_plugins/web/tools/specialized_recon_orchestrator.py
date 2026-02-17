@@ -23,6 +23,17 @@ HIGH_VALUE_TARGET_LIMIT = 25
 ENDPOINTS_LIMIT = 100
 PARAMETER_LIMIT = 300
 
+
+def _coerce_str(arg: bytes | str | None) -> str:
+    if arg is None:
+        return ""
+    if isinstance(arg, str):
+        return arg
+    if isinstance(arg, bytes):
+        return arg.decode('utf-8', errors='ignore')
+    return str(arg)
+
+
 @tool
 def specialized_recon_orchestrator(target: str, recon_type: str = "comprehensive") -> str:
     """
@@ -497,7 +508,7 @@ def _setup_specialized_tools(errors: List[Dict[str, Any]] | None = None) -> Dict
                 tools_status["failed"].append(tool_name)
                 _append_tool_error(errors, "setup", tool_name, "go install failed", returncode=result.returncode,
                                    stdout=result.stdout, stderr=result.stderr)
-        except subprocess.TimeoutExpired as e:
+        except subprocess.TimeoutExpired:
             tools_status["failed"].append(tool_name)
             _append_tool_error(errors, "setup", tool_name, "go install timed out", timed_out=True)
         except Exception as e:
@@ -525,7 +536,7 @@ def _advanced_subdomain_enum(target: str, errors: List[Dict[str, Any]] | None = 
             _append_tool_error(errors, "subdomain_enum", "subfinder", "tool returned non-zero",
                                returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
     except subprocess.TimeoutExpired as e:
-        subfinder_out = e.stdout
+        subfinder_out = _coerce_str(e.stdout)
         _append_tool_error(errors, "subdomain_enum", "subfinder", "tool timed out", timed_out=True)
     except Exception as e:
         _append_tool_error(errors, "subdomain_enum", "subfinder", str(e))
@@ -544,7 +555,7 @@ def _advanced_subdomain_enum(target: str, errors: List[Dict[str, Any]] | None = 
             _append_tool_error(errors, "subdomain_enum", "assetfinder", "tool returned non-zero",
                                returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
     except subprocess.TimeoutExpired as e:
-        assetfinder_out = e.stdout
+        assetfinder_out = _coerce_str(e.stdout)
         _append_tool_error(errors, "subdomain_enum", "assetfinder", "tool timed out", timed_out=True)
     except Exception as e:
         _append_tool_error(errors, "subdomain_enum", "assetfinder", str(e))
@@ -563,7 +574,7 @@ def _advanced_subdomain_enum(target: str, errors: List[Dict[str, Any]] | None = 
             _append_tool_error(errors, "subdomain_enum", "waybackurls", "tool returned non-zero",
                                returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
     except subprocess.TimeoutExpired as e:
-        waybackurls_out = e.stdout
+        waybackurls_out = _coerce_str(e.stdout)
         _append_tool_error(errors, "subdomain_enum", "waybackurls", "tool timed out", timed_out=True)
     except Exception as e:
         _append_tool_error(errors, "subdomain_enum", "waybackurls", str(e))
@@ -629,7 +640,7 @@ def _analyze_live_hosts(hosts: List[str], errors: List[Dict[str, Any]] | None = 
             _append_tool_error(errors, "live_hosts", "httpx", "tool returned non-zero", returncode=result.returncode,
                                stdout=result.stdout, stderr=result.stderr)
     except subprocess.TimeoutExpired as e:
-        httpx_out = e.stdout
+        httpx_out = _coerce_str(e.stdout)
         _append_tool_error(errors, "live_hosts", "httpx", "tool timed out", timed_out=True)
     except Exception as e:
         _append_tool_error(errors, "live_hosts", "httpx", str(e))
@@ -757,7 +768,7 @@ def _deep_web_intelligence(live_hosts: List[str], errors: List[Dict[str, Any]] |
             _append_tool_error(errors, "web_intel", "katana", "tool returned non-zero", returncode=result.returncode,
                                stdout=result.stdout, stderr=result.stderr)
     except subprocess.TimeoutExpired as e:
-        katana_out = e.stdout
+        katana_out = _coerce_str(e.stdout)
         _append_tool_error(errors, "web_intel", "katana", "tool timed out", timed_out=True)
     except Exception as e:
         _append_tool_error(errors, "web_intel", "katana", str(e))
