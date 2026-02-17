@@ -125,6 +125,7 @@ def advanced_payload_coordinator(
     if test_type not in ["xss", "ssti", "command_injection", "ldap_injection", "param_discovery", "cors",
                          "comprehensive"]:
         test_type = "comprehensive"
+    test_type = test_type.lower()
 
     request_config = RequestConfig(
         target_url=target_url,

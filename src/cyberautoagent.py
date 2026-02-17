@@ -7,7 +7,7 @@ An autonomous cybersecurity agent powered by Strands framework.
 Conducts authorized penetration testing with intelligent tool selection and
 evidence collection capabilities.
 
-⚠️  EXPERIMENTAL SOFTWARE - USE ONLY IN AUTHORIZED, SAFE, SANDBOXED ENVIRONMENTS ⚠️
+EXPERIMENTAL SOFTWARE - USE ONLY IN AUTHORIZED, SAFE, SANDBOXED ENVIRONMENTS
 
 For educational and authorized security testing purposes only.
 Ensure you have explicit permission before testing any targets.
@@ -24,13 +24,13 @@ import base64
 import os
 import re
 import signal
-import socket
 import sys
 import threading
 import time
 import traceback
 import warnings
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from botocore.exceptions import (
@@ -71,7 +71,6 @@ from modules.prompts.factory import get_reflection_snapshot
 from modules.tools import browser, channel_close_all
 from modules.tools.oast import close_oast_providers
 from modules.utils.telemetry import flush_traces
-from modules.utils.text_reducer import reduce_lines_lossy, collapse_first_repeated_sequence
 
 load_dotenv()
 
@@ -101,20 +100,13 @@ def detect_deployment_mode():
         """Check if Langfuse service is available."""
         try:
             if is_docker():
-                # In Docker, try to connect to langfuse-web service
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(2)
-                result = sock.connect_ex(("langfuse-web", 3000))
-                sock.close()
-                return result == 0
+                langfuse_host = os.getenv("LANGFUSE_HOST", "http://langfuse-web:3000")
             else:
-                # Outside Docker, check localhost
-                if requests is None:
-                    return False  # requests not installed
-                response = requests.get(
-                    "http://localhost:3000/api/public/health", timeout=2
-                )
-                return response.status_code == 200
+                langfuse_host = os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+            response = requests.get(
+                f"{langfuse_host}/api/public/health", timeout=2
+            )
+            return response.status_code == 200
         except Exception:
             return False
 
@@ -393,6 +385,8 @@ def main():
 
     args = parser.parse_args()
 
+    ensure_workspace_marker_files()
+
     # React UI passes objective via environment variable
     # Only apply env override if in React UI mode to preserve CLI arg priority
     env_objective = os.environ.get("CYBER_OBJECTIVE")
@@ -421,11 +415,11 @@ def main():
         else:
             print("Starting Cyber-AutoAgent in service mode...")
             print("Container will stay alive and wait for external requests.")
-            print("Use the React UI to submit assessment requests.")
 
             # Keep the container alive
             try:
                 while True:
+                    ensure_workspace_marker_files()
                     time.sleep(30)  # Check every 30 seconds
                     # Health check endpoint implementation pending
             except KeyboardInterrupt:
@@ -690,7 +684,6 @@ def main():
         step0_retry = 2
         # the number of consecutive action-less results
         actionless_step_count = 0
-        max_tokens_retry_count = 0
 
         # SDK-aligned execution loop with continuation support
         while not interrupted:
@@ -709,7 +702,6 @@ def main():
                 result = agent(current_message)
 
                 logger.debug(f"Agent result: {repr(result)}")
-                max_tokens_retry_count = 0
 
                 # Pass the metrics from the result to the callback handler
                 if (
@@ -833,54 +825,6 @@ def main():
                 # Handle other termination scenarios
                 error_str = str(error).lower()
                 if isinstance(error, MaxTokensReachedException) or "maxtokensreached" in error_str or "max_tokens" in error_str:
-                    # if there is a response or reasoning text, reduce it and add as an assistant message, then try again
-                    if last_step != callback_handler.current_step:
-                        # progress was made
-                        max_tokens_retry_count = 0
-                    if callback_handler and max_tokens_retry_count < 2:
-                        # sometimes the max_tokens response includes the response, otherwise we'll look for reasoning text
-                        truncated_message = ""
-                        replace_last_message = False
-                        if agent.messages[-1].get("role", "") == "assistant":
-                            truncated_message = "".join([block.get("text", "") for block in agent.messages[-1].get("content", [])])
-                            replace_last_message = bool(truncated_message)
-                        if not truncated_message:
-                            truncated_message = "".join(callback_handler.reasoning_buffer).strip()
-                            truncated_message_prefix = truncated_message[:1000]
-                            replace_last_message = truncated_message and any([block.get("text", "").startswith(truncated_message_prefix) for block in agent.messages[-1].get("content", [])])
-                        reduced_text = reduce_lines_lossy(
-                            collapse_first_repeated_sequence(truncated_message),
-                            similarity_threshold=0.5, max_lines=40
-                        ).to_text().strip()
-                        max_tokens_retry_count += 1
-                        if reduced_text:
-                            reduced_message = {"role": "assistant", "content": [{"type": "text", "text": reduced_text}]}
-                            if replace_last_message:
-                                agent.messages[-1] = reduced_message
-                            else:
-                                agent.messages.append(reduced_message)
-                        reflection_snapshot = get_reflection_snapshot(
-                            current_step=callback_handler.current_step,
-                            max_steps=callback_handler.max_steps,
-                            plan_current_phase=None,
-                        )
-                        current_message = f"""<continue_instructions>
-You are continuing from a prior run that entered a repetitive reasoning loop.
-
-## CONSTRAINTS
-- Do NOT restate repeated points from the reduced notes.
-- Output must be structured, actionable, and short.
-- Avoid meta commentary about "looping" beyond what's required to recover.
-
-{reflection_snapshot}
-<continue_instructions>"""
-                        try:
-                            callback_handler._emit_accumulated_reasoning(force=True)
-                        except Exception:
-                            pass
-                        logger.warning("Model token limit reached, retrying with reduced text")
-                        continue
-
                     print_status(
                         "Token limit reached - generating final report", "WARNING"
                     )
@@ -1192,6 +1136,16 @@ You are continuing from a prior run that entered a repetitive reasoning loop.
 
         # Final cleanup of log outputs before exit
         close_log_outputs()
+
+
+def ensure_workspace_marker_files():
+    for p in [Path("/"), Path("/tmp"), Path("/var/tmp"), Path("/app/outputs")]:
+        if p.is_dir() and os.access(p, os.W_OK):
+            for f in [p / "THIS IS THE WORKSPACE.txt", p / "THIS IS _NOT_ THE TARGET.txt"]:
+                try:
+                    f.write_text("This is the operation workspace, NOT the target.")
+                except Exception as e:
+                    pass
 
 
 if __name__ == "__main__":

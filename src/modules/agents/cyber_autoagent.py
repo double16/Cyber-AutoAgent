@@ -54,7 +54,7 @@ from modules.handlers.conversation_budget import (
     PRESERVE_FIRST_DEFAULT,
 )
 from modules.handlers.react import ReactBridgeHandler
-from modules.handlers.tool_call_repair_hook import ToolCallRepairHook
+from modules.handlers.agent_repair_hook import AgentRepairHook
 from modules.handlers.tool_router import ToolRouterHook
 from modules.config.models.capabilities import get_capabilities
 from modules.handlers.utils import print_status, sanitize_target_name, get_tool_name
@@ -834,7 +834,7 @@ Guidance and tool names in prompts are illustrative, not prescriptive. Always ch
         artifact_threshold=artifact_threshold,
     )
 
-    tool_call_repair_hook = ToolCallRepairHook()
+    tool_call_repair_hook = AgentRepairHook()
 
     prompt_budget_hook = PromptBudgetHook(_ensure_prompt_within_budget)
     hooks: List[HookProvider] = [tool_call_repair_hook, tool_router_hook, react_hooks, prompt_budget_hook]

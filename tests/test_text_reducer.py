@@ -1,5 +1,7 @@
 from modules.utils.text_reducer import collapse_first_repeated_sequence, reduce_lines_lossy
 import pytest
+import random
+import string
 
 
 @pytest.mark.parametrize(
@@ -1151,3 +1153,41 @@ def test_juice_shop_excessive_observations_semicolon():
 def test_juice_shop_excessive_observations_colon():
     result = reduce_lines_lossy(JUICE_SHOP_EXCESSIVE_OBSERVATIONS.replace('\n', ': '), similarity_threshold=0.5)
     assert len(result.to_text().splitlines()) == 11
+
+
+def test_reduce_lines_lossy_long_text_no_repeated_sequence():
+    # Generate word-like input that is over 4000 characters but not repeating.
+    rng = random.Random(1337)  # deterministic randomness for stable tests
+
+    def _rand_word() -> str:
+        length = rng.randint(3, 10)
+        return "".join(rng.choice(string.ascii_lowercase) for _ in range(length))
+
+    # Build a long, randomized stream while avoiding obvious repeats:
+    # - avoid duplicate words
+    # - avoid repeating 4-word windows (prevents repeated sequences)
+    words = []
+    used_words = set()
+    seen_windows = set()
+
+    while len(words) < 1200:
+        w = _rand_word()
+        if w in used_words:
+            continue
+
+        # Tentatively append and enforce "no repeated sequence" for short windows.
+        candidate = words + [w]
+        if len(candidate) >= 4:
+            window = tuple(candidate[-4:])
+            if window in seen_windows:
+                continue
+            seen_windows.add(window)
+
+        used_words.add(w)
+        words.append(w)
+    # Add newlines to satisfy the "spaces and newlines" requirement.
+    chunks = [" ".join(words[i: i + 20]) for i in range(0, len(words), 20)]
+    no_repeats = "\n".join(chunks)
+
+    assert len(no_repeats) > 4000
+    assert reduce_lines_lossy(no_repeats).to_text() == no_repeats

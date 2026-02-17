@@ -1,12 +1,14 @@
 <tool_protocols>
 **Tool Selection Hierarchy** (confidence-driven):
-1. High confidence (>80%) → Specialized tools (sqlmap, metasploit, nikto) for known vulns
-2. Medium confidence (50-80%) → Parallel shell for rapid multi-vector testing
-3. Low confidence (<50%) → Swarm for parallel capability exploration OR gather more data
-4. Novel exploit → Meta-tooling (editor + load_tool) when existing tools insufficient
-5. POC reuse → python_repl for prototype → if logic needed >2 times → editor+load_tool promotion
+1. **Tool discovery**: If uncertain which specialized tool exists or which args to use → call `tool_catalog` (fast) before choosing 2–6.
+2. High confidence (>80%) → Specialized tools (sqlmap, metasploit, nikto) for known vulns
+3. Medium confidence (50-80%) → Parallel shell for rapid multi-vector testing
+4. Low confidence (<50%) → Swarm for parallel capability exploration OR gather more data
+5. Novel exploit → Meta-tooling (editor + load_tool) when existing tools insufficient
+6. POC reuse → python_repl for prototype → if logic needed >2 times → editor+load_tool promotion
 
 **Core Rule**: Native tools > Command line > custom. Save all artifacts to OPERATION ARTIFACTS DIRECTORY (path injected above).
+**Discovery Rule**: When choosing between tools or unsure what exists → `tool_catalog` first.
 
 **shell**
 - Usage: Non-interactive, parallel execution. Default timeout: 300s, heavy operations ≤600s.
@@ -115,12 +117,17 @@
 - **Common violation**: Stopping after capability discovery. Must complete chain: capability confirmed → direct use tested → objective reached
 
 **tool_catalog**
-- Purpose: List or search for available tools, their descriptions and how to call them
-- Parameters: Specify keywords such as vulnerability or tool name (not specified → all tools)
-- When to use:
-  - New capability is required that exist tool may satisfy
-  - Information on correct arguments for a tool is needed
-  - User requests a specific tool
+- Purpose: Find the best available tool and its required arguments.
+- Parameters: `keywords` (2–6 terms): capability + task (e.g., `idor validate`, `jwt decode`, `web_crawling`, `xss_testing`). Not specified → all tools.
+- Use when:
+  - You’re not sure which tool to use (confidence <80%).
+  - You’re about to use `shell`, `http_request`, or `python_repl` for recon/fuzz/scan/validate/crack/crawl/parse work.
+  - You need the correct args/schema for a tool.
+  - The user asks for a tool or “what can do X?”
+- How:
+  - Search first, prefer `preferred` tools, pick one best match, proceed.
+  - If nothing matches, continue with the normal hierarchy.
+
 </tool_protocols>
 
 <general_protocols>

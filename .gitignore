@@ -270,6 +270,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+THIS IS THE WORKSPACE.txt
+THIS IS _NOT_ THE TARGET.txt
+
 # Package files
 *.tar.gz
 /benchmark_harness/validation-benchmarks/

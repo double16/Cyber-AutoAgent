@@ -87,6 +87,7 @@ def specialized_recon_orchestrator(target: str, recon_type: str = "comprehensive
 
     if recon_type not in ["subdomain", "web", "comprehensive"]:
         recon_type = "comprehensive"
+    recon_type = recon_type.lower()
 
     results = {
         "target": target,

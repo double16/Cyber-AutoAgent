@@ -69,6 +69,7 @@ def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
 
     if auth_type not in ["jwt", "oauth", "saml", "session", "auto"]:
         auth_type = "auto"
+    auth_type = auth_type.lower()
 
     results = {
         "target": target_url,
