@@ -45,7 +45,7 @@ After direct fails: Pivot to different attack vector (NOT encoding variations)
 
 **Tool Selection**:
 - Recon: specialized_recon_orchestrator (subfinder, httpx, katana)
-- Payload: advanced_payload_coordinator (XSS, params, CORS, injection)
+- Payload: advanced_payload_coordinator (XSS, params, SSTI, command injection, LDAP injection, CORS)
 - Auth: auth_chain_analyzer (JWT, OAuth, SAML)
 - Targeted: http_request | Novel: python_repl
 

@@ -74,6 +74,9 @@ def specialized_recon_orchestrator(target: str, recon_type: str = "comprehensive
     if not target:
         raise ValueError("target is required")
 
+    if recon_type not in ["subdomain", "web", "comprehensive"]:
+        recon_type = "comprehensive"
+
     results = {
         "target": target,
         "recon_type": recon_type,

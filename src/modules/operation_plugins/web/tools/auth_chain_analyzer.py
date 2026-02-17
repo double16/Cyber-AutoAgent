@@ -57,6 +57,9 @@ def auth_chain_analyzer(target_url: str, auth_type: str = "auto") -> str:
     if not target_url.startswith(("http://", "https://")):
         target_url = f"https://{target_url}"
 
+    if auth_type not in ["jwt", "oauth", "saml", "session", "auto"]:
+        auth_type = "auto"
+
     results = {
         "target": target_url,
         "auth_type": auth_type,

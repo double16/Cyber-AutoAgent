@@ -67,12 +67,12 @@ cyber_tools:
 
   # Injection tools
   sstimap:
-    description: "Server-Side Template Injection scanner"
+    description: "Detection and exploitation of Server-Side Template Injection (SSTI) vulnerabilities."
     preference: preferred
     caps: [injection_testing]
     canary: "sstimap --help"
   commix:
-    description: "Automates the detection and exploitation of command injection vulnerabilities."
+    description: "Detection and exploitation of command injection vulnerabilities."
     preference: preferred
     caps: [injection_testing, exploitation_framework]
     canary: "commix --help"

@@ -20,7 +20,7 @@ tools:
   - 'oast_*'
   - '*_search'
   - specialized_recon_orchestrator
-  - advanced_payload_coordinator  
+  - advanced_payload_coordinator
   - auth_chain_analyzer
   - validation_specialist
 module_interface:

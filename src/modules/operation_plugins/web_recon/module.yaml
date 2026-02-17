@@ -19,6 +19,7 @@ tools:
   - 'browser_*'
   - '*_search'
   - specialized_recon_orchestrator
+  - advanced_payload_coordinator
   - auth_chain_analyzer
 module_interface:
   accepts_from: []

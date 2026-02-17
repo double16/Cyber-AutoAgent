@@ -92,14 +92,12 @@ def tool_catalog_wrapper(agent: Agent, shell_commands: List[str]):
         understand the available options you should use.
 
         Args:
-            keywords: comma separated keywords for filtering the tool returned (Optional)
+            keywords: space separated keywords for filtering the tools returned (Optional)
         """
         separator = "=" * 80
-        keywords = list(filter(bool, [w.strip().lower() for w in (keywords or "").split(',')]))
-        catalog = """
-# TOOL CATALOG
-
-"""
+        keywords = list(filter(bool, [w.strip().lower() for w in (keywords or "").split()]))
+        found_tools = []
+        catalog = ""
         all_tools = agent.tool_registry.get_all_tools_config()
         specific_tool = len(keywords) == 1 and (keywords[0] in all_tools or keywords[0] in shell_commands)
         for tool_name, tool_spec in all_tools.items():
@@ -108,6 +106,7 @@ def tool_catalog_wrapper(agent: Agent, shell_commands: List[str]):
             if keywords:
                 if not any([w in tool_name.lower() or w in tool_spec.get("description", "").lower() for w in keywords]):
                     continue
+            found_tools.append(tool_name)
 
             catalog += f"""
 {separator}
@@ -127,6 +126,8 @@ output schema:
 
 {separator}
 """
+
+        found_cyber_tools = []
         if shell_commands and (not specific_tool or keywords[0] in shell_commands):
             catalog += f"""
 # COMMAND LINE PROGRAMS
@@ -156,6 +157,7 @@ a file in the ARTIFACTS DIRECTORY and silence program output.
                     if not any(
                             [w in shell_command.lower() or w in real_command.lower() or w in desc_l for w in keywords]):
                         continue
+                found_cyber_tools.append(real_command)
 
                 catalog += f"""
 {separator}
@@ -169,6 +171,19 @@ preference: {preference}
 
 {separator}
 """
-        return catalog
+        if len(found_tools) + len(found_cyber_tools) == 0:
+            return f"**NO RESULTS**\nkeywords: {' '.join(keywords)}"
+
+        prologue = """
+# TOOL CATALOG
+
+"""
+        if len(found_tools) + len(found_cyber_tools) > 1:
+            if len(found_tools) > 0:
+                prologue += f"""**Tools found**: {','.join(found_tools)}\n"""
+            if len(found_cyber_tools) > 0:
+                prologue += f"""**Command line tools found**: {','.join(found_cyber_tools)}\n"""
+
+        return prologue + catalog
 
     return tool_catalog

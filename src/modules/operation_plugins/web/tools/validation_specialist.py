@@ -118,6 +118,9 @@ def validation_specialist(
     agent_factory = getattr(validation_specialist, "agent_factory", None)
     assert agent_factory is not None
 
+    if claimed_severity not in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+        claimed_severity = "HIGH"
+
     validator: Optional[Agent] = None
     try:
         tools = [editor, shell]

@@ -60,8 +60,6 @@ def _b64(input) -> str:
     return base64.b64encode(input_bytes).decode('ascii')
 
 
-
-
 @dataclass
 class RequestConfig:
     target_url: str
@@ -113,6 +111,9 @@ def advanced_payload_coordinator(
         raise ValueError("target_url is required")
     if not target_url.startswith(("http://", "https://")):
         target_url = f"https://{target_url}"
+
+    if test_type not in ["xss", "param_discovery", "cors", "comprehensive"]:
+        test_type = "comprehensive"
 
     request_config = RequestConfig(
         target_url=target_url,
