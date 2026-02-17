@@ -1,16 +1,14 @@
-![Cyber-AutoAgent Cover Art](docs/cover_art.png)
-
 <div align="center">
 
-![GitHub License](https://img.shields.io/github/license/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/westonbrown/Cyber-AutoAgent/ci.yml?branch=main&style=flat-square)
-![GitHub issues](https://img.shields.io/github/issues/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub pull requests](https://img.shields.io/github/issues-pr/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub contributors](https://img.shields.io/github/contributors/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub stars](https://img.shields.io/github/stars/westonbrown/Cyber-AutoAgent?style=flat-square)
-![GitHub forks](https://img.shields.io/github/forks/westonbrown/Cyber-AutoAgent?style=flat-square)
+![GitHub License](https://img.shields.io/github/license/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/bvcyber/Cyber-AutoAgent-ng/ci.yml?branch=main&style=flat-square)
+![GitHub issues](https://img.shields.io/github/issues/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub contributors](https://img.shields.io/github/contributors/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub stars](https://img.shields.io/github/stars/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
+![GitHub forks](https://img.shields.io/github/forks/bvcyber/Cyber-AutoAgent-ng?style=flat-square)
 
 **[!] EXPERIMENTAL SOFTWARE - USE ONLY IN AUTHORIZED, SAFE, SANDBOXED ENVIRONMENTS [!]**
 
@@ -22,16 +20,8 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-yellow?logo=python&style=for-the-badge)](https://www.python.org)
 [![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange?logo=amazon-aws&style=for-the-badge)](https://aws.amazon.com/bedrock/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_AI-green?style=for-the-badge)](https://ollama.ai)
-[![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/WNHhsnkTc3)
+[![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/mxtSRhwY)
 
-</div>
-
----
-
-![Demo GIF](docs/agent_demo.gif)
-
-<div align="center">
-  <em>Cyber-AutoAgent in action - Autonomous security operations with AI reasoning</em>
 </div>
 
 ---
@@ -67,22 +57,11 @@
 
 The React-based terminal interface is now the **default UI**, providing interactive configuration, real-time operation monitoring, and guided setup in all deployment modes.
 
-### Quick Install via pip
-
-```bash
-# Install from PyPI
-pip install cyber-autoagent
-
-# Run the CLI
-caa --help
-caa --target "http://example.com" --objective "Security assessment"
-```
-
 ### Local Development - Recommended
 
 ```bash
 # Clone and setup
-git clone https://github.com/double16/Cyber-AutoAgent.git
+git clone https://github.com/bvcyber/Cyber-AutoAgent-ng.git
 cd Cyber-AutoAgent
 
 # Install in editable mode
@@ -120,7 +99,7 @@ docker run -it --rm \
   -e CYBER_AGENT_LLM_MODEL=azure/gpt-5 \
   -e CYBER_AGENT_EMBEDDING_MODEL=azure/text-embedding-3-large \
   -v $(pwd)/outputs:/app/outputs \
-  cyberautoagent:latest
+  cyber-autoagent:latest
 ```
 
 **Direct Python Execution (Non-Interactive):**
@@ -134,7 +113,7 @@ docker run --rm --entrypoint python \
   -e CYBER_AGENT_EMBEDDING_MODEL=azure/text-embedding-3-large \
   -e REASONING_EFFORT=medium \
   -v $(pwd)/outputs:/app/outputs \
-  cyberautoagent:latest \
+  cyber-autoagent:latest \
   src/cyberautoagent.py \
   --target "http://testphp.vulnweb.com" \
   --objective "Identify SQL injection vulnerabilities" \
@@ -576,7 +555,7 @@ Configure the system to use model `qwen3-coder-30b:32k`. Other models can have t
 
 ```bash
 # Clone repository
-git clone https://github.com/double16/cyber-autoagent.git
+git clone https://github.com/bvcyber/Cyber-AutoAgent-ng.git
 cd cyber-autoagent
 
 # Build image
@@ -601,7 +580,7 @@ docker run --rm \
 
 ```bash
 # Clone repository
-git clone https://github.com/double16/cyber-autoagent.git
+git clone https://github.com/bvcyber/Cyber-AutoAgent-ng.git
 cd cyber-autoagent
 
 # Create virtual environment

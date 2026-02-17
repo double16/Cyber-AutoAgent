@@ -153,7 +153,7 @@ export class ErrorBoundary extends Component<Props, State> {
               If this error persists, please report it at:
             </Text>
             <Text color={theme.primary}>
-              https://github.com/double16/Cyber-AutoAgent/issues
+              https://github.com/bvcyber/Cyber-AutoAgent-ng/issues
             </Text>
           </Box>
           </Box>

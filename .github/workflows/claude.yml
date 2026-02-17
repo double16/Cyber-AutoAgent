@@ -1,10 +1,10 @@
 name: Claude Agent
 
-on:
-  issues:
-    types: [labeled]
-  issue_comment:
-    types: [created]
+on: []
+#  issues:
+#    types: [labeled]
+#  issue_comment:
+#    types: [created]
 
 jobs:
   claude-agent:

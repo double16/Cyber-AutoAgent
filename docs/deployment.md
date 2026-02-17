@@ -64,7 +64,7 @@ docker run -it --rm \
   -e AZURE_API_BASE=https://your-endpoint.openai.azure.com/ \
   -e CYBER_AGENT_LLM_MODEL=azure/gpt-5 \
   -v $(pwd)/outputs:/app/outputs \
-  cyberautoagent:latest
+  cyber-autoagent:latest
 ```
 
 **Direct Python Execution (Override Entrypoint):**
@@ -77,7 +77,7 @@ docker run --rm --entrypoint python \
   -e CYBER_AGENT_EMBEDDING_MODEL=azure/text-embedding-3-large \
   -e REASONING_EFFORT=medium \
   -v $(pwd)/outputs:/app/outputs \
-  cyberautoagent:latest \
+  cyber-autoagent:latest \
   src/cyberautoagent.py \
   --target https://example.com \
   --objective "Security assessment" \
@@ -146,7 +146,7 @@ Cyber-AutoAgent supports **300+ LLM providers** via LiteLLM. Examples:
 
 ```bash
 # Clone the repository
-git clone https://github.com/double16/cyber-autoagent.git
+git clone https://github.com/bvcyber/Cyber-AutoAgent-ng.git
 cd cyber-autoagent
 
 # Build and run with Docker Compose (includes observability)

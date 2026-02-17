@@ -34,7 +34,7 @@ const SETUP_STEPS = {
 'single-container': [
     { name: 'preflight', label: 'Initializing setup', detail: 'Loading configuration and environment checks' },
     { name: 'docker-check', label: 'Checking Docker', detail: 'Verifying Docker Desktop is running' },
-    { name: 'pull', label: 'Images availability', detail: 'Checking/pulling cyberautoagent:latest if missing' },
+    { name: 'pull', label: 'Images availability', detail: 'Checking/pulling cyber-autoagent:latest if missing' },
     { name: 'containers-start', label: 'Starting container', detail: 'docker run cyber-autoagent' },
     { name: 'network-setup', label: 'Setting up network', detail: 'Configuring port mappings' },
     { name: 'validation', label: 'Health check', detail: 'Verifying container is responsive' }
