@@ -398,7 +398,7 @@ def test_coordinate_injection_testing_custom_detects_command_indicator(monkeypat
     monkeypatch.setattr(apc, "_requests_get_text", fake_get_text)
 
     rc = apc.RequestConfig(target_url="http://example.test/page", http_method="GET")
-    res = apc._coordinate_injection_testing(rc, parameters=["name"], tools=[])
+    res = apc._coordinate_injection_testing(rc, parameters=["name"], tools=[], focus_injection_types=None)
 
     vulns = [r for r in res if r.get("vulnerable")]
     assert vulns
@@ -516,7 +516,7 @@ def test_advanced_payload_coordinator_orchestrates_phases_and_formats_output(mon
         {"parameter": "name", "vulnerable": True, "payload_type": "Advanced XSS (inHTML)", "payload": "PAY", "url": "http://t/?name=PAY"}
     ])
     monkeypatch.setattr(apc, "_test_cors_configurations", lambda rc, tools=None: [])
-    monkeypatch.setattr(apc, "_coordinate_injection_testing", lambda rc, params, tools=None: [])
+    monkeypatch.setattr(apc, "_coordinate_injection_testing", lambda rc, params, tools=None, focus_injection_types=None: [])
     monkeypatch.setattr(apc, "_analyze_payload_intelligence", lambda payload_results: {"severity_distribution": {"Advanced XSS (inHTML)": 1}, "attack_vectors": ["xss"], "bypass_techniques": [], "exploitation_chains": []})
     monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC1", "REC2"])
 
@@ -543,6 +543,143 @@ def test_advanced_payload_coordinator_orchestrates_phases_and_formats_output(mon
     # should not emit prose anymore
     assert "Phase 1:" not in out
     assert "[PAYLOAD]" not in out
+
+
+# -------------------------
+# SSTI test_type orchestration
+# -------------------------
+
+def test_advanced_payload_coordinator_ssti_runs_only_ssti_injection_and_passes_focus(monkeypatch):
+    calls = {"inj": 0}
+
+    # Phase 1: tools setup (avoid tool execution)
+    monkeypatch.setattr(apc, "_setup_payload_tools", lambda: {"success": True, "tools": [], "failed": []})
+
+    # Phase 2: parameter discovery should run for ssti
+    monkeypatch.setattr(apc, "_advanced_parameter_discovery", lambda rc, provided_params=None, tools=None: ["name"])
+
+    # XSS/CORS should not run for ssti-only mode
+    monkeypatch.setattr(apc, "_coordinate_xss_testing", lambda *a, **k: (_ for _ in ()).throw(AssertionError("xss should not run for test_type='ssti'")))
+    monkeypatch.setattr(apc, "_test_cors_configurations", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cors should not run for test_type='ssti'")))
+
+    # Phase 5: injection testing should be invoked with SSTI focus
+    def fake_injection_testing(request_config: apc.RequestConfig, parameters, tools=None, focus_injection_types=None):
+        calls["inj"] += 1
+        assert focus_injection_types == {"SSTI"}
+        return [
+            {
+                "vulnerable": True,
+                "injection_type": "SSTI",
+                "parameter": "name",
+                "payload": "{{7*7}}",
+                "url": "http://example.test/page?name=%7B%7B7*7%7D%7D",
+                "method": request_config.http_method,
+                "evidence": "Template evaluation detected",
+                "tool": "fake",
+            }
+        ]
+
+    monkeypatch.setattr(apc, "_coordinate_injection_testing", fake_injection_testing)
+
+    # Keep analysis/recs deterministic
+    monkeypatch.setattr(
+        apc,
+        "_analyze_payload_intelligence",
+        lambda payload_results: {
+            "severity_distribution": {"SSTI": 1},
+            "attack_vectors": ["ssti"],
+            "bypass_techniques": [],
+            "exploitation_chains": [],
+        },
+    )
+    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC"])
+
+    out = apc.advanced_payload_coordinator(
+        "http://example.test/page",
+        test_type="ssti",
+        http_method="GET",
+    )
+
+    data = json.loads(out)
+    assert data["test_type"] == "ssti"
+    assert data["parameters_discovered"] == ["name"]
+
+    # Injection ran (SSTI-focused) and produced a vuln
+    assert calls["inj"] == 1
+    assert data["counts"]["vulnerabilities"] == 1
+    assert any(v.get("injection_type") == "SSTI" and v.get("vulnerable") is True for v in data["vulnerabilities"])
+
+
+def test_coordinator_ssti_retries_post_when_get_produces_no_ssti_vulns(monkeypatch):
+    calls = {"inj": []}
+
+    # Phase 1: tools setup (avoid tool execution)
+    monkeypatch.setattr(apc, "_setup_payload_tools", lambda: {"success": True, "tools": [], "failed": []})
+
+    # Phase 2: parameter discovery should return something on GET
+    monkeypatch.setattr(apc, "_advanced_parameter_discovery", lambda rc, provided_params=None, tools=None: ["name"])
+
+    # XSS/CORS should not run for ssti-only mode
+    monkeypatch.setattr(apc, "_coordinate_xss_testing", lambda *a, **k: (_ for _ in ()).throw(AssertionError("xss should not run for test_type='ssti'")))
+    monkeypatch.setattr(apc, "_test_cors_configurations", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cors should not run for test_type='ssti'")))
+
+    # Phase 5: injection testing — GET yields *no SSTI vulns*, POST yields a vuln
+    def fake_injection_testing(request_config: apc.RequestConfig, parameters, tools=None, focus_injection_types=None):
+        calls["inj"].append(request_config.http_method)
+        assert focus_injection_types == {"SSTI"}
+
+        if request_config.http_method.upper() == "GET":
+            return [
+                {
+                    "vulnerable": False,
+                    "injection_type": "Multiple injection types",
+                    "parameter": "name",
+                    "tool": "fake",
+                }
+            ]
+
+        return [
+            {
+                "vulnerable": True,
+                "injection_type": "SSTI",
+                "parameter": "name",
+                "payload": "{{7*7}}",
+                "url": "http://example.test/page?name=%7B%7B7*7%7D%7D",
+                "method": request_config.http_method,
+                "evidence": "Template evaluation detected",
+                "tool": "fake",
+            }
+        ]
+
+    monkeypatch.setattr(apc, "_coordinate_injection_testing", fake_injection_testing)
+
+    # Keep analysis/recs deterministic
+    monkeypatch.setattr(
+        apc,
+        "_analyze_payload_intelligence",
+        lambda payload_results: {
+            "severity_distribution": {"SSTI": 1},
+            "attack_vectors": ["ssti"],
+            "bypass_techniques": [],
+            "exploitation_chains": [],
+        },
+    )
+    monkeypatch.setattr(apc, "_generate_payload_recommendations", lambda test_type, results: ["REC"])
+
+    out = apc.advanced_payload_coordinator(
+        "http://example.test/page",
+        test_type="ssti",
+        http_method="GET",
+    )
+
+    # Injection should run GET then POST (because GET produced no SSTI vulns)
+    assert calls["inj"] == ["GET", "POST"]
+
+    data = json.loads(out)
+    assert data["http_method"] == "POST"
+    assert data["test_type"] == "ssti"
+    assert data["counts"]["vulnerabilities"] == 1
+    assert any(v.get("injection_type") == "SSTI" and v.get("method") == "POST" and v.get("vulnerable") is True for v in data["vulnerabilities"])
 
 
 def test_coordinator_retries_post_when_get_produces_no_param_results(monkeypatch):
@@ -742,7 +879,7 @@ def test_coordinator_phase5_retries_post_when_get_produces_no_injection_vulns(mo
     monkeypatch.setattr(apc, "_test_cors_configurations", lambda *a, **k: [])
 
     # Phase 5: injection testing — GET yields *no vulns*, POST yields a vuln
-    def fake_injection_testing(request_config: apc.RequestConfig, parameters, tools=None):
+    def fake_injection_testing(request_config: apc.RequestConfig, parameters, tools=None, focus_injection_types=None):
         calls["inj"].append(request_config.http_method)
 
         if request_config.http_method.upper() == "GET":
