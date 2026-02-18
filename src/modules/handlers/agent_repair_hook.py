@@ -58,7 +58,9 @@ class AgentRepairHook(HookProvider):
             if agent is not None and max_tokens_reached:
                 logger.info("Model input token limit reached, checking if this is a reasoning loop")
                 max_tokens_retry_count = getattr(agent, "_max_tokens_retry_count", 0)
-                if max_tokens_retry_count < 2:
+                if max_tokens_retry_count >= 2:
+                    logger.error("Too many attempts to continue from reasoning loop (%d)", max_tokens_retry_count)
+                else:
                     # this _could_ be a reasoning loop, we need to check if reducing the text makes a noticeable difference
 
                     # sometimes the max_tokens response includes the response, otherwise we'll look for reasoning text
@@ -75,8 +77,8 @@ class AgentRepairHook(HookProvider):
                         replace_last_message = truncated_message and len(agent.messages) > 0 and any(
                             [block.get("text", "").startswith(truncated_message_prefix) for block in
                              agent.messages[-1].get("content", [])])
-                    if not truncated_message and len(agent.messages) > 0 and agent.messages[-1].get("role",
-                                                                                                    "") == "assistant":
+                    if not truncated_message and len(agent.messages) > 0 and \
+                            agent.messages[-1].get("role","") == "assistant":
                         truncated_message = "".join(
                             [block.get("text", "") for block in agent.messages[-1].get("content", [])]
                         ).strip()
@@ -92,16 +94,17 @@ class AgentRepairHook(HookProvider):
                             collapse_first_repeated_sequence(truncated_message),
                             similarity_threshold=0.5, max_lines=40
                         ).to_text().strip()
-                        if len(reduced_text) < (len(truncated_message) * 0.80):
-                            setattr(agent, "_max_tokens_retry_count", max_tokens_retry_count + 1)
-                            state = self._state_bag(event)
-                            state[_REASONING_LOOP_RETRY_STATE_KEY] = (reduced_text, replace_last_message)
-                            event.retry = True
-                            logger.warning(
-                                "Model input token limit reached in step %s, retrying with reduced text",
-                                str(callback_handler.current_step) if callback_handler else "?"
-                            )
-                            return
+                        setattr(agent, "_max_tokens_retry_count", max_tokens_retry_count + 1)
+                        state = self._state_bag(event)
+                        state[_REASONING_LOOP_RETRY_STATE_KEY] = (reduced_text, replace_last_message)
+                        event.retry = True
+                        logger.warning(
+                            "Model input token limit reached in step %s, retrying with reduced text",
+                            str(callback_handler.current_step) if callback_handler else "?"
+                        )
+                        return
+                    else:
+                        logger.warning("Reasoning text not found")
 
             if event.stop_response is None:
                 return
