@@ -43,7 +43,7 @@
     "js-yaml": "^4.1.1",
     "meow": "^14.0.0",
     "node-pty": "^1.0.0",
-    "react": "^19.1.1",
+    "react": "^19.2.4",
     "strip-ansi": "^7.1.0",
     "yaml": "^2.8.0"
   },
@@ -55,7 +55,7 @@
     "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.9",
-    "@types/react": "^19.1.13",
+    "@types/react": "^19.2.14",
     "@types/react-test-renderer": "^19.1.0",
     "babel-jest": "^30.2.0",
     "chalk": "^5.4.1",
