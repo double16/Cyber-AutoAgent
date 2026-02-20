@@ -25,13 +25,11 @@
     "validate": "npm run build && npm run test:all"
   },
   "dependencies": {
-    "@types/chokidar": "^1.7.5",
-    "@types/yaml": "^1.9.6",
     "ansi-escapes": "^7.0.0",
     "chokidar": "^5.0.0",
     "commander": "^14.0.2",
     "dockerode": "^4.0.9",
-    "ink": "^6.3.1",
+    "ink": "^6.8.0",
     "ink-big-text": "^2.0.0",
     "ink-gradient": "^3.0.0",
     "ink-link": "^5.0.0",
@@ -49,7 +47,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
-    "@babel/preset-env": "^7.28.0",
+    "@babel/preset-env": "^7.29.0",
     "@jest/globals": "^30.2.0",
     "@types/dockerode": "^4.0.1",
     "@types/jest": "^30.0.0",
@@ -62,7 +60,7 @@
     "ink-testing-library": "^4.0.0",
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
-    "jsdom": "^27.4.0",
+    "jsdom": "^28.1.0",
     "react-dom": "^19.1.1",
     "react-test-renderer": "^19.2.4",
     "ts-jest": "^29.4.6",
