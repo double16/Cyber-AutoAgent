@@ -63,6 +63,10 @@ jobs:
         cache: 'npm'
         cache-dependency-path: src/modules/interfaces/react/package-lock.json
 
+    - name: npm install packages
+      working-directory: src/modules/interfaces/react
+      run: npm install
+
     - name: Run React tests
       working-directory: src/modules/interfaces/react
       run: npm run validate
