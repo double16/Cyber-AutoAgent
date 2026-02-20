@@ -26,7 +26,7 @@ from modules.config.types import (
 logger = get_logger("Config.LiteLLMProvider")
 
 
-def split_litellm_model_id(model_id: str) -> Tuple[str, str]:
+def split_litellm_model_id(model_id: str) -> Tuple[str, str, str]:
     """Split LiteLLM model id into provider prefix and base id.
 
     Args:
@@ -36,8 +36,9 @@ def split_litellm_model_id(model_id: str) -> Tuple[str, str]:
         Tuple of (provider_prefix, base_model_id)
         Returns ("", model_id) if no prefix found
     """
+    variant = None
     if not model_id or not isinstance(model_id, str):
-        return "", ""
+        return "", "", ""
     if ":" in model_id:
         model_id, variant = model_id.split(":", maxsplit=1)
     if "/" in model_id:
@@ -45,8 +46,8 @@ def split_litellm_model_id(model_id: str) -> Tuple[str, str]:
         # Special handling for Gemini "models/" prefix
         if prefix.lower() == "models":
             prefix = "gemini"
-        return prefix.lower(), base
-    return "", model_id
+        return prefix.lower(), base, f"{base}:{variant}" if variant else base
+    return "", model_id, f"{model_id}:{variant}" if variant else model_id
 
 
 def get_context_window_fallbacks(provider: str) -> Optional[List[Dict[str, List[str]]]]:
@@ -89,7 +90,7 @@ def align_litellm_defaults(
     if not isinstance(llm_cfg, LLMConfig):
         return
 
-    provider_prefix, base_model = split_litellm_model_id(llm_cfg.model_id)
+    provider_prefix, base_model, _ = split_litellm_model_id(llm_cfg.model_id)
     if not base_model:
         return
 
@@ -136,10 +137,11 @@ def align_litellm_defaults(
     for key in ("memory_llm", "evaluation_llm", "swarm_llm"):
         cfg = defaults.get(key)
         if isinstance(cfg, MemoryLLMConfig):
-            cfg.model_id = llm_cfg.model_id
-            cfg.provider = ModelProvider.LITELLM
-            cfg.parameters["temperature"] = cfg.temperature
-            cfg.parameters["max_tokens"] = cfg.max_tokens
+            if not env_reader.get("MEM0_LLM_MODEL"):
+                cfg.model_id = llm_cfg.model_id
+                cfg.provider = ModelProvider.LITELLM
+                cfg.parameters["temperature"] = cfg.temperature
+                cfg.parameters["max_tokens"] = cfg.max_tokens
         elif isinstance(cfg, LLMConfig):
             cfg.model_id = llm_cfg.model_id
             cfg.provider = ModelProvider.LITELLM

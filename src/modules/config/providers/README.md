@@ -60,10 +60,10 @@ LiteLLM proxy configuration for 300+ providers.
 ```python
 from modules.config.providers.litellm_config import split_litellm_model_id
 
-provider, model = split_litellm_model_id("azure/gpt-5")
+provider, model, model_with_variant = split_litellm_model_id("azure/gpt-5")
 # Returns: ("azure", "gpt-5")
 
-provider, model = split_litellm_model_id("gpt-4")
+provider, model, model_with_variant = split_litellm_model_id("gpt-4")
 # Returns: ("", "gpt-4")
 ```
 

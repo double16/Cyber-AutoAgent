@@ -41,18 +41,21 @@ def testalign_mem0_config_sets_expected_provider():
 
 
 def test_split_model_prefix_handles_no_prefix():
-    prefix, remainder = split_litellm_model_id("claude-3")
+    prefix, remainder, with_variant = split_litellm_model_id("claude-3")
     assert prefix == ""
     assert remainder == "claude-3"
+    assert with_variant == "claude-3"
 
 
 def test_split_model_prefix_handles_prefix_variant():
-    prefix, remainder = split_litellm_model_id("openrouter/openai/gpt-oss-120b:free")
+    prefix, remainder, with_variant = split_litellm_model_id("openrouter/openai/gpt-oss-120b:free")
     assert prefix == "openrouter"
     assert remainder == "openai/gpt-oss-120b"
+    assert with_variant == "openai/gpt-oss-120b:free"
 
 
 def test_split_model_prefix_handles_prefix():
-    prefix, remainder = split_litellm_model_id("openrouter/openai/gpt-oss-120b")
+    prefix, remainder, with_variant = split_litellm_model_id("openrouter/openai/gpt-oss-120b")
     assert prefix == "openrouter"
     assert remainder == "openai/gpt-oss-120b"
+    assert with_variant == "openai/gpt-oss-120b"

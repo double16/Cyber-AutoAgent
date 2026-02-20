@@ -84,6 +84,9 @@ def auto_setup(skip_mem0_cleanup: bool = False) -> List[str]:
     except Exception:
         pass
 
+    # Disable RAGAS evaluator tracking
+    os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
+
     # Create necessary directories in proper locations
     try:
         tools_path = Path("tools")

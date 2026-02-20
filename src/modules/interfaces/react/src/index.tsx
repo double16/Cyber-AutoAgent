@@ -67,7 +67,7 @@ const cli = meow(`
     --provider          Model provider: bedrock (default), ollama, or litellm
     --model             Specific model ID to use
     --region            AWS region (default: us-east-1)
-    --observability     Enable observability tracing (default: true)
+    --observability     Enable observability tracing (default: false)
     --debug, -d         Enable debug mode
     --headless          Run in headless mode for scripting
     --deployment-mode   Deployment mode: local-cli, single-container, full-stack
@@ -81,6 +81,7 @@ const cli = meow(`
     $ cyber-react -t 192.168.1.100 -o "port scan and service enumeration" -i 25 --auto-approve
 `, {
   importMeta: import.meta,
+  booleanDefault: undefined,
   flags: {
     target: {
       type: 'string',

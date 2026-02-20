@@ -646,7 +646,7 @@ class ConfigManager:
                 },
             }
         elif server == "litellm":
-            prefix, model_name = self._split_litellm_model_id(
+            prefix, base_model, model_name = self._split_litellm_model_id(
                 memory_config.embedder.model_id
             )
             mem0_provider = MEM0_PROVIDER_MAP.get(prefix, "huggingface")
@@ -697,7 +697,7 @@ class ConfigManager:
             }
         elif server == "litellm":
             # Map LiteLLM model prefix to a Mem0-supported provider (e.g., azure_openai, openai, aws_bedrock)
-            prefix, model_name = self._split_litellm_model_id(
+            prefix, base_model, model_name = self._split_litellm_model_id(
                 memory_config.llm.model_id
             )
             mem0_llm_provider = MEM0_PROVIDER_MAP.get(prefix, "huggingface")
@@ -890,7 +890,7 @@ class ConfigManager:
 
         return defaults
 
-    def _split_litellm_model_id(self, model_id: str) -> Tuple[str, str]:
+    def _split_litellm_model_id(self, model_id: str) -> Tuple[str, str, str]:
         """Split LiteLLM model id into provider prefix and base id."""
         return split_litellm_model_id(model_id)
 
@@ -1175,7 +1175,7 @@ def align_mem0_config(model_id: Optional[str], memory_config: dict[str, Any]) ->
         pass
 
     # Split model ID to get provider prefix
-    prefix, remainder = split_litellm_model_id(model_id)
+    prefix, remainder, remainder_variant = split_litellm_model_id(model_id)
     if not prefix:
         return
     expected = MEM0_PROVIDER_MAP.get(prefix)
@@ -1188,8 +1188,8 @@ def align_mem0_config(model_id: Optional[str], memory_config: dict[str, Any]) ->
     if current_provider != expected.lower():
         llm_section["provider"] = expected
     config_section = llm_section.setdefault("config", {})
-    if expected == "azure_openai" and remainder:
-        config_section["model"] = remainder
+    if expected == "azure_openai" and remainder_variant:
+        config_section["model"] = remainder_variant
 
 
 def check_existing_memories(target: str, _provider: str = "bedrock") -> bool:

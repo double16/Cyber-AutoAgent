@@ -61,7 +61,7 @@ def _get_prompt_limit_from_model(model_id: Optional[str]) -> Optional[int]:
     try:
         import litellm
 
-        prefix, remainder = split_litellm_model_id(model_id)
+        prefix, remainder, remainder_variant = split_litellm_model_id(model_id)
         candidates: List[str] = []
         # Common forms to try with LiteLLM's registry
         if remainder:
