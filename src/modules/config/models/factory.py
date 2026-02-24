@@ -892,6 +892,27 @@ def get_model_id_from_model(model) -> str:
     return model_id
 
 
+def get_provider_from_agent(agent) -> str:
+    provider = ""
+    model = getattr(agent, "model", None)
+    if model is not None:
+        provider = get_provider_from_model(model)
+    return provider
+
+
+def get_provider_from_model(model) -> Optional[str]:
+    clazz = model.__class__.__name__.lower()
+    if "ollama" in clazz:
+        return "ollama"
+    elif "litellm" in clazz:
+        return "litellm"
+    elif "bedrock" in clazz:
+        return "bedrock"
+    elif "gemini" in clazz:
+        return "gemini"
+    return None
+
+
 def get_model_timeout(model: Optional[Model] = None, default_timeout: Optional[int] = None) -> Optional[int]:
     from strands.models.ollama import OllamaModel
 

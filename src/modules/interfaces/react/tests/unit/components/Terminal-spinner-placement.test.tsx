@@ -228,9 +228,9 @@ describe('Terminal Spinner Placement', () => {
   it('adds waiting spinner after tool_end', () => {
     const events: TestEvent[] = [
       { type: 'step_header', step: 1 },
-      { type: 'tool_start', tool_name: 'mem0_memory' },
+      { type: 'tool_start', tool_name: 'mem0_store' },
       { type: 'output', content: '{"results": [...]}' },
-      { type: 'tool_end', tool_name: 'mem0_memory' }
+      { type: 'tool_end', tool_name: 'mem0_store' }
     ];
 
     const processed = processEventsForSpinners(events);

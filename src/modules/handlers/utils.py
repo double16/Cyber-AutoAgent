@@ -180,8 +180,6 @@ class Colors:
 
 def print_banner():
     """Display operation banner with neon cyberpunk gradient colors."""
-    import os
-
     if (
             os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes")
             or os.getenv("CYBER_UI_MODE", "cli").lower() == "react"
@@ -259,8 +257,6 @@ def print_banner():
 
 def print_section(title, content, color=Colors.BLUE, emoji=""):
     """Print formatted section with optional emoji."""
-    import os
-
     if (
             os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes")
             or os.getenv("CYBER_UI_MODE", "cli").lower() == "react"
@@ -276,8 +272,6 @@ def print_section(title, content, color=Colors.BLUE, emoji=""):
 
 def print_status(message, status="INFO"):
     """Print status message with color coding and emojis."""
-    import os
-
     if (
             os.getenv("CYBERAGENT_NO_BANNER", "").lower() in ("1", "true", "yes")
             or os.getenv("CYBER_UI_MODE", "cli").lower() == "react"

@@ -61,7 +61,7 @@ sequenceDiagram
         Tools-->>Agent: Scan results
         Strands->>Langfuse: Tool execution trace
         
-        Agent->>Tools: mem0_memory(store, finding)
+        Agent->>Tools: mem0_store(finding)
         Tools-->>Agent: Memory stored
         Strands->>Langfuse: Memory operation
     end

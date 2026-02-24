@@ -26,13 +26,12 @@
 - Promotion trigger: POC works + logic needed >2 times → MUST promote via editor+load_tool to OPERATION TOOLS DIRECTORY
 - Results: Store all outputs as artifacts with descriptive names
 
-**mem0_memory**
-- Step 0: store_plan with phases (id, title, status:"active/pending/done", criteria)
+**`mem0_*` tools**
 - Checkpoints (MANDATORY at 20%/40%/60%/80% budget):
-  1. get_plan → retrieve current plan from memory
+  1. mem0_get_plan → retrieve current plan from memory
   2. Evaluate criteria vs evidence
-  3. Update: Criteria met → store_plan(current_phase+1, status='done') | Stuck → pivot/swarm | Partial → continue
-- Actions: store, store_plan, get_plan, get, list, retrieve, delete
+  3. Update: Criteria met → mem0_store_plan(current_phase+1, status='done') | Stuck → pivot/swarm | Partial → continue
+- Memory tools: mem0_store, mem0_store_plan, mem0_get_plan, mem0_get, mem0_list, mem0_retrieve, mem0_delete
 - Plan JSON: `{"objective":"...", "current_phase":1, "total_phases":N, "phases":[{"id":1, "title":"...", "status":"...", "criteria":"..."}, ...]}`
 - Categories: finding | signal | decision | artifact | observation | plan
 - Content: Paths only, no binary blobs

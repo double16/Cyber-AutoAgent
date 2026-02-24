@@ -4,7 +4,13 @@ from modules.tools.memory import (
     Mem0ServiceClient,
     get_memory_client,
     initialize_memory_system,
-    mem0_memory,
+    mem0_store,
+    mem0_get,
+    mem0_retrieve,
+    mem0_list,
+    mem0_delete,
+    mem0_store_plan,
+    mem0_get_plan,
 )
 from modules.tools.browser import (
     initialize_browser,
@@ -39,7 +45,13 @@ from modules.tools.oast import (
 )
 
 __all__ = [
-    "mem0_memory",
+    "mem0_store",
+    "mem0_get",
+    "mem0_retrieve",
+    "mem0_list",
+    "mem0_delete",
+    "mem0_store_plan",
+    "mem0_get_plan",
     "initialize_memory_system",
     "get_memory_client",
     "Mem0ServiceClient",

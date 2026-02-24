@@ -11,7 +11,7 @@
 **Phase 1: DISCOVERY** (Objective Parsing → TTP Mapping)
 - Parse objective: What APT/campaign to emulate? What TTPs mentioned? What's the scope?
 - If threat intel provided in objective: Extract initial access, persistence, lateral movement, exfiltration methods
-- If only APT name: Research known TTPs (mem0_memory retrieve, http_request to threat intel sources)
+- If only APT name: Research known TTPs (mem0_retrieve, http_request to threat intel sources)
 - Map to MITRE ATT&CK techniques: Identify T#### IDs for each TTP
 - Gate: "Can I sequence a kill chain from available intel?" If NO: gather more context | If YES: Phase 2
 
@@ -56,8 +56,7 @@ Every TTP must create verifiable marker:
 
 **Detection Opportunity Format**:
 ```python
-mem0_memory(
-    action="store",
+mem0_store(
     content="[TTP_ID] [Technique Name]: [What was executed] → Detection: [How blue team detects this]",
     metadata={
         "category": "finding",

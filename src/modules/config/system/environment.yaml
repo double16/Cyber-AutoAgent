@@ -76,6 +76,11 @@ cyber_tools:
     preference: preferred
     caps: [injection_testing, exploitation_framework]
     canary: "commix --help"
+  idor-forge:
+    description: "Detection and exploitation of Insecure Direct Object Reference (IDOR) vulnerabilities."
+    preference: preferred
+    caps: [idor]
+    canary: "idor-forge --help"
 
   # ProjectDiscovery ecosystem
   nuclei:

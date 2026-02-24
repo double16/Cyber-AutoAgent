@@ -14,7 +14,7 @@ Cyber-AutoAgent implements persistent memory using Mem0 with automatic reflectio
 
 ```mermaid
 graph LR
-    A[Agent] --> B[mem0_memory Tool]
+    A[Agent] --> B[mem0_* Tools]
     B --> C{Backend Selection}
 
     C -->|MEM0_API_KEY set| D[Mem0 Platform]
@@ -91,10 +91,8 @@ Evidence storage employs structured metadata for efficient retrieval and analysi
 
 ```python
 # Finding storage with metadata
-mem0_memory(
-    action="store",
+mem0_store(
     content="[WHAT] SQL injection [WHERE] /login [IMPACT] Auth bypass [EVIDENCE] payload",
-    user_id="cyber_agent",
     metadata={
         "category": "finding",
         "severity": "CRITICAL",
@@ -144,7 +142,7 @@ Plan evaluation triggers at budget checkpoints:
 
 ```python
 # Budget checkpoint workflow
-plan = mem0_memory(action="get_plan")
+plan = mem0_get_plan()
 # Evaluate: Is current phase criteria met?
 # If yes: Update phase status to "done", advance current_phase
 # Store updated plan
@@ -156,8 +154,7 @@ Hierarchical planning with phase tracking:
 
 ```python
 # Plan storage (required format)
-mem0_memory(
-    action="store_plan",
+mem0_store_plan(
     content={
         "objective": "Compromise web application",
         "current_phase": 1,
@@ -171,7 +168,7 @@ mem0_memory(
 )
 
 # Plan retrieval
-current_plan = mem0_memory(action="get_plan")
+current_plan = mem0_get_plan()
 ```
 
 **Required Plan Fields:**
@@ -186,8 +183,7 @@ Tactical pivots are managed through plan updates:
 
 ```python
 # Update plan with new strategy after reflection
-mem0_memory(
-    action="store_plan",
+mem0_store_plan(
     content={
         "objective": "Compromise web application",
         "current_phase": 2,
@@ -227,35 +223,31 @@ mem0_memory(
 
 ## Memory Tool Usage
 
-The unified `mem0_memory` tool handles all operations:
-
 ### Basic Operations
 ```python
 # Store finding with metadata
-mem0_memory(
-    action="store",
+mem0_store(
     content="[WHAT] RCE [WHERE] /upload [IMPACT] Shell access [EVIDENCE] shell.php",
     metadata={"category": "finding", "severity": "critical", "confidence": "98%"}
 )
 
 # Search memories  
-mem0_memory(action="retrieve", query="SQL injection")
+mem0_retrieve(query="SQL injection")
 
 # List all memories
-mem0_memory(action="list", user_id="cyber_agent")
+mem0_list()
 
 # Get specific memory
-mem0_memory(action="get", memory_id="mem_123")
+mem0_get(memory_id="mem_123")
 
 # Delete memory
-mem0_memory(action="delete", memory_id="mem_123")
+mem0_delete(memory_id="mem_123")
 ```
 
 ### Advanced Operations
 ```python
 # Store strategic plan (dict format required)
-mem0_memory(
-    action="store_plan",
+mem0_store_plan(
     content={
         "objective": "Compromise web application",
         "current_phase": 1,
@@ -269,11 +261,10 @@ mem0_memory(
 )
 
 # Get current plan
-current_plan = mem0_memory(action="get_plan")
+current_plan = mem0_get_plan()
 
 # Update plan after tactical pivot
-mem0_memory(
-    action="store_plan",
+mem0_store_plan(
     content={
         "objective": "Compromise web application",
         "current_phase": 2,
@@ -290,42 +281,38 @@ mem0_memory(
 ### Memory Query Patterns
 ```python
 # Semantic search (current operation only - default)
-mem0_memory(action="retrieve", query="SQL injection vulnerabilities")
+mem0_retrieve(query="SQL injection vulnerabilities")
 
 # Search with metadata filter
-mem0_memory(
-    action="retrieve",
+mem0_retrieve(
     query="authentication bypass",
     metadata={"category": "finding", "severity": "CRITICAL"}
 )
 
 # Cross-operation learning (search ALL operations)
-mem0_memory(
-    action="retrieve",
+mem0_retrieve(
     query="SQL injection techniques",
     cross_operation=True  # Enables cross-learning
 )
 
 # List memories from current operation
-mem0_memory(action="list", user_id="cyber_agent")
+mem0_list()
 
 # List all memories across operations
-mem0_memory(action="list", user_id="cyber_agent", cross_operation=True)
+mem0_list(cross_operation=True)
 ```
 
 ### Cross-Operation Learning
 ```python
 # Learn from past successful exploits
-mem0_memory(
-    action="retrieve",
+mem0_retrieve(
     query="successful exploitation techniques",
     metadata={"status": "verified"},
     cross_operation=True
 )
 
 # Find what blocked previous attempts
-mem0_memory(
-    action="retrieve",
+mem0_retrieve(
     query="blocked or filtered",
     metadata={"category": "observation"},
     cross_operation=True

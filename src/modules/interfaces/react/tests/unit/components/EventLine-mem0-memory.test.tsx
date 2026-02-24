@@ -1,5 +1,5 @@
 /**
- * Render mem0_memory store/retrieve headers to verify formatting and content previews
+ * Render mem0 store/retrieve headers to verify formatting and content previews
  */
 import { describe, it, expect, jest, afterEach } from '@jest/globals';
 import React from 'react';
@@ -11,19 +11,19 @@ async function importEventLine() {
   return mod.EventLine as React.FC<any>;
 }
 
-describe('EventLine mem0_memory formatting', () => {
+describe('EventLine mem0 formatting', () => {
   afterEach(() => jest.resetModules());
 
   it('shows store action with content preview', async () => {
     const EventLine = await importEventLine();
     const event = {
       type: 'tool_start',
-      tool_name: 'mem0_memory',
-      tool_input: { action: 'store', content: 'note: sql injection vector at /search' }
+      tool_name: 'mem0_store',
+      tool_input: { content: 'note: sql injection vector at /search' }
     };
     const { lastFrame } = render(React.createElement(EventLine, { event, animationsEnabled: false }));
     const out = lastFrame();
-    expect(out).toMatch(/tool:\s+mem0_memory/i);
+    expect(out).toMatch(/tool:\s+mem0_store/i);
     expect(out).toMatch(/action:\s+storing/i);
     expect(out).toMatch(/content|query/i);
     expect(out).toMatch(/sql injection/i);
@@ -33,12 +33,12 @@ describe('EventLine mem0_memory formatting', () => {
     const EventLine = await importEventLine();
     const event = {
       type: 'tool_start',
-      tool_name: 'mem0_memory',
-      tool_input: { action: 'retrieve', query: 'find: injection' }
+      tool_name: 'mem0_retrieve',
+      tool_input: { query: 'find: injection' }
     };
     const { lastFrame } = render(React.createElement(EventLine, { event, animationsEnabled: false }));
     const out = lastFrame();
-    expect(out).toMatch(/tool:\s+mem0_memory/i);
+    expect(out).toMatch(/tool:\s+mem0_retrieve/i);
     expect(out).toMatch(/action:\s+retrieving/i);
     expect(out).toMatch(/find: injection/i);
   });
@@ -53,8 +53,8 @@ plan_phases[3]{id,title,status,criteria}:
   3,Exploit,pending,extract flag`;
     const event = {
       type: 'tool_start',
-      tool_name: 'mem0_memory',
-      tool_input: { action: 'store_plan', content: plan }
+      tool_name: 'mem0_store_plan',
+      tool_input: { content: plan }
     };
     const { lastFrame } = render(React.createElement(EventLine, { event, animationsEnabled: false }));
     const out = lastFrame();

@@ -455,20 +455,20 @@ def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_E
 
     class Event:
         def __init__(self):
-            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_E-deadbeef"}
+            self.tool_use = {"name": "mem0_store", "toolUseId": "tooluse_E-deadbeef"}
             self.result = {"toolUseId": "tooluse_E-deadbeef", "ok": True}
 
     ev = Event()
     hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
 
     # tool_use reverted
-    assert ev.tool_use["name"] == "mem0_memory"
-    assert ev.tool_use["toolUseId"] == "mem0_memory"
+    assert ev.tool_use["name"] == "mem0_store"
+    assert ev.tool_use["toolUseId"] == "mem0_store"
     assert ev.tool_use["_toolUseId"] == "tooluse_E-deadbeef"
 
     # result reverted
     assert "name" not in ev.result
-    assert ev.result["toolUseId"] == "mem0_memory"
+    assert ev.result["toolUseId"] == "mem0_store"
     assert ev.result["_toolUseId"] == "tooluse_E-deadbeef"
 
 
@@ -477,7 +477,7 @@ def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_N
 
     class Event:
         def __init__(self):
-            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_N-deadbeef"}
+            self.tool_use = {"name": "mem0_store", "toolUseId": "tooluse_N-deadbeef"}
             self.result = {"toolUseId": "tooluse_N-deadbeef", "ok": True}
 
     ev = Event()
@@ -485,12 +485,12 @@ def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_N
 
     # tool_use reverted
     assert ev.tool_use["name"] == ""
-    assert ev.tool_use["toolUseId"] == "mem0_memory"
+    assert ev.tool_use["toolUseId"] == "mem0_store"
     assert ev.tool_use["_toolUseId"] == "tooluse_N-deadbeef"
 
     # result reverted
     assert "name" not in ev.result
-    assert ev.result["toolUseId"] == "mem0_memory"
+    assert ev.result["toolUseId"] == "mem0_store"
     assert ev.result["_toolUseId"] == "tooluse_N-deadbeef"
 
 
@@ -499,14 +499,14 @@ def test_tooluseid_hook_reverts_tooluseid_and_result_when_generated_id_present_X
 
     class Event:
         def __init__(self):
-            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_X-deadbeef"}
+            self.tool_use = {"name": "mem0_store", "toolUseId": "tooluse_X-deadbeef"}
             self.result = {"toolUseId": "tooluse_X-deadbeef", "ok": True}
 
     ev = Event()
     hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
 
     # tool_use reverted
-    assert ev.tool_use["name"] == "mem0_memory"
+    assert ev.tool_use["name"] == "mem0_store"
     assert not ev.tool_use["toolUseId"]
     assert ev.tool_use["_toolUseId"] == "tooluse_X-deadbeef"
 
@@ -521,14 +521,14 @@ def test_tooluseid_hook_preserves_hallucinated_tooluseid():
 
     class Event:
         def __init__(self):
-            self.tool_use = {"name": "mem0_memory", "toolUseId": "tooluse_deadbeef"}
+            self.tool_use = {"name": "mem0_store", "toolUseId": "tooluse_deadbeef"}
             self.result = {"toolUseId": "tooluse_deadbeef", "ok": True}
 
     ev = Event()
     hook.revert_tool_use_id(ev)  # type: ignore[arg-type]
 
     # tool_use reverted
-    assert ev.tool_use["name"] == "mem0_memory"
+    assert ev.tool_use["name"] == "mem0_store"
     assert ev.tool_use["toolUseId"] == "tooluse_deadbeef"
     assert "_toolUseId" not in ev.tool_use
 
@@ -541,10 +541,10 @@ def test_tooluseid_hook_preserves_hallucinated_tooluseid():
 @pytest.mark.parametrize(
     "tool_name,tool_use_id",
     [
-        ("mem0_memory", "mem0_memory"),   # not generated
-        ("mem0_memory", ""),              # empty id
+        ("mem0_store", "mem0_store"),   # not generated
+        ("mem0_store", ""),              # empty id
         ("", "tooluse_deadbeef"),         # missing tool name => guard should prevent changes
-        ("mem0_memory", "abc123"),        # doesn't start with tooluse_
+        ("mem0_store", "abc123"),        # doesn't start with tooluse_
     ],
 )
 def test_tooluseid_hook_noop_when_not_generated_or_missing_name(tool_name, tool_use_id):

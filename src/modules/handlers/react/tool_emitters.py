@@ -29,17 +29,10 @@ class ToolEventEmitter:
             tool_input: Input parameters for the tool
         """
         emitter_map = {
-            "shell": self._emit_shell_commands,
-            "mem0_memory": self._emit_memory_operation,
             "http_request": self._emit_http_request,
-            "file_write": self._emit_file_write,
-            "editor": self._emit_editor_operation,
             "swarm": self._emit_swarm_operation,
             "python_repl": self._emit_python_repl,
-            "load_tool": self._emit_load_tool,
-            "stop": self._emit_stop_tool,
             "generate_security_report": self._emit_report_generator,
-            "handoff_to_agent": self._emit_agent_handoff,
             "complete_swarm_task": self._emit_swarm_complete,
             "think": self._emit_think_operation,
         }
@@ -52,16 +45,6 @@ class ToolEventEmitter:
             # Generic emitter needs tool_name and tool_input
             self._emit_generic_tool_params(tool_name, tool_input)
 
-    def _emit_shell_commands(self, tool_input: Any) -> None:
-        """Emit shell commands for display."""
-        # StreamDisplay renders shell commands directly from the 'tool_start' event's tool_input.
-        # Emitting separate 'command' events here causes duplicate "⎿" lines.
-        return
-
-    def _emit_memory_operation(self, tool_input: Any) -> None:
-        """Emit memory operation details."""
-        # Skip redundant metadata - tool formatter already shows this
-
     def _emit_http_request(self, tool_input: Any) -> None:
         """Emit HTTP request details."""
         if isinstance(tool_input, dict):
@@ -72,20 +55,6 @@ class ToolEventEmitter:
                 self.emit_ui_event(
                     {"type": "http_request_start", "method": method, "url": url}
                 )
-
-    def _emit_file_write(self, tool_input: Any) -> None:
-        """Emit file write operation details."""
-        # Skip redundant metadata - tool formatter already shows this
-
-    def _emit_editor_operation(self, tool_input: Any) -> None:
-        """No-op for editor details.
-
-        Rationale: arguments for editor operations are already rendered from the
-        tool_start payload. Emitting an additional metadata event here caused
-        duplicate and occasionally out-of-order argument lines. Keeping a single
-        source of truth (tool_start) avoids duplication and preserves ordering.
-        """
-        return
 
     def _emit_generic_tool_params(self, tool_name: str, tool_input: Any) -> None:  # pylint: disable=unused-argument
         """Emit generic tool parameters for tools without specialized handlers."""
@@ -189,22 +158,6 @@ class ToolEventEmitter:
                     }
                 )
 
-    def _emit_load_tool(self, tool_input: Any) -> None:
-        """No-op for load_tool details.
-
-        The UI renders load_tool parameters from the tool_start payload. Emitting
-        a separate metadata event here led to duplicate lines. We rely on the
-        tool_start args for a single, consistent view of the operation.
-        """
-        return
-
-    def _emit_stop_tool(self, tool_input: Any) -> None:
-        """Stop tool: no extra metadata emission to avoid duplicate 'stop reason' lines.
-
-        The StreamDisplay renders a concise 'tool: stop' block using the tool_input.
-        """
-        return
-
     def _emit_report_generator(self, tool_input: Any) -> None:
         """Emit report generation details."""
         if isinstance(tool_input, dict):
@@ -213,15 +166,6 @@ class ToolEventEmitter:
             self.emit_ui_event(
                 {"type": "metadata", "content": {"target": target, "type": report_type}}
             )
-
-    def _emit_agent_handoff(self, tool_input: Any) -> None:
-        """No-op for agent handoff details.
-
-        The StreamDisplay renders the handoff_to_agent tool header with
-        handoff target and message directly from tool_start/tool_input.
-        Emitting an extra metadata event here duplicates those lines.
-        """
-        return
 
     def _emit_swarm_complete(self, tool_input: Any) -> None:
         """Emit swarm completion event (placeholder for main handler)."""

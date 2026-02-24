@@ -133,7 +133,13 @@ class TraceParser:
         self.security_tools = {
             "shell",
             "http_request",
-            "mem0_memory",
+            "mem0_store",
+            "mem0_get",
+            "mem0_retrieve",
+            "mem0_list",
+            "mem0_delete",
+            "mem0_store_plan",
+            "mem0_get_plan",
             "editor",
             "load_tool",
             "swarm",
@@ -502,7 +508,7 @@ class TraceParser:
                     if isinstance(obs, dict)
                     else getattr(obs, "name", "")
                 )
-                # Strands tool invocations have names like "Tool: mem0_memory" or "execute_tool"
+                # Strands tool invocations have names like "Tool: mem0_store" or "execute_tool"
                 if obs_name and (
                     "Tool:" in obs_name
                     or "execute_tool" in obs_name.lower()
@@ -577,8 +583,6 @@ class TraceParser:
                         content = first_input["content"]
                         # Try to parse as JSON
                         try:
-                            import json
-
                             input_data = (
                                 json.loads(content)
                                 if isinstance(content, str)
@@ -652,7 +656,7 @@ class TraceParser:
         Returns:
             Number of memory operations
         """
-        return sum(1 for tc in tool_calls if tc.name == "mem0_memory")
+        return sum(1 for tc in tool_calls if tc.name.startswith("mem0_"))
 
     def count_evidence_findings(self, tool_calls: List[ParsedToolCall]) -> int:
         """Count evidence findings stored in memory.
@@ -665,7 +669,7 @@ class TraceParser:
         """
         findings = 0
         for tc in tool_calls:
-            if tc.name == "mem0_memory" and tc.input_data:
+            if tc.name == "mem0_store" and tc.input_data:
                 input_str = str(tc.input_data).lower()
                 # Check for finding indicators in the memory store
                 if (
@@ -773,12 +777,12 @@ class TraceParser:
         if tool.name == "shell":
             # Shell commands often have important output
             return f"[Shell Command Output] {output_str[:600]}"
-        elif tool.name == "mem0_memory":
+        elif tool.name == "mem0_store":
             # Memory operations contain findings
-            if "store" in str(tool.input_data):
-                return f"[Memory Store] {tool.input_data.get('content', '')[:400]}"
-            else:
-                return f"[Memory Operation] {output_str[:400]}"
+            return f"[Memory Store] {tool.input_data.get('content', '')[:400]}"
+        elif tool.name.startswith("mem0"):
+            # Memory operations contain findings
+            return f"[Memory Operation] {output_str[:400]}"
         elif tool.name == "http_request":
             # HTTP responses for vulnerability testing
             return f"[HTTP Response] {output_str[:500]}"
@@ -811,8 +815,7 @@ class TraceParser:
             current_op_id = None
 
         for tool in parsed_trace.tool_calls:
-            if tool.name == "mem0_memory" and isinstance(tool.input_data, dict):
-                action = tool.input_data.get("action", "")
+            if tool.name.startswith("mem0_") and isinstance(tool.input_data, dict):
                 content = tool.input_data.get("content", "")
                 meta = (
                     tool.input_data.get("metadata", {})
@@ -829,7 +832,7 @@ class TraceParser:
                 except Exception:
                     pass
 
-                if action == "store" and content and same_operation:
+                if tool.name == "mem0_store" and content and same_operation:
                     # Emit concise context for current-session findings only
                     sev = meta.get("severity", "unknown")
                     cat = meta.get("category", "unknown")
@@ -837,7 +840,7 @@ class TraceParser:
                         f"[Security Finding - {sev}/{cat}] {str(content)[:500]}"
                     )
 
-                elif action == "retrieve" and tool.output and same_operation:
+                elif tool.name == "mem0_retrieve" and tool.output and same_operation:
                     # Include retrieved findings from this operation only
                     output_str = str(tool.output)
                     if output_str:
@@ -860,16 +863,14 @@ class TraceParser:
                 return 0
             findings = 0
             for tool in parsed_trace.tool_calls:
-                if tool.name == "mem0_memory" and isinstance(tool.input_data, dict):
+                if tool.name == "mem0_store" and isinstance(tool.input_data, dict):
                     meta = (
                         tool.input_data.get("metadata", {})
                         if isinstance(tool.input_data.get("metadata", {}), dict)
                         else {}
                     )
-                    action = tool.input_data.get("action", "")
                     if (
                         meta.get("operation_id") == current_op_id
-                        and action == "store"
                         and tool.input_data.get("content")
                     ):
                         findings += 1
@@ -950,7 +951,7 @@ class TraceParser:
         # Include sample of findings if available
         findings_sample = []
         for tool in parsed_trace.tool_calls[:5]:
-            if tool.name == "mem0_memory" and "store" in str(tool.input_data):
+            if tool.name == "mem0_store":
                 if isinstance(tool.input_data, dict):
                     content = tool.input_data.get("content", "")
                     if content:

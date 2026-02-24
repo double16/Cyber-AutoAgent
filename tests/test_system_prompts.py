@@ -48,7 +48,7 @@ class TestGetSystemPrompt:
         )
 
         assert "CRITICAL FIRST ACTION**: Load all memories" in prompt
-        assert 'mem0_memory(action="list"' in prompt
+        assert 'mem0_list(' in prompt
         assert "Build upon previous discoveries" in prompt
 
     def test_get_system_prompt_with_existing_memories(self):
@@ -62,7 +62,7 @@ class TestGetSystemPrompt:
         )
 
         assert "CRITICAL FIRST ACTION**: Load all memories" in prompt
-        assert 'mem0_memory(action="list"' in prompt
+        assert 'mem0_list(' in prompt
         assert "Build upon previous discoveries" in prompt
 
     def test_get_system_prompt_with_both_memory_flags(self):
@@ -77,7 +77,7 @@ class TestGetSystemPrompt:
         )
 
         assert "CRITICAL FIRST ACTION**: Load all memories" in prompt
-        assert 'mem0_memory(action="list"' in prompt
+        assert 'mem0_list(' in prompt
         assert "Build upon previous discoveries" in prompt
 
     def test_get_system_prompt_no_memory_flags(self):

@@ -195,7 +195,7 @@ The following built-in tools are always included and do not require to be in the
 - shell
 - editor
 - load_tool
-- mem0_memory
+- mem0_*
 - stop
 - prompt_optimizer (if prompt optimization is enabled)
 

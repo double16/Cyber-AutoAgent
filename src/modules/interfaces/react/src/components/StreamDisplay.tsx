@@ -795,9 +795,15 @@ export const EventLine: React.FC<EventLineProps> = React.memo(({
               </Box>
             </Box>
           );
-        case 'mem0_memory': {
-          const action = latestInput?.action || 'list';
-          const rawContent = latestInput?.content || latestInput?.query || '';
+        case 'mem0_store_plan':
+        case 'mem0_store':
+        case 'mem0_get':
+        case 'mem0_retrieve':
+        case 'mem0_list':
+        case 'mem0_get_plan':
+        case 'mem0_delete': {
+          const action = event.tool_name.substring(5);
+          const rawContent = latestInput?.plan || latestInput?.content || latestInput?.query || '';
           // Ensure content is always a string (handle plan objects, etc.)
           let content: string;
           if (typeof rawContent === 'string') {
@@ -822,7 +828,7 @@ export const EventLine: React.FC<EventLineProps> = React.memo(({
 
           return (
             <Box flexDirection="column" marginTop={1}>
-              <Text color="green" bold>tool: mem0_memory</Text>
+              <Text color="green" bold>tool: {event.tool_name}</Text>
               <Box marginLeft={2}>
                 <Text dimColor>├─ action: {action === 'store_plan' ? 'store_plan' : action === 'store' ? 'storing' : action === 'retrieve' ? 'retrieving' : action}</Text>
               </Box>

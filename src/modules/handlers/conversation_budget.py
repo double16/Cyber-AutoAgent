@@ -867,6 +867,7 @@ class MappingConversationManager(SummarizingConversationManager):
     ) -> None:
         messages = getattr(agent, "messages", [])
         window_size = getattr(self._sliding, "window_size", 100) if self._sliding else 100
+        model_id = get_model_id_from_agent(agent) if agent is not None else ""
 
         if len(messages) > window_size * 1.2:  # 20% buffer
             logger.warning(
@@ -904,7 +905,7 @@ class MappingConversationManager(SummarizingConversationManager):
         # If the last assistant message is much larger, it could be a reasoning loop.
         if len(messages) > 3 and messages[-1].get("role", "") == "assistant":
             assistant_messages_tokens = [
-                estimate_prompt_tokens("", [message], None, None, None)
+                estimate_prompt_tokens(model_id, [message], None, None, None)
                 for message in messages
                 if message.get("role", "") == "assistant"
             ]
@@ -931,7 +932,7 @@ class MappingConversationManager(SummarizingConversationManager):
                         }
                     ]
                     reduced_text_tokens = estimate_prompt_tokens(
-                        "",
+                        model_id,
                         [{"role": "assistant", "content": reduced_message_content}],
                         None, None, None)
                     if reduced_text_tokens < avg_assistant_messages_tokens * 5:

@@ -90,7 +90,7 @@ class TestMemoryAwareAgentIntegration:
         system_prompt = agent.system_prompt
         assert "## MEMORY CONTEXT" in system_prompt
         assert "Continuing assessment with 5 existing memories" in system_prompt
-        assert "Load all memories with mem0_memory" in system_prompt
+        assert "Load all memories with mem0_list" in system_prompt
         assert "**CRITICAL FIRST ACTION**" in system_prompt
 
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
@@ -230,7 +230,7 @@ class TestMemoryAwareAgentIntegration:
         system_prompt = agent.system_prompt
         assert "## MEMORY CONTEXT" in system_prompt
         assert "Continuing assessment with 2 existing memories" in system_prompt
-        assert "Load all memories with mem0_memory" in system_prompt
+        assert "Load all memories with mem0_list" in system_prompt
 
     @patch("modules.agents.cyber_autoagent.initialize_memory_system")
     @patch("modules.agents.cyber_autoagent.get_memory_client")
@@ -356,9 +356,9 @@ class TestMemoryAwareAgentIntegration:
         system_prompt = agent.system_prompt
         assert "## MEMORY CONTEXT" in system_prompt
         assert "Continuing assessment with 1 existing memories" in system_prompt
-        assert "Load all memories with mem0_memory" in system_prompt
-        assert "Retrieve the active plan with mem0_memory" in system_prompt
-        assert "create one via mem0_memory" in system_prompt
+        assert "Load all memories with mem0_list" in system_prompt
+        assert "Retrieve the active plan with mem0_get_plan" in system_prompt
+        assert "create one via mem0_store_plan" in system_prompt
 
 
 if __name__ == "__main__":

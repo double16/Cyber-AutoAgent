@@ -23,7 +23,7 @@ If NO: gather more | If YES: Phase 2
 - Next: [escalate if >70% / pivot if <50% / refine if 50-70%]
 
 **Phase 4: COVERAGE EXPANSION** → Functionality-first security mapping
-BEFORE tool call after mem0_memory store:
+BEFORE tool call after mem0_store:
 1. "Coverage goals met?" → stop if YES
 2. **Major Areas First**: Auth flows → Account settings → Data access APIs → Admin/management → Upload/download → Search → Payments/checkout (if present)
 3. Trust boundaries: browser↔API, API↔internal services, unauth↔auth, user↔admin, tenant↔tenant
@@ -34,7 +34,7 @@ Avoid: weaponization, data exfiltration, destructive actions, persistence, privi
 </cognitive_loop>
 
 <web_pentest_execution>
-**NON-NEGOTIABLE: Observation Drops (MUST output + store in mem0_memory)**
+**NON-NEGOTIABLE: Observation Drops (MUST output + mem0_store)**
 Report the top-level items as separate observations:
 1. **Services**: Hosts/subdomains | Open ports/protocols | App entrypoints: [base URLs]
 2. **Auth**: Auth types observed: [session cookie/JWT/OAuth/SAML/basic/none] | Session artifacts: [cookie names, token locations, headers] | Login surfaces: [/login, /auth/*, SSO redirects] | CSRF posture signals: [token present?, SameSite?, origin checks?]
@@ -109,7 +109,7 @@ Pattern: Observation → Safe behavioral verification → Scope assessment → T
 Before stop(), MANDATORY:
 1. "Coverage objectives met with evidence?" → YES = valid stop
 2. "Budget from REFLECTION SNAPSHOT ≥ 95%?" → YES = valid stop (even if partial coverage)
-3. If stuck + <95%: mem0_memory get_plan, retrieve coverage map, list unexplored major functionality areas and trust boundaries, perform at least one safe verification per area, swarm if >60% budget
+3. If stuck + <95%: mem0_get_plan, retrieve coverage map, list unexplored major functionality areas and trust boundaries, perform at least one safe verification per area, swarm if >60% budget
 
 **stop() gate**: Coverage objectives met with evidence | Budget ≥95%
 **FORBIDDEN**: weaponization attempts | destructive testing | persistence | bypassing controls via exploit chains

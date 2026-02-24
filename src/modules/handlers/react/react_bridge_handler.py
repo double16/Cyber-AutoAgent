@@ -25,6 +25,9 @@ from ..output_interceptor import (
 )
 from .tool_emitters import ToolEventEmitter
 from modules.config.system.logger import get_logger
+from ...config.models import get_models_client
+from ...config.models.factory import get_model_id_from_agent, get_provider_from_agent
+from ...config.system import EnvironmentReader
 
 logger = get_logger("Handlers.ReactBridge")
 
@@ -66,6 +69,8 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         """
         super().__init__()
 
+        env_reader = EnvironmentReader()
+
         # Operation configuration
         self.current_step = 0
         self.max_steps = max_steps
@@ -77,9 +82,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         self.emitter = emitter or get_emitter(operation_id=self.operation_id)
         self.start_time = time.time()
         self.model_id = model_id
-        self.swarm_model_id = (
-            swarm_model_id or "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-        )
+        self.swarm_model_id = swarm_model_id or model_id
         self.init_context = init_context or {}
 
         # Metrics tracking
@@ -94,6 +97,17 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         self._sdk_cache_read_tokens = 0
         self._sdk_cache_write_tokens = 0
         # Metrics emission handled by background thread
+
+        try:
+            self.models_client = get_models_client()
+            logger.debug("models.dev client initialized successfully")
+        except Exception as e:
+            logger.warning("Failed to initialize models.dev client, model cost will not be reported", e)
+            self.models_client = None
+        self.pricing_input = env_reader.get_float("CYBER_AGENT_PRICING_INPUT", 0.0)
+        self.pricing_output = env_reader.get_float("CYBER_AGENT_PRICING_OUTPUT", 0.0)
+        self.pricing_cache_read = env_reader.get_float("CYBER_AGENT_PRICING_CACHE_READ", 0.0)
+        self.pricing_cache_write = env_reader.get_float("CYBER_AGENT_PRICING_CACHE_WRITE", 0.0)
 
         # Tool tracking
         self.tool_start_times = {}  # Track start times for duration calculation
@@ -389,6 +403,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
 
         agent = kwargs.get("agent")
         if agent and hasattr(agent, "event_loop_metrics"):
+            setattr(self, "_last_agent", agent)
             usage = agent.event_loop_metrics.accumulated_usage
             if usage:
                 self.sdk_input_tokens = usage.get("inputTokens", 0)
@@ -1321,24 +1336,22 @@ class ReactBridgeHandler(PrintingCallbackHandler):
 
         # Update live metrics for memory operations and evidence collection
         try:
-            if tool_name == "mem0_memory" and success:
+            if tool_name in {"mem0_store", "mem0_store_plan"} and success:
                 # Increment memory operation count on successful store/store_plan actions
                 if isinstance(tool_input, dict):
-                    action = tool_input.get("action") or tool_input.get("Action")
                     # Count both store and store_plan as memory operations
-                    if action in ("store", "store_plan"):
-                        self.memory_ops += 1
-                        # Only count evidence for store actions with report-generating categories
-                        # Categories per memory.py: finding, signal, observation, discovery
-                        if action == "store":
-                            metadata = (
-                                tool_input.get("metadata", {})
-                                if isinstance(tool_input.get("metadata"), dict)
-                                else {}
-                            )
-                            category = str(metadata.get("category", "")).lower()
-                            if category in ("finding", "signal", "observation", "discovery"):
-                                self.evidence_count += 1
+                    self.memory_ops += 1
+                    # Only count evidence for store actions with report-generating categories.
+                    # Categories per memory.py: finding, signal, observation, discovery
+                    if tool_name == "mem0_store":
+                        metadata = (
+                            tool_input.get("metadata", {})
+                            if isinstance(tool_input.get("metadata"), dict)
+                            else {}
+                        )
+                        category = str(metadata.get("category", "")).lower()
+                        if category in ("finding", "signal", "observation", "discovery"):
+                            self.evidence_count += 1
         except Exception:
             # Never allow metrics update errors to disrupt output
             pass
@@ -2310,6 +2323,11 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 "metrics": {
                     "tokens": 0,
                     "cost": 0.0,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "totalTokens": 0,
+                    "cacheReadTokens": self.sdk_cache_read_tokens,
+                    "cacheWriteTokens": self.sdk_cache_write_tokens,
                     "duration": "0s",
                     "memoryOps": 0,
                     "evidence": 0,
@@ -2381,6 +2399,41 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         except Exception:
             return ""
 
+    def _compute_cost_from_metrics(self, input_tokens: int, output_tokens: int, cache_read_tokens: int, cache_write_tokens: int) -> float:
+        cost = self.pricing_input * (input_tokens / 1_000_000) \
+               + self.pricing_output * (output_tokens / 1_000_000) \
+               + self.pricing_cache_read * (cache_read_tokens / 1_000_000) \
+               + self.pricing_cache_write * (cache_write_tokens / 1_000_000)
+
+        if self.models_client is None:
+            return cost
+
+        if hasattr(self, "_last_agent") and self._last_agent:
+            provider = get_provider_from_agent(self._last_agent)
+            if provider not in [None, "ollama"]:
+                model_id = get_model_id_from_agent(self._last_agent)
+                try:
+                    try:
+                        pricing = self.models_client.get_pricing(provider + "/" + model_id)
+                    except Exception:
+                        pricing = self.models_client.get_pricing(model_id)
+                    return (pricing.input or 0.0) * (input_tokens / 1_000_000) \
+                        + (pricing.output or 0.0) * (output_tokens / 1_000_000) \
+                        + (pricing.cache_read or 0.0) * (cache_read_tokens / 1_000_000) \
+                        + (pricing.cache_write or 0.0) * (cache_write_tokens / 1_000_000)
+                except Exception as e:
+                    # only report this once
+                    if hasattr(self, "_pricing_failures"):
+                        pricing_failures = getattr(self, "_pricing_failures")
+                    else:
+                        pricing_failures = set()
+                        setattr(self, "_pricing_failures", pricing_failures)
+                    if model_id not in pricing_failures:
+                        pricing_failures.add(model_id)
+                        logger.debug("Error getting pricing: {}".format(e), exc_info=True)
+
+        return cost
+
     def _emit_estimated_metrics(self, force=False) -> None:
         """Emit metrics based on SDK token counts.
 
@@ -2410,10 +2463,12 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                 logger.debug(f"Could not get metrics from agent: {e}")
 
         total_tokens = self.sdk_input_tokens + self.sdk_output_tokens
+        cost = self._compute_cost_from_metrics(self.sdk_input_tokens, self.sdk_output_tokens, self.sdk_cache_read_tokens, self.sdk_cache_write_tokens)
 
         # Build current metrics
         current_metrics = {
             "tokens": total_tokens,  # For Footer compatibility
+            "cost": cost,
             "inputTokens": self.sdk_input_tokens,
             "outputTokens": self.sdk_output_tokens,
             "totalTokens": total_tokens,
@@ -2489,6 +2544,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         # Emit explicit completion summary for UI/logs
         try:
             total_tokens = self.sdk_input_tokens + self.sdk_output_tokens
+            cost = self._compute_cost_from_metrics(self.sdk_input_tokens, self.sdk_output_tokens, self.sdk_cache_read_tokens, self.sdk_cache_write_tokens)
             self.emit_ui_event(
                 {
                     "type": "operation_complete",
@@ -2498,6 +2554,7 @@ class ReactBridgeHandler(PrintingCallbackHandler):
                         "inputTokens": self.sdk_input_tokens,
                         "outputTokens": self.sdk_output_tokens,
                         "totalTokens": total_tokens,
+                        "cost": cost,
                         # Cache metrics for prompt caching cost calculation
                         "cacheReadTokens": self.sdk_cache_read_tokens,
                         "cacheWriteTokens": self.sdk_cache_write_tokens,
@@ -3502,10 +3559,12 @@ class ReactBridgeHandler(PrintingCallbackHandler):
         """Get operation summary for reporting."""
         # Build current metrics for summary
         total_tokens = self.sdk_input_tokens + self.sdk_output_tokens
+        cost = self._compute_cost_from_metrics(self.sdk_input_tokens, self.sdk_output_tokens, self.sdk_cache_read_tokens, self.sdk_cache_write_tokens)
         current_metrics = {
             "inputTokens": self.sdk_input_tokens,
             "outputTokens": self.sdk_output_tokens,
             "totalTokens": total_tokens,
+            "cost": cost,
             # Cache metrics for prompt caching cost calculation
             "cacheReadTokens": self.sdk_cache_read_tokens,
             "cacheWriteTokens": self.sdk_cache_write_tokens,

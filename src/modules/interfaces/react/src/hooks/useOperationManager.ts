@@ -441,11 +441,14 @@ export function useOperationManager({
         
         // Handle token usage updates from metrics_update events
         if (event.type === 'metrics_update' && event.metrics) {
+          const cost = event.metrics.cost || 0;
           const inputTokens = event.metrics.inputTokens || 0;
           const outputTokens = event.metrics.outputTokens || 0;
-          
+          const cacheReadTokens = event.metrics.cacheReadTokens || 0;
+          const cacheWriteTokens = event.metrics.cacheWriteTokens || 0;
+
           if (inputTokens > 0 || outputTokens > 0) {
-            operationManager.updateTokenUsage(operation.id, inputTokens, outputTokens);
+            operationManager.updateTokenUsage(operation.id, inputTokens, outputTokens, cost, cacheReadTokens, cacheWriteTokens);
             
             const currentOp = operationManager.getOperation(operation.id);
             if (currentOp) {
@@ -459,28 +462,7 @@ export function useOperationManager({
             }
           }
         }
-        
-        // Also handle legacy token updates at top level (for backward compatibility)
-        else if (event.tokens || event.inputTokens || event.outputTokens || event.cost) {
-          const inputTokens = event.inputTokens || 0;
-          const outputTokens = event.outputTokens || 0;
-          
-          if (inputTokens > 0 || outputTokens > 0) {
-            operationManager.updateTokenUsage(operation.id, inputTokens, outputTokens);
-            
-            const currentOp = operationManager.getOperation(operation.id);
-            if (currentOp) {
-              updateMetricsThrottled({
-                tokens: currentOp.cost.tokensUsed,
-                cost: currentOp.cost.estimatedCost,
-                duration: operationManager.getOperationDuration(operation.id),
-                memoryOps: currentOp.findings,
-                evidence: currentOp.findings
-              });
-            }
-          }
-        }
-        
+
         // Handle critical errors
         if (event.type === 'error' && event.content && event.content.includes('CRITICAL')) {
           addOperationHistoryEntry('error', event.content);

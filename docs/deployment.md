@@ -333,6 +333,10 @@ export CYBER_CONTEXT_WINDOW_FALLBACKS='[
 | `CYBER_RATE_LIMIT_REQ_PER_MIN`    | Limit model requests per minute                   | No (no limit)                 |
 | `CYBER_RATE_LIMIT_TOKENS_PER_MIN` | Limit model tokens per minute                     | No (no limit)                 |
 | `CYBER_RATE_LIMIT_MAX_CONCURRENT` | Limit model concurrent requests                   | No (Ollama defaults to 1)     |
+| `CYBER_AGENT_PRICING_INPUT`       | Model price per 1M input tokens                   | No (defaults to models.dev)   |
+| `CYBER_AGENT_PRICING_OUTPUT`      | Model price per 1M output tokens                  | No (defaults to models.dev)   |
+| `CYBER_AGENT_PRICING_CACHE_READ`  | Model price per 1M cache read tokens              | No (defaults to models.dev)   |
+| `CYBER_AGENT_PRICING_CACHE_WRITE` | Model price per 1M cache write tokens             | No (defaults to models.dev)   |
 
 ### Kubernetes Deployment
 

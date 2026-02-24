@@ -63,8 +63,7 @@ AFTER each vulnerability found:
 
 **Memory Storage Pattern**:
 ```python
-mem0_memory(
-    action="store",
+mem0_store(
     content="[VULNERABILITY_TYPE] in [file:line]: [Description] → Exploit: [PoC scenario] → Fix: [Remediation]",
     metadata={
         "category": "finding",

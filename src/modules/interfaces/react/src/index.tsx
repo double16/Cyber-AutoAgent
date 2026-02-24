@@ -304,6 +304,8 @@ const runAutoAssessment = async () => {
       // Execute assessment and wait for completion
       const handle = await executionService.execute(assessmentParams, finalConfig);
 
+      let lastMetricsUpdate = "";
+
       // In auto-run mode, listen to events and display them to console
       // This provides real-time progress visibility during assessment
       executionService.on('event', (event: any) => {
@@ -312,6 +314,13 @@ const runAutoAssessment = async () => {
         }
         if (event.type === 'rate_limit' && event.sleep_time) {
           loggingService.info(` Rate limit: waiting for ${Math.ceil(event.sleep_time)} seconds`);
+        }
+        if (event.type === 'metrics_update') {
+            const metricsUpdateKey = event.metrics.tokens+"|"+event.metrics.inputTokens+"|"+event.metrics.outputToken+"|"+event.metrics.cost;
+            if (lastMetricsUpdate != metricsUpdateKey) {
+                lastMetricsUpdate = metricsUpdateKey;
+                loggingService.info(`💰 Cost: ${event.metrics.tokens.toLocaleString()} (${event.metrics.inputTokens.toLocaleString()} input + ${event.metrics.outputTokens.toLocaleString()} output) | $ ${event.metrics.cost.toFixed(6)}`);
+            }
         }
       });
 

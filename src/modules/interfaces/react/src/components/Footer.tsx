@@ -45,18 +45,6 @@ export const Footer: React.FC<FooterProps> = React.memo(({
     return cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`;
   };
 
-  const calculateCost = () => {
-    if (!operationMetrics || !model) return 0;
-    const inputTokens = operationMetrics.inputTokens || Math.floor((operationMetrics.tokens || 0) * 0.8);
-    const outputTokens = operationMetrics.outputTokens || Math.floor((operationMetrics.tokens || 0) * 0.2);
-    let pricing = config?.modelPricing?.[model];
-    if (!pricing) {
-      pricing = { inputCostPer1k: 0, outputCostPer1k: 0 };
-    }
-    const cost = (inputTokens / 1000) * pricing.inputCostPer1k + (outputTokens / 1000) * pricing.outputCostPer1k;
-    return cost;
-  };
-
   const getConnectionIcon = () => {
     switch (connectionStatus) {
       case 'connected':
@@ -71,7 +59,7 @@ export const Footer: React.FC<FooterProps> = React.memo(({
   };
 
   const connIcon = getConnectionIcon();
-  const totalCost = formatCost(calculateCost());
+  const totalCost = formatCost(operationMetrics?.cost || 0);
   const totalTokens = (operationMetrics?.tokens || 0).toLocaleString();
   const hasDuration = !!operationMetrics?.duration && operationMetrics?.duration !== '0s';
   const hasMem = (operationMetrics?.memoryOps || 0) > 0;

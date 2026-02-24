@@ -58,7 +58,7 @@ class TerminalStreamTestRunner {
         {
           name: 'recon_specialist',
           system_prompt: 'Elite reconnaissance specialist for attack surface mapping',
-          tools: ['shell', 'http_request', 'mem0_memory']
+          tools: ['shell', 'http_request', 'mem0_store']
         },
         {
           name: 'injection_hunter',

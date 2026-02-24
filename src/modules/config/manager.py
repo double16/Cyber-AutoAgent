@@ -1205,8 +1205,6 @@ def check_existing_memories(target: str, _provider: str = "bedrock") -> bool:
         True if existing memories are detected, False otherwise
     """
     try:
-        from modules.handlers.utils import sanitize_target_name
-
         # Sanitize target name for consistent path handling
         target_name = sanitize_target_name(target)
 

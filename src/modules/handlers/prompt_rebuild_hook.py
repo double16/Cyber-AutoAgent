@@ -396,8 +396,7 @@ class PromptRebuildHook(HookProvider):
 
 **Example - Store a finding:**
 ```
-mem0_memory(action="store",
-    content="[FINDING] SQL injection in /api/login - extracted admin credentials",
+mem0_store(content="[FINDING] SQL injection in /api/login - extracted admin credentials",
     metadata={{"category": "finding", "severity": "HIGH", "confidence": 85}})
 ```
 

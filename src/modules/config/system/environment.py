@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import threading
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -114,11 +115,23 @@ def auto_setup(skip_mem0_cleanup: bool = False) -> List[str]:
     if skip_mem0_cleanup:
         print_status("Using existing memory store", "INFO")
 
+    # httpx has two packages: python and projectdiscovery, we want projectdiscovery
+    try:
+        httpx_path = shutil.which("httpx")
+        if httpx_path and os.access(httpx_path, os.R_OK | os.W_OK) and os.stat(httpx_path).st_size > 10:
+            httpx_is_python = False
+            with open(httpx_path, "rb") as f:
+                magic = f.read(4)
+                if magic.startswith(b"#!/"):
+                    httpx_is_python = True
+            if httpx_is_python:
+                os.remove(httpx_path)
+    except Exception:
+        pass
+
     print_status("Discovering cyber security tools...", "INFO")
 
     # Emit structured event for React UI
-    import json
-
     tool_discovery_event = {
         "type": "tool_discovery_start",
         "timestamp": datetime.now().isoformat(),

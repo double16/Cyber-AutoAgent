@@ -312,6 +312,7 @@ export class OperationManager {
     operationId: string,
     inputTokens: number,
     outputTokens: number,
+    cost: number,
     cacheReadTokens: number = 0,
     cacheWriteTokens: number = 0
   ): void {
@@ -323,28 +324,7 @@ export class OperationManager {
     operation.cost.cacheReadTokens += cacheReadTokens;
     operation.cost.cacheWriteTokens += cacheWriteTokens;
     operation.cost.tokensUsed = operation.cost.inputTokens + operation.cost.outputTokens;
-
-    // Calculate cost including cache savings/overhead
-    // Cache read tokens are ~75% cheaper (use cacheReadCostPer1k)
-    // Cache write tokens are ~25% more expensive (use cacheWriteCostPer1k)
-    const pricing = operation.cost.modelPricing;
-    operation.cost.estimatedCost =
-      (operation.cost.inputTokens / 1000) * pricing.inputCostPer1k +
-      (operation.cost.outputTokens / 1000) * pricing.outputCostPer1k +
-      (operation.cost.cacheReadTokens / 1000) * pricing.cacheReadCostPer1k +
-      (operation.cost.cacheWriteTokens / 1000) * pricing.cacheWriteCostPer1k;
-
-    // Update session totals
-    this.sessionCost.inputTokens += inputTokens;
-    this.sessionCost.outputTokens += outputTokens;
-    this.sessionCost.cacheReadTokens += cacheReadTokens;
-    this.sessionCost.cacheWriteTokens += cacheWriteTokens;
-    this.sessionCost.tokensUsed = this.sessionCost.inputTokens + this.sessionCost.outputTokens;
-    this.sessionCost.estimatedCost +=
-      (inputTokens / 1000) * pricing.inputCostPer1k +
-      (outputTokens / 1000) * pricing.outputCostPer1k +
-      (cacheReadTokens / 1000) * pricing.cacheReadCostPer1k +
-      (cacheWriteTokens / 1000) * pricing.cacheWriteCostPer1k;
+    operation.cost.estimatedCost = cost;
   }
 
   // Add log entry
@@ -407,11 +387,6 @@ export class OperationManager {
     this.operations.set(newId, op);
     if (this.currentOperation?.id === oldId) this.currentOperation = op;
     return op;
-  }
-
-  // Get session cost
-  getSessionCost(): CostInfo {
-    return { ...this.sessionCost };
   }
 
   // Get available models

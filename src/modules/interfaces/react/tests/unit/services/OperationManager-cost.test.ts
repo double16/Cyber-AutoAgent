@@ -40,31 +40,12 @@ describe('OperationManager cost calculation', () => {
     },
   } as any;
 
-  it('computes estimatedCost from input/output token totals and pricing', () => {
+  it('accepts estimatedCost from cost metric', () => {
     const om = new OperationManager(baseConfig);
     const op = om.startOperation('web', 'example.com', 'assessment', 'us.anthropic.claude-sonnet-4-20250514-v1:0');
 
-    om.updateTokenUsage(op.id, 2000, 1000); // 2k input, 1k output
+    om.updateTokenUsage(op.id, 2000, 1000, 0.042); // 2k input, 1k output
     const updated = om.getOperation(op.id)!;
-    // expected cost = (2k/1k)*0.006 + (1k/1k)*0.03 = 0.012 + 0.03 = 0.042
     expect(Number(updated.cost.estimatedCost.toFixed(6))).toBeCloseTo(0.042, 6);
-  });
-
-  it('uses config pricing for alternative model and yields different cost', () => {
-    const om = new OperationManager(baseConfig);
-    const op = om.startOperation('web', 'example.com', 'assessment', 'claude-3-haiku-20240307-v1:0');
-    om.updateTokenUsage(op.id, 1000, 2000);
-    const updated = om.getOperation(op.id)!;
-    const expected = (1000/1000)*0.00025 + (2000/1000)*0.00125; // 0.00025 + 0.0025 = 0.00275
-    expect(Number(updated.cost.estimatedCost.toFixed(6))).toBeCloseTo(expected, 6);
-  });
-
-  it('treats ollama provider as free (0 cost)', () => {
-    const cfg = { ...baseConfig, modelProvider: 'ollama' as const };
-    const om = new OperationManager(cfg);
-    const op = om.startOperation('web', 'example.com', 'assessment', 'llama3.2:3b');
-    om.updateTokenUsage(op.id, 5000, 5000);
-    const updated = om.getOperation(op.id)!;
-    expect(updated.cost.estimatedCost).toBe(0);
   });
 });

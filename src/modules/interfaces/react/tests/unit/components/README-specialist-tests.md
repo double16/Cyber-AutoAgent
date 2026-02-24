@@ -5,7 +5,7 @@
 ### ✅ Passing Tests (13/13)
 - **toolFormatters-specialist.test.ts** - All tests passing
   - validation_specialist formatter (5 tests)
-  - mem0_memory formatter enhancements (5 tests)
+  - mem0_* formatter enhancements (5 tests)
   - Error handling (3 tests)
 
 ### ⚠️ Known Issues
@@ -19,7 +19,7 @@
 
 The **formatter tests provide full coverage** of the specialist event logic:
 1. ✅ validation_specialist input formatting
-2. ✅ mem0_memory list/retrieve handling
+2. ✅ mem0 list/retrieve handling
 3. ✅ TOON plan previews
 4. ✅ Null/undefined/invalid input handling
 5. ✅ Edge cases (empty arrays, missing fields, long strings)

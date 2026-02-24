@@ -1,7 +1,7 @@
 /**
  * Tool formatter tests for specialist tools
  *
- * Tests the formatting of validation_specialist and mem0_memory tool inputs
+ * Tests the formatting of validation_specialist and mem0 tool inputs
  * for display in the UI.
  */
 import { describe, it, expect } from '@jest/globals';
@@ -86,17 +86,16 @@ describe('Specialist tool formatters', () => {
     });
   });
 
-  describe('mem0_memory formatter enhancements', () => {
+  describe('mem0 formatter enhancements', () => {
     it('formats list action without truncating JSON', async () => {
       const mod: any = await import('../../../src/utils/toolFormatters.js');
       const { toolFormatters } = mod;
 
       const input = {
-        action: 'list',
         query: 'vulnerabilities'
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_list(input);
 
       expect(formatted).toContain('list memories');
       // Should NOT show truncated JSON
@@ -108,11 +107,10 @@ describe('Specialist tool formatters', () => {
       const { toolFormatters } = mod;
 
       const input = {
-        action: 'retrieve',
         query: 'findings'
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_retrieve(input);
 
       expect(formatted).toContain('retrieve memories');
       expect(formatted).not.toContain('[{');
@@ -123,11 +121,10 @@ describe('Specialist tool formatters', () => {
       const { toolFormatters } = mod;
 
       const input = {
-        action: 'store',
         content: 'Important finding about SQLi'
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_store(input);
 
       expect(formatted).toContain('storing memory');
       expect(formatted).toContain('SQLi');
@@ -145,11 +142,10 @@ plan_phases[3]{id,title,status,criteria}:
   3,Report,pending,document results`;
 
       const input = {
-        action: 'store_plan',
         content: plan
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_store_plan(input);
 
       expect(formatted).toContain('plan:');
       expect(formatted).toContain('Complete security assessment');
@@ -171,11 +167,10 @@ plan_phases[3]{id,title,status,criteria}:
       });
 
       const input = {
-        action: 'store_plan',
         content: nestedResponse
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_store_plan(input);
 
       // Should successfully extract nested JSON and parse TOON format
       expect(formatted).toContain('store_plan');
@@ -196,11 +191,10 @@ plan_phases[3]{id,title,status,criteria}:
       });
 
       const input = {
-        action: 'store',
         content: nestedResponse
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_store(input);
 
       expect(formatted).toContain('storing memory');
       expect(formatted).toContain('content:');
@@ -213,30 +207,16 @@ plan_phases[3]{id,title,status,criteria}:
       const { toolFormatters } = mod;
 
       const input = {
-        action: 'store',
         content: '{invalid json content...'
       };
 
-      const formatted = toolFormatters.mem0_memory(input);
+      const formatted = toolFormatters.mem0_store(input);
 
       // Should not crash, should show truncated original content
       expect(formatted).toContain('storing memory');
       expect(typeof formatted).toBe('string');
     });
 
-    it('handles unknown action gracefully', async () => {
-      const mod: any = await import('../../../src/utils/toolFormatters.js');
-      const { toolFormatters } = mod;
-
-      const input = {
-        action: 'unknown'
-      };
-
-      const formatted = toolFormatters.mem0_memory(input);
-
-      // Should return empty string for unknown action
-      expect(formatted).toBe('');
-    });
   });
 
   describe('formatter error handling', () => {

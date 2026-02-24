@@ -420,22 +420,19 @@ def _plan_first_directive(has_existing_memories: bool) -> str:
     if has_existing_memories:
         return dedent(
             f"""
-            **CRITICAL FIRST ACTION**: Load all memories with mem0_memory(action="list", user_id="cyber_agent")
-            NEXT: Retrieve the active plan with mem0_memory(action="get_plan"); if none, create one via mem0_memory(action="store_plan") before other tools
-            {category_guidance}
-            """
+**CRITICAL FIRST ACTION**: Load all memories with mem0_list()
+NEXT: Retrieve the active plan with mem0_get_plan(); if none, create one via mem0_store_plan() before other tools
+{category_guidance}"""
         ).strip()
     else:
         return dedent(
             f"""
-            Starting fresh assessment with no previous context
-            Do NOT check memory on fresh operations (no retrieval of prior data)
-            CRITICAL FIRST ACTION: Create a strategic plan via mem0_memory(action="store_plan", content={{...}})
-            Format: content={{objective, current_phase, total_phases, phases: [{{id, title, status, criteria}}]}}
-            Then begin reconnaissance and target information gathering guided by the plan
-            Store all findings immediately with category="finding" (NOT "observation" for exploits!)
-            {category_guidance}
-            """
+Starting fresh assessment with no previous context
+Do NOT check memory on fresh operations (no retrieval of prior data)
+CRITICAL FIRST ACTION: Create a strategic plan via mem0_store_plan(plan={{...}})
+Then begin reconnaissance and target information gathering guided by the plan
+Store all findings immediately with category="finding" (NOT "observation" for exploits!)
+{category_guidance}"""
         ).strip()
 
 

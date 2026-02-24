@@ -353,8 +353,8 @@ def main():
         "--memory-mode",
         type=str,
         choices=["auto", "fresh"],
-        default="auto",
-        help="Memory initialization mode: 'auto' loads existing memory if found (default), 'fresh' starts with new memory",
+        default="fresh" if os.getenv("MEMORY_ISOLATION") == "operation" else "auto",
+        help="Memory initialization mode: 'auto' loads existing memory if found, 'fresh' starts with new memory",
     )
     parser.add_argument(
         "--keep-memory",

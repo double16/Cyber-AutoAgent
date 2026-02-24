@@ -22,7 +22,7 @@ FROM kalilinux/kali-rolling
 
 LABEL org.opencontainers.image.title="Cyber-AutoAgent Tools"
 LABEL org.opencontainers.image.description="Autonomous AI agent for ethical security assessments"
-LABEL org.opencontainers.image.version="0.7.0"
+LABEL org.opencontainers.image.version="0.8.0"
 LABEL org.opencontainers.image.source="https://github.com/bvcyber/Cyber-AutoAgent-ng"
 LABEL org.opencontainers.image.licenses="MIT"
 
@@ -251,6 +251,19 @@ RUN git clone --depth=1 https://github.com/vladko312/SSTImap.git /opt/sstimap &&
     chmod +x /opt/sstimap/sstimap.py && \
     echo '#!/bin/bash\ncd /opt/sstimap && source venv/bin/activate && python3 /opt/sstimap/sstimap.py "$@"' > /usr/local/bin/sstimap && \
     chmod +x /usr/local/bin/sstimap
+
+# IDOR-Forge - IDOR scanner
+RUN git clone --depth=1 https://github.com/errorfiathck/IDOR-Forge.git /opt/idor_forge && \
+    if [ -f /opt/idor_forge/requirements.txt ]; then \
+      cd /opt/idor_forge && \
+      python3 -m venv venv && \
+      . venv/bin/activate && \
+      cat requirements.txt | tr -s '[:space:]' '\n' | grep -vi pyqt > reqs.txt && \
+      pip install -r reqs.txt; \
+    fi && \
+    chmod +x /opt/idor_forge/IDOR-Forge.py && \
+    echo '#!/bin/bash\ncd /opt/idor_forge && source venv/bin/activate && python3 /opt/idor_forge/IDOR-Forge.py "$@"' > /usr/local/bin/idor-forge && \
+    chmod +x /usr/local/bin/idor-forge
 
 # Gopherus - SSRF payload generator
 RUN git clone --depth=1 https://github.com/tarunkant/Gopherus.git /opt/gopherus && \

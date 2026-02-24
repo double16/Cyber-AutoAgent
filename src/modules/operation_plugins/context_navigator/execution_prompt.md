@@ -62,8 +62,7 @@ AFTER major discovery milestone:
 
 **Memory Storage Pattern**:
 ```python
-mem0_memory(
-    action="store",
+mem0_store(
     content="[System/Network/Data/Security] Discovery: [What was found] → Context: [What this means for operation]",
     metadata={
         "category": "finding",
