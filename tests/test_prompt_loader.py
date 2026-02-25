@@ -372,40 +372,17 @@ def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
     assert loader.last_loaded_execution_prompt_source == f"web:{master_path}"
 
 
-def test_module_prompt_loader_deep_path_search_manifestless(tmp_path, monkeypatch):
-    """Test that modules without a module.yaml are still discovered via deep search."""
-    # Create module in a subdirectory without module.yaml
+def test_module_prompt_loader_find_module_dir_deep_search(tmp_path, monkeypatch):
+    """Test that modules are discovered via deep search when they have a module.yaml."""
+    # Create module in a subdirectory with module.yaml
     collection_dir = tmp_path / "operation_plugins" / "my_collection"
     module_dir = collection_dir / "web"
     module_dir.mkdir(parents=True)
     
-    # Create a prompt and tools directory
-    (module_dir / "execution_prompt.md").write_text("Deep web prompt")
-    tools_dir = module_dir / "tools"
-    tools_dir.mkdir()
+    (module_dir / "module.yaml").write_text("name: web\n")
     
     loader = ModulePromptLoader()
     monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
     
     found_dir = loader._find_module_dir("web")
-    assert found_dir == module_dir
-    
-    prompt_path, p_dir = loader._find_prompt_path("web", "execution_prompt.md")
-    assert prompt_path == module_dir / "execution_prompt.md"
-    assert p_dir == module_dir
-    
-    td_path, td_dir = loader._find_tools_dir("web")
-    assert td_path == tools_dir
-    assert td_dir == module_dir
-
-
-def test_module_prompt_loader_shallow_path_search_manifestless(tmp_path, monkeypatch):
-    """Test that shallow modules without module.yaml are discovered correctly."""
-    module_dir = tmp_path / "operation_plugins" / "shallow_web"
-    module_dir.mkdir(parents=True)
-    
-    loader = ModulePromptLoader()
-    monkeypatch.setattr(loader, "plugin_dirs", [tmp_path / "operation_plugins"])
-    
-    found_dir = loader._find_module_dir("shallow_web")
     assert found_dir == module_dir

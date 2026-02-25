@@ -801,8 +801,6 @@ class ModulePromptLoader:
         Performs a deep search using **/module_name/module.yaml or
         **/module_name/module.yml so that modules can be nested inside
         sub-directories (e.g. external_plugins/collection/web/).
-        Falls back to a shallow base/module_name lookup for modules
-        that do not have a module.yaml manifest.
         """
         for base in self.plugin_dirs:
             try:
@@ -812,10 +810,6 @@ class ModulePromptLoader:
                         mdir = yaml_file.parent
                         if mdir.is_dir():
                             return mdir
-                # Fallback: deep lookup for manifest-less modules
-                for mdir in base.rglob(module_name):
-                    if mdir.is_dir():
-                        return mdir
             except Exception:
                 continue
         return None
@@ -886,54 +880,29 @@ class ModulePromptLoader:
     def _find_prompt_path(self, module_name: str, filename: str) -> Tuple[Optional[Path], Optional[Path]]:
         """Find a prompt file for a module across plugin roots.
 
-        Uses deep search (**/module_name/module.yaml) to locate the module
-        directory, then resolves the prompt file within it.
+        Uses the module's directory to resolve the prompt file within it.
 
         Returns (path, module_dir).
         """
-        for base in self.plugin_dirs:
-            try:
-                # Deep search via module manifest
-                for yaml_fname in ("module.yaml", "module.yml"):
-                    for yaml_file in base.rglob(f"{module_name}/{yaml_fname}"):
-                        p = yaml_file.parent / filename
-                        if p.exists() and p.is_file():
-                            return p, p.parent
-                # Fallback: deep lookup
-                for mdir in base.rglob(module_name):
-                    if mdir.is_dir():
-                        p = mdir / filename
-                        if p.exists() and p.is_file():
-                            return p, mdir
-            except Exception:
-                continue
+        mdir = self._find_module_dir(module_name)
+        if mdir:
+            p = mdir / filename
+            if p.exists() and p.is_file():
+                return p, mdir
         return None, None
 
     def _find_tools_dir(self, module_name: str) -> Tuple[Optional[Path], Optional[Path]]:
         """Find tools directory for a module across plugin roots.
 
-        Uses deep search (**/module_name/module.yaml) to locate the module
-        directory, then resolves the tools/ sub-directory within it.
+        Uses the module's directory to resolve the tools/ sub-directory within it.
 
         Returns (tools_dir, module_dir).
         """
-        for base in self.plugin_dirs:
-            try:
-                # Deep search via module manifest
-                for yaml_fname in ("module.yaml", "module.yml"):
-                    for yaml_file in base.rglob(f"{module_name}/{yaml_fname}"):
-                        mdir = yaml_file.parent
-                        td = mdir / "tools"
-                        if td.exists() and td.is_dir():
-                            return td, mdir
-                # Fallback: deep lookup
-                for mdir in base.rglob(module_name):
-                    if mdir.is_dir():
-                        td = mdir / "tools"
-                        if td.exists() and td.is_dir():
-                            return td, mdir
-            except Exception:
-                continue
+        mdir = self._find_module_dir(module_name)
+        if mdir:
+            td = mdir / "tools"
+            if td.exists() and td.is_dir():
+                return td, mdir
         return None, None
 
     def _read_tools_allowlist(self, module_dir: Optional[Path]) -> Optional[List[str]]:
