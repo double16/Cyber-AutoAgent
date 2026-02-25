@@ -2413,10 +2413,16 @@ class ReactBridgeHandler(PrintingCallbackHandler):
             if provider not in [None, "ollama"]:
                 model_id = get_model_id_from_agent(self._last_agent)
                 try:
+                    pricing = None
                     try:
-                        pricing = self.models_client.get_pricing(provider + "/" + model_id)
+                        if provider != "litellm":
+                            pricing = self.models_client.get_pricing(provider + "/" + model_id)
                     except Exception:
+                        pass
+                    if pricing is None:
                         pricing = self.models_client.get_pricing(model_id)
+                    if pricing is None:
+                        raise Exception(f"No pricing for model {model_id}")
                     return (pricing.input or 0.0) * (input_tokens / 1_000_000) \
                         + (pricing.output or 0.0) * (output_tokens / 1_000_000) \
                         + (pricing.cache_read or 0.0) * (cache_read_tokens / 1_000_000) \

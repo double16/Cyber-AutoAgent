@@ -305,11 +305,9 @@ class ConfigManager:
             # Update main LLM
             if "llm" in defaults and isinstance(defaults["llm"], LLMConfig):
                 defaults["llm"].model_id = user_model
-            # Update memory LLM
-            if "memory_llm" in defaults and isinstance(
-                defaults["memory_llm"], MemoryLLMConfig
-            ):
-                defaults["memory_llm"].model_id = user_model
+            # Update swarm LLM
+            if "swarm_llm" in defaults and isinstance(defaults["swarm_llm"], LLMConfig):
+                defaults["swarm_llm"].model_id = user_model
             # Update evaluation LLM
             if "evaluation_llm" in defaults and isinstance(
                 defaults["evaluation_llm"], LLMConfig
@@ -786,6 +784,7 @@ class ConfigManager:
         server_config = self.get_server_config(server)
 
         if server == "ollama":
+            os.environ["MEM0_LLM_PROVIDER"] = server_config.memory.llm.provider.value
             os.environ["MEM0_LLM_PROVIDER"] = "ollama"
             os.environ["MEM0_LLM_MODEL"] = server_config.memory.llm.model_id
             os.environ["MEM0_EMBEDDING_MODEL"] = server_config.memory.embedder.model_id

@@ -461,6 +461,7 @@ class ModelsDevClient:
             'moonshot': 'moonshotai',
             'anthropic': 'amazon-bedrock',  # When used with ARN format
             'gemini': 'google',  # Gemini models are under google provider
+            'nvidia_nim': 'nvidia',
         }
 
         # Handle provider/model format with alias resolution
