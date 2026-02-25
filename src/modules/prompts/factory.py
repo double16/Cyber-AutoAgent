@@ -812,10 +812,10 @@ class ModulePromptLoader:
                         mdir = yaml_file.parent
                         if mdir.is_dir():
                             return mdir
-                # Fallback: shallow lookup for manifest-less modules
-                mdir = base / module_name
-                if mdir.exists() and mdir.is_dir():
-                    return mdir
+                # Fallback: deep lookup for manifest-less modules
+                for mdir in base.rglob(module_name):
+                    if mdir.is_dir():
+                        return mdir
             except Exception:
                 continue
         return None
@@ -899,10 +899,12 @@ class ModulePromptLoader:
                         p = yaml_file.parent / filename
                         if p.exists() and p.is_file():
                             return p, p.parent
-                # Fallback: shallow lookup
-                p = base / module_name / filename
-                if p.exists() and p.is_file():
-                    return p, p.parent
+                # Fallback: deep lookup
+                for mdir in base.rglob(module_name):
+                    if mdir.is_dir():
+                        p = mdir / filename
+                        if p.exists() and p.is_file():
+                            return p, mdir
             except Exception:
                 continue
         return None, None
@@ -924,11 +926,12 @@ class ModulePromptLoader:
                         td = mdir / "tools"
                         if td.exists() and td.is_dir():
                             return td, mdir
-                # Fallback: shallow lookup
-                mdir = base / module_name
-                td = mdir / "tools"
-                if td.exists() and td.is_dir():
-                    return td, mdir
+                # Fallback: deep lookup
+                for mdir in base.rglob(module_name):
+                    if mdir.is_dir():
+                        td = mdir / "tools"
+                        if td.exists() and td.is_dir():
+                            return td, mdir
             except Exception:
                 continue
         return None, None
