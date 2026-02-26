@@ -158,9 +158,30 @@ Modules are discovered from multiple sources:
 4. Built-in: `src/modules/operation_plugins/`
 
 **Validation Requirements:**
-- Valid `module.yaml` file
+- Valid `module.yaml` or `module.yml` file
 - At least one prompt file (execution or report)
 - Proper directory structure
+
+### Nested Module Directories
+
+Modules can be organized logically inside nested directories, which is useful when organizing collections of plugins or cloning entire repositories of modules into an `external_plugins/` directory.
+
+The agent will automatically perform a deep recursive search within your module roots to discover any directory that contains a `module.yaml` manifest.
+
+**Example Structure**:
+```text
+external_plugins/
+  my-custom-collection/
+    recon/
+      nmap-scanner/
+        module.yaml   <-- Discovered!
+        tools/
+    exploitation/
+      sql-injector/
+        module.yaml   <-- Discovered!
+        tools/
+```
+*(Note: A `module.yaml` or `module.yml` manifest is strictly **required** for a module to be detected and loaded.)*
 
 ## Tool Integration
 

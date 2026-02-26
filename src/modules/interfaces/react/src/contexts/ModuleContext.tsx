@@ -92,29 +92,42 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const modules: Record<string, ModuleInfo> = {};
 
+      const findModuleDirsDeep = async (dir: string): Promise<string[]> => {
+        let results: string[] = [];
+        try {
+          const entries = await fs.readdir(dir, { withFileTypes: true });
+
+          const hasManifest = entries.some(
+            e => !e.isDirectory() && (e.name === 'module.yaml' || e.name === 'module.yml')
+          );
+          if (hasManifest) {
+            results.push(dir);
+          }
+
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              const subDirPath = path.join(dir, entry.name);
+              const subResults = await findModuleDirsDeep(subDirPath);
+              results.push(...subResults);
+            }
+          }
+        } catch {
+          // Ignore access errors on missing/protected folders
+        }
+        return results;
+      };
+
       // Search roots in order; first root providing a module name wins.
       for (const root of moduleRoots) {
-        try {
-          await fs.access(root);
-        } catch {
-          // Root doesn't exist / isn't mounted; skip quietly
-          continue;
-        }
+        const moduleDirs = await findModuleDirsDeep(root);
 
-        let entries: Dirent[] = [];
-        try {
-          entries = await fs.readdir(root, { withFileTypes: true });
-        } catch {
-          continue;
-        }
+        for (const moduleDir of moduleDirs) {
+          const dirName = path.basename(moduleDir);
+          if (modules[dirName]) continue;
 
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
-          if (modules[entry.name]) continue;
-
-          const moduleInfo = await loadModuleInfo(entry.name, root);
+          const moduleInfo = await loadModuleInfo(moduleDir);
           if (moduleInfo) {
-            modules[entry.name] = moduleInfo;
+            modules[dirName] = moduleInfo;
           }
         }
       }
@@ -158,32 +171,32 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     loadAvailableModules();
   }, [loadAvailableModules]);
 
-  const loadModuleInfo = async (moduleName: string, moduleRoot: string): Promise<ModuleInfo | null> => {
+  const loadModuleInfo = async (modulePath: string): Promise<ModuleInfo | null> => {
+    const moduleName = path.basename(modulePath);
     try {
-      const modulePath = path.join(moduleRoot, moduleName);
-      const yamlPath = path.join(modulePath, 'module.yaml');
-      
-      // Check if module.yaml exists
+      const yamlPathYaml = path.join(modulePath, 'module.yaml');
+      const yamlPathYml = path.join(modulePath, 'module.yml');
+      let yamlContent = '';
+
+      // Check if module.yaml or module.yml exists
       try {
-        await fs.access(yamlPath);
+        yamlContent = await fs.readFile(yamlPathYaml, 'utf-8');
       } catch {
-        // If no YAML, create basic info
-        return {
-          name: moduleName,
-          description: `${moduleName.replace(/_/g, ' ')} module`,
-          category: 'security',
-          tools: [],
-          capabilities: []
-        };
+        try {
+          yamlContent = await fs.readFile(yamlPathYml, 'utf-8');
+        } catch {
+          // No manifest found, return null
+          return null;
+        }
       }
-      
-      const yamlContent = await fs.readFile(yamlPath, 'utf-8');
+
+      const moduleName = path.basename(modulePath);
       const moduleConfig = yaml.load(yamlContent) as any;
-      
+
       // Load tools from tools directory
       const tools: ModuleTool[] = [];
       const toolsDir = path.join(modulePath, 'tools');
-      
+
       try {
         const toolFiles = await fs.readdir(toolsDir);
         for (const toolFile of toolFiles) {
@@ -199,7 +212,7 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       } catch {
         // Tools directory might not exist
       }
-      
+
       return {
         name: moduleName,
         description: moduleConfig.description || `${moduleName} module`,
@@ -222,10 +235,10 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setError(`Module ${moduleName} not found`);
       return;
     }
-    
+
     setIsLoading(true);
     setError(undefined);
-    
+
     try {
       setCurrentModule(moduleName);
       setModuleInfo(availableModules[moduleName]);
@@ -239,28 +252,28 @@ export const ModuleProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const suggestModuleForObjective = useCallback((objective: string): string => {
     const objectiveLower = objective.toLowerCase();
-    
+
     // Check each available module's capabilities and description for matches
     for (const [moduleName, moduleInfo] of Object.entries(availableModules)) {
       // Check module description
       if (moduleInfo.description.toLowerCase().includes(objectiveLower)) {
         return moduleName;
       }
-      
+
       // Check module capabilities
       for (const capability of moduleInfo.capabilities) {
-        if (objectiveLower.includes(capability.toLowerCase()) || 
-            capability.toLowerCase().includes(objectiveLower)) {
+        if (objectiveLower.includes(capability.toLowerCase()) ||
+          capability.toLowerCase().includes(objectiveLower)) {
           return moduleName;
         }
       }
     }
-    
+
     // Default to web module if available, otherwise first available module
     if (availableModules.web) {
       return 'web';
     }
-    
+
     const moduleNames = Object.keys(availableModules);
     return moduleNames.length > 0 ? moduleNames[0] : 'web';
   }, [availableModules]);
