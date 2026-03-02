@@ -42,7 +42,7 @@
     "meow": "^14.0.0",
     "node-pty": "^1.0.0",
     "react": "^19.1.1",
-    "strip-ansi": "^7.1.0",
+    "strip-ansi": "^7.2.0",
     "yaml": "^2.8.0"
   },
   "devDependencies": {
