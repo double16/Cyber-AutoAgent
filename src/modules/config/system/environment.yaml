@@ -202,11 +202,11 @@ cyber_tools:
     preference: preferred
     caps: [web_crawling, web_recon]
     canary: "katana -h"
-  semgrep:
+  opengrep:
     description: "Static source code analysis"
     preference: preferred
     caps: [sast]
-    canary: "semgrep -h"
+    canary: "opengrep -h"
 
   # DNS/Recon
   dnsrecon:
