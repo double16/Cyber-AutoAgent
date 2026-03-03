@@ -290,7 +290,7 @@ RUN pipx install --global bloodhound && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then OPENGREP_ARCH="x86_64"; elif [ "$ARCH" = "aarch64" ]; then OPENGREP_ARCH="aarch64"; else OPENGREP_ARCH="x86_64"; fi && \
     OPENGREP_VERSION=$(curl -s https://api.github.com/repos/opengrep/opengrep/releases/latest | grep "tag_name" | cut -d ":" -f 2 | tr -d " ,\"") && \
-    curl -L "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep-${OPENGREP_VERSION}-${OPENGREP_ARCH}-unknown-linux-musl.tar.gz" -o /tmp/opengrep.tar.gz && \
+    curl -L "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep-core_linux_${OPENGREP_ARCH}.tar.gz" -o /tmp/opengrep.tar.gz && \
     tar -xzf /tmp/opengrep.tar.gz -C /usr/local/bin/ --strip-components=1 && \
     rm /tmp/opengrep.tar.gz && \
     # GraphQL Clairvoyance - GraphQL schema enumeration
