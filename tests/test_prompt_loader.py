@@ -22,6 +22,7 @@ def test_module_prompt_loader_discovers_tools(tmp_path, monkeypatch):
     # Create fake operation_plugins structure with a tool
     plugins_dir = tmp_path / "operation_plugins" / "web" / "tools"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir.parent / "module.yaml").write_text("name: web\n")
     (plugins_dir / "__init__.py").write_text("\n")
     (plugins_dir / "quick_recon.py").write_text("# tool\n")
 
@@ -40,6 +41,7 @@ def test_module_prompt_loader_discovers_tools_allowlist(tmp_path, monkeypatch):
     # Create fake operation_plugins structure with a tool
     plugins_dir = tmp_path / "operation_plugins" / "web" / "tools"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir.parent / "module.yaml").write_text("name: web\n")
     (plugins_dir / "__init__.py").write_text("\n")
     (plugins_dir / "quick_recon.py").write_text("# tool\n")
     (plugins_dir / ".." / "module.yaml").write_text("tools:\n  - quick_recon\n  - http_request\n  - browser_*\n")
@@ -69,6 +71,7 @@ def test_module_prompt_loader_discovers_tools_inheritance_union_and_precedence(t
     web_dir = tmp_path / "operation_plugins" / "web"
     web_tools = web_dir / "tools"
     web_tools.mkdir(parents=True)
+    (web_dir / "module.yaml").write_text("name: web\n")
     (web_tools / "__init__.py").write_text("\n")
     (web_tools / "web_only.py").write_text("# web only\n")
     (web_tools / "shared.py").write_text("# web shared\n")
@@ -76,6 +79,7 @@ def test_module_prompt_loader_discovers_tools_inheritance_union_and_precedence(t
     ctf_dir = tmp_path / "operation_plugins" / "ctf"
     ctf_tools = ctf_dir / "tools"
     ctf_tools.mkdir(parents=True)
+    (ctf_dir / "module.yaml").write_text("name: ctf\n")
     (ctf_tools / "__init__.py").write_text("\n")
     (ctf_tools / "ctf_only.py").write_text("# ctf only\n")
     (ctf_tools / "shared.py").write_text("# ctf shared\n")
@@ -111,12 +115,14 @@ def test_module_prompt_loader_discovers_tools_parent_precedence_order(tmp_path, 
     web_dir = tmp_path / "operation_plugins" / "web"
     web_tools = web_dir / "tools"
     web_tools.mkdir(parents=True)
+    (web_dir / "module.yaml").write_text("name: web\n")
     (web_tools / "__init__.py").write_text("\n")
     (web_tools / "shared.py").write_text("# web shared\n")
 
     ctf_dir = tmp_path / "operation_plugins" / "ctf"
     ctf_tools = ctf_dir / "tools"
     ctf_tools.mkdir(parents=True)
+    (ctf_dir / "module.yaml").write_text("name: ctf\n")
     (ctf_tools / "__init__.py").write_text("\n")
     (ctf_tools / "shared.py").write_text("# ctf shared\n")
 
@@ -144,6 +150,7 @@ def test_module_prompt_loader_tools_allowlist_not_inherited(tmp_path, monkeypatc
     web_dir = tmp_path / "operation_plugins" / "web"
     web_tools = web_dir / "tools"
     web_tools.mkdir(parents=True)
+    (web_dir / "module.yaml").write_text("name: web\n")
     (web_dir / "module.yaml").write_text(
         "tools:\n  - web_only\n"
     )
@@ -171,6 +178,7 @@ def test_module_prompt_loader_load_module_report_prompt(tmp_path, monkeypatch):
     # Create a report_prompt.md for module
     module_dir = tmp_path / "operation_plugins" / "web"
     module_dir.mkdir(parents=True)
+    (module_dir / "module.yaml").write_text("name: web\n")
     (module_dir / "report_prompt.md").write_text("Report Guidance\n")
 
     loader = ModulePromptLoader()
@@ -183,10 +191,12 @@ def test_module_prompt_loader_load_module_report_prompt(tmp_path, monkeypatch):
 def test_module_prompt_loader_load_module_report_prompt_path_order(tmp_path, monkeypatch):
     module_dir1 = tmp_path / "operation_plugins1" / "web"
     module_dir1.mkdir(parents=True)
+    (module_dir1 / "module.yaml").write_text("name: web\n")
     (module_dir1 / "report_prompt.md").write_text("Report Guidance\n")
 
     module_dir2 = tmp_path / "operation_plugins2" / "web"
     module_dir2.mkdir(parents=True)
+    (module_dir2 / "module.yaml").write_text("name: web\n")
     (module_dir2 / "report_prompt.md").write_text("Wrong File!\n")
 
     loader = ModulePromptLoader()
@@ -204,11 +214,13 @@ def test_module_prompt_loader_report_prompt_inheritance_order(tmp_path, monkeypa
     (app_dir / "module.yaml").write_text("extend:\n  - web\n  - ctf\n")
 
     web_dir = tmp_path / "operation_plugins" / "web"
-    web_dir.mkdir(parents=True)
+        web_dir.mkdir(parents=True)
+    (web_dir / "module.yaml").write_text("name: web\n")
     (web_dir / "report_prompt.md").write_text("WEB REPORT\n")
 
     ctf_dir = tmp_path / "operation_plugins" / "ctf"
-    ctf_dir.mkdir(parents=True)
+        ctf_dir.mkdir(parents=True)
+    (ctf_dir / "module.yaml").write_text("name: ctf\n")
     (ctf_dir / "report_prompt.md").write_text("CTF REPORT\n")
 
     loader = ModulePromptLoader()
@@ -230,7 +242,8 @@ def test_module_prompt_loader_report_prompt_inheritance_transitive(tmp_path, mon
     (web_dir / "module.yaml").write_text("extend:\n  - ctf\n")
 
     ctf_dir = tmp_path / "operation_plugins" / "ctf"
-    ctf_dir.mkdir(parents=True)
+        ctf_dir.mkdir(parents=True)
+    (ctf_dir / "module.yaml").write_text("name: ctf\n")
     (ctf_dir / "report_prompt.md").write_text("CTF ONLY\n")
 
     loader = ModulePromptLoader()
@@ -272,6 +285,7 @@ def test_module_prompt_loader_prioritizes_operation_optimized_prompt(
     # Create master prompt
     plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir / "module.yaml").write_text("name: web\n")
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
 
@@ -297,6 +311,7 @@ def test_module_prompt_loader_falls_back_to_master_when_no_optimized(
     # Create master prompt
     plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir / "module.yaml").write_text("name: web\n")
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
 
@@ -316,6 +331,7 @@ def test_module_prompt_loader_handles_invalid_operation_root(tmp_path, monkeypat
     # Create master prompt
     plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir / "module.yaml").write_text("name: web\n")
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
 
@@ -341,6 +357,7 @@ def test_module_prompt_loader_handles_empty_optimized_file(tmp_path, monkeypatch
     # Create master prompt
     plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir / "module.yaml").write_text("name: web\n")
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
 
@@ -360,6 +377,7 @@ def test_module_prompt_loader_operation_root_none(tmp_path, monkeypatch):
     # Create master prompt
     plugins_dir = tmp_path / "operation_plugins" / "web"
     plugins_dir.mkdir(parents=True)
+    (plugins_dir / "module.yaml").write_text("name: web\n")
     master_path = plugins_dir / "execution_prompt.md"
     master_path.write_text("Master execution prompt")
 
@@ -378,6 +396,7 @@ def test_module_prompt_loader_find_module_dir_deep_search(tmp_path, monkeypatch)
     collection_dir = tmp_path / "operation_plugins" / "my_collection"
     module_dir = collection_dir / "web"
     module_dir.mkdir(parents=True)
+    (module_dir / "module.yaml").write_text("name: web\n")
     
     (module_dir / "module.yaml").write_text("name: web\n")
     
