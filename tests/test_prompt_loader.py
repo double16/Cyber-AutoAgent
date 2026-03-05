@@ -214,12 +214,12 @@ def test_module_prompt_loader_report_prompt_inheritance_order(tmp_path, monkeypa
     (app_dir / "module.yaml").write_text("extend:\n  - web\n  - ctf\n")
 
     web_dir = tmp_path / "operation_plugins" / "web"
-        web_dir.mkdir(parents=True)
+    web_dir.mkdir(parents=True)
     (web_dir / "module.yaml").write_text("name: web\n")
     (web_dir / "report_prompt.md").write_text("WEB REPORT\n")
 
     ctf_dir = tmp_path / "operation_plugins" / "ctf"
-        ctf_dir.mkdir(parents=True)
+    ctf_dir.mkdir(parents=True)
     (ctf_dir / "module.yaml").write_text("name: ctf\n")
     (ctf_dir / "report_prompt.md").write_text("CTF REPORT\n")
 
@@ -242,7 +242,7 @@ def test_module_prompt_loader_report_prompt_inheritance_transitive(tmp_path, mon
     (web_dir / "module.yaml").write_text("extend:\n  - ctf\n")
 
     ctf_dir = tmp_path / "operation_plugins" / "ctf"
-        ctf_dir.mkdir(parents=True)
+    ctf_dir.mkdir(parents=True)
     (ctf_dir / "module.yaml").write_text("name: ctf\n")
     (ctf_dir / "report_prompt.md").write_text("CTF ONLY\n")
 
