@@ -17,7 +17,12 @@
   - Pipe to file: `sqlmap ... 2>&1 | tee <artifacts_path>/sqlmap_output.txt`
   - Extract relevant: `grep -E "password|hash|Database:" <artifacts_path>/sqlmap_output.txt`
   - Anti-pattern: Letting full verbose output return to context (causes overflow)
-- Install missing tools: `apt install tool` or `pip install package` (no sudo needed in container)
+- Install missing tools (no sudo needed in container):
+  - Debian/Ubuntu: `apt install <tool>` or `pip install <package>`
+  - RHEL/CentOS/Fedora: `yum install <tool>` or `dnf install <tool>`
+  - macOS (Homebrew): `brew install <tool>`
+  - Windows (Chocolatey): `choco install <tool>`
+  - Python packages: `pip install <package>` (or `pip3` if required)
 - Timeout handling: On timeout → reduce scope, break into smaller operations
 
 **python_repl**
