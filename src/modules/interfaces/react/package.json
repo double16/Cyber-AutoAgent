@@ -28,7 +28,7 @@
     "ansi-escapes": "^7.0.0",
     "chokidar": "^5.0.0",
     "commander": "^14.0.2",
-    "dockerode": "^4.0.9",
+    "dockerode": "^5.0.0",
     "ink": "^6.8.0",
     "ink-big-text": "^2.0.0",
     "ink-gradient": "^3.0.0",
