@@ -31,7 +31,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "strands-agents[ollama,otel,litellm]>=1.19.0",
     "strands-agents-tools>=0.2.17",
-    "mem0ai>=1.0.1",
+    "mem0ai>=2.0.0b2",
     "google-genai>=1.49.0",
     "litellm>=1.80.0",
     "azure-identity>=1.15.0",
